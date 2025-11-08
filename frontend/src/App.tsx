@@ -150,7 +150,26 @@ function App() {
     const savedLayoutStr = localStorage.getItem('scian-layout');
     if (savedLayoutStr) {
       try {
-        return JSON.parse(savedLayoutStr);
+        const savedLayout = JSON.parse(savedLayoutStr);
+
+        // Check for duplicate IDs in the saved layout
+        const hasDuplicates = (node: any, ids: Set<string> = new Set()): boolean => {
+          if (!node) return false;
+          if (typeof node === 'string') {
+            if (ids.has(node)) return true;
+            ids.add(node);
+            return false;
+          }
+          return hasDuplicates(node.first, ids) || hasDuplicates(node.second, ids);
+        };
+
+        if (hasDuplicates(savedLayout)) {
+          console.warn('Saved layout has duplicate IDs, using default layout');
+          localStorage.removeItem('scian-layout');
+          return initialLayout;
+        }
+
+        return savedLayout;
       } catch (e) {
         console.error('Failed to parse saved layout:', e);
         return initialLayout;
