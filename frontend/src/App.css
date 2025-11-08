@@ -132,70 +132,87 @@
   box-shadow: 0 0 20px rgba(79, 195, 247, 0.4);
 }
 
-/* Remove square handle styling and make dividers transparent by default */
-.mosaic-split {
-  background: transparent !important;
-  position: relative !important;
-}
-
-/* Spotify-style dividers - invisible until hover, then appear between panels */
-/* Horizontal divider (between top and bottom panels) */
+/* Spotify-style dividers with bigger spacing and centered 2px lines */
+/* Horizontal divider (between top and bottom panels) - 16px tall with centered 2px line */
 .mosaic-split.-row {
   width: 100% !important;
   height: 16px !important;
   cursor: row-resize !important;
+  background: transparent !important;
+  background-image: linear-gradient(to bottom,
+    transparent 0%,
+    transparent calc(50% - 1px),
+    transparent calc(50% - 1px),
+    transparent calc(50% + 1px),
+    transparent calc(50% + 1px),
+    transparent 100%) !important;
+  background-size: calc(100% - 40px) 100% !important;
+  background-position: center !important;
+  background-repeat: no-repeat !important;
+  transition: background-image 0.15s ease !important;
 }
 
-/* Vertical divider (between left and right panels) */
+/* Vertical divider (between left and right panels) - 16px wide with centered 2px line */
 .mosaic-split.-column {
   height: 100% !important;
   width: 16px !important;
   cursor: col-resize !important;
-}
-
-/* Create the visible line using ::before pseudo-element */
-/* Horizontal line (shorter than full width) */
-.mosaic-split.-row::before {
-  content: '' !important;
-  position: absolute !important;
-  left: 20px !important;
-  right: 20px !important;
-  top: 50% !important;
-  transform: translateY(-50%) !important;
-  height: 2px !important;
   background: transparent !important;
-  transition: background 0.15s ease !important;
+  background-image: linear-gradient(to right,
+    transparent 0%,
+    transparent calc(50% - 1px),
+    transparent calc(50% - 1px),
+    transparent calc(50% + 1px),
+    transparent calc(50% + 1px),
+    transparent 100%) !important;
+  background-size: 100% calc(100% - 40px) !important;
+  background-position: center !important;
+  background-repeat: no-repeat !important;
+  transition: background-image 0.15s ease !important;
 }
 
-/* Vertical line (shorter than full height) */
-.mosaic-split.-column::before {
-  content: '' !important;
-  position: absolute !important;
-  top: 20px !important;
-  bottom: 20px !important;
-  left: 50% !important;
-  transform: translateX(-50%) !important;
-  width: 2px !important;
-  background: transparent !important;
-  transition: background 0.15s ease !important;
+/* Hover effect - cyan line appears for horizontal divider */
+.mosaic-split.-row:hover {
+  background-image: linear-gradient(to bottom,
+    transparent 0%,
+    transparent calc(50% - 1px),
+    rgba(79, 195, 247, 0.6) calc(50% - 1px),
+    rgba(79, 195, 247, 0.6) calc(50% + 1px),
+    transparent calc(50% + 1px),
+    transparent 100%) !important;
 }
 
-/* Hover effect - cyan line appears */
-.mosaic-split.-row:hover::before {
-  background: rgba(79, 195, 247, 0.6) !important;
+/* Hover effect - cyan line appears for vertical divider */
+.mosaic-split.-column:hover {
+  background-image: linear-gradient(to right,
+    transparent 0%,
+    transparent calc(50% - 1px),
+    rgba(79, 195, 247, 0.6) calc(50% - 1px),
+    rgba(79, 195, 247, 0.6) calc(50% + 1px),
+    transparent calc(50% + 1px),
+    transparent 100%) !important;
 }
 
-.mosaic-split.-column:hover::before {
-  background: rgba(79, 195, 247, 0.6) !important;
+/* Active dragging state - brighter cyan for horizontal divider */
+.mosaic-split.-row:active {
+  background-image: linear-gradient(to bottom,
+    transparent 0%,
+    transparent calc(50% - 1px),
+    rgba(79, 195, 247, 0.9) calc(50% - 1px),
+    rgba(79, 195, 247, 0.9) calc(50% + 1px),
+    transparent calc(50% + 1px),
+    transparent 100%) !important;
 }
 
-/* Active dragging state - brighter cyan */
-.mosaic-split.-row:active::before {
-  background: rgba(79, 195, 247, 0.9) !important;
-}
-
-.mosaic-split.-column:active::before {
-  background: rgba(79, 195, 247, 0.9) !important;
+/* Active dragging state - brighter cyan for vertical divider */
+.mosaic-split.-column:active {
+  background-image: linear-gradient(to right,
+    transparent 0%,
+    transparent calc(50% - 1px),
+    rgba(79, 195, 247, 0.9) calc(50% - 1px),
+    rgba(79, 195, 247, 0.9) calc(50% + 1px),
+    transparent calc(50% + 1px),
+    transparent 100%) !important;
 }
 
 /* Drop target zones - subtle and clean */
