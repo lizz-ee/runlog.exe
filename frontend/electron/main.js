@@ -1,9 +1,12 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, Menu } = require('electron');
 const path = require('path');
 
 let mainWindow;
 
 function createWindow() {
+  // Disable default menu to prevent crashes
+  Menu.setApplicationMenu(null);
+
   mainWindow = new BrowserWindow({
     width: 1600,
     height: 1000,
