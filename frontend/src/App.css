@@ -132,42 +132,47 @@
   box-shadow: 0 0 20px rgba(79, 195, 247, 0.4);
 }
 
-/* Hide the small square handle - we only want the divider line */
+/* Make the small square handle invisible but keep it functional */
 .mosaic-split {
-  display: none !important;
+  opacity: 0 !important;
+  width: 1px !important;
+  height: 1px !important;
+  pointer-events: none !important;
 }
 
-/* Make divider lines easier to grab - entire line is draggable */
-.mosaic-split-line {
-  background: rgba(79, 195, 247, 0.05) !important;
-  transition: all 0.2s ease !important;
-  z-index: 10 !important;
-}
-
-/* Vertical divider (between left/right panels) */
-.mosaic-split-line.mosaic-split-line-row {
-  width: 12px !important;
-  margin-left: -6px !important;
-  cursor: col-resize !important;
-}
-
-/* Horizontal divider (between top/bottom panels) */
-.mosaic-split-line.mosaic-split-line-column {
-  height: 12px !important;
-  margin-top: -6px !important;
+/* Make divider lines very thick and easy to grab */
+.mosaic-split.-row {
+  width: 100% !important;
+  height: 8px !important;
+  background: rgba(79, 195, 247, 0.1) !important;
   cursor: row-resize !important;
+  transition: all 0.2s ease !important;
+  pointer-events: all !important;
+  opacity: 1 !important;
 }
 
-/* Hover effect on dividers - bright cyan highlight */
-.mosaic-split-line:hover {
-  background: rgba(79, 195, 247, 0.4) !important;
-  box-shadow: 0 0 15px rgba(79, 195, 247, 0.6) !important;
+.mosaic-split.-column {
+  height: 100% !important;
+  width: 8px !important;
+  background: rgba(79, 195, 247, 0.1) !important;
+  cursor: col-resize !important;
+  transition: all 0.2s ease !important;
+  pointer-events: all !important;
+  opacity: 1 !important;
 }
 
-/* Active dragging state - even brighter */
-.mosaic-split-line:active {
-  background: rgba(79, 195, 247, 0.6) !important;
-  box-shadow: 0 0 25px rgba(79, 195, 247, 0.8) !important;
+/* Hover effects on dividers */
+.mosaic-split.-row:hover,
+.mosaic-split.-column:hover {
+  background: rgba(79, 195, 247, 0.5) !important;
+  box-shadow: 0 0 20px rgba(79, 195, 247, 0.6) !important;
+}
+
+/* Active dragging state */
+.mosaic-split.-row:active,
+.mosaic-split.-column:active {
+  background: rgba(79, 195, 247, 0.7) !important;
+  box-shadow: 0 0 30px rgba(79, 195, 247, 0.8) !important;
 }
 
 /* Drop target zones - subtle and clean */
