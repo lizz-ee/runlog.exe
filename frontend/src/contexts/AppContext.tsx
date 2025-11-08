@@ -9,12 +9,14 @@ interface Post {
   username: string;
   likes: number;
   comments: number;
+  status?: 'draft' | 'scheduled' | 'published';
 }
 
 interface Media {
   id: string;
   type: 'image' | 'video';
   url: string;
+  name?: string;
   thumbnail?: string;
 }
 

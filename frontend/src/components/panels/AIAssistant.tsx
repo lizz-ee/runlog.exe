@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import TabPanel, { Tab } from '../common/TabPanel';
+import { useApp } from '../../contexts/AppContext';
 
 function ChatTab() {
   const [messages, setMessages] = useState([
