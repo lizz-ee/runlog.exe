@@ -228,6 +228,19 @@ function App() {
   };
 
   const handleAddPanel = (id: ViewId) => {
+    // Check if panel already exists in the layout
+    const panelExists = (node: any): boolean => {
+      if (!node) return false;
+      if (typeof node === 'string') return node === id;
+      return panelExists(node.first) || panelExists(node.second);
+    };
+
+    if (panelExists(currentNode)) {
+      // Panel already exists, don't add it again
+      console.log(`Panel ${id} already exists in the layout`);
+      return;
+    }
+
     // If in expanded mode, exit it first
     if (expandedPanel !== null) {
       if (savedLayout) {
