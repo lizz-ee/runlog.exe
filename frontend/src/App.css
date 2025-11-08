@@ -146,6 +146,38 @@
   transform: scale(1.2);
 }
 
+/* Make divider lines easier to grab - entire line is draggable */
+.mosaic-split-line {
+  background: rgba(79, 195, 247, 0.1) !important;
+  transition: all 0.2s ease !important;
+}
+
+/* Vertical divider (between left/right panels) */
+.mosaic-split-line.mosaic-split-line-row {
+  width: 8px !important;
+  margin-left: -4px !important;
+  cursor: col-resize !important;
+}
+
+/* Horizontal divider (between top/bottom panels) */
+.mosaic-split-line.mosaic-split-line-column {
+  height: 8px !important;
+  margin-top: -4px !important;
+  cursor: row-resize !important;
+}
+
+/* Hover effect on dividers */
+.mosaic-split-line:hover {
+  background: rgba(79, 195, 247, 0.3) !important;
+  box-shadow: 0 0 10px rgba(79, 195, 247, 0.4) !important;
+}
+
+/* Active dragging state */
+.mosaic-split-line:active {
+  background: rgba(79, 195, 247, 0.5) !important;
+  box-shadow: 0 0 20px rgba(79, 195, 247, 0.6) !important;
+}
+
 /* Drop target zones - subtle and clean */
 .mosaic-drop-target {
   background: rgba(79, 195, 247, 0.08) !important;
