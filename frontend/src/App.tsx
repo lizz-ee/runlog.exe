@@ -241,9 +241,8 @@ function App() {
     };
 
     const newNode = removeNode(currentNode);
-    if (newNode) {
-      setCurrentNode(newNode);
-    }
+    // Allow setting to null to show empty state
+    setCurrentNode(newNode);
   };
 
   const handleAddPanel = (id: ViewId) => {
@@ -427,7 +426,22 @@ function App() {
           onChange={setCurrentNode}
           className="scian-mosaic"
           resize={{ minimumPaneSizePercentage: 10 }}
-          zeroStateView={<div className="flex items-center justify-center h-full text-scian-text-muted">No panels available</div>}
+          zeroStateView={
+            <div className="flex items-center justify-center h-full bg-scian-dark">
+              <div className="text-center animate-fadeIn">
+                <div className="text-6xl mb-4 animate-pulse">🎨</div>
+                <h2 className="text-2xl font-display font-semibold mb-2 text-scian-text-primary">
+                  Welcome to Scian
+                </h2>
+                <p className="text-scian-text-secondary mb-6">
+                  Click a panel icon above to get started
+                </p>
+                <div className="flex items-center justify-center gap-2 text-sm text-scian-text-muted">
+                  <span>💡 Tip: Drag panels to rearrange them</span>
+                </div>
+              </div>
+            </div>
+          }
         />
       </div>
     </div>
