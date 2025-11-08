@@ -138,45 +138,41 @@
   pointer-events: none !important;
 }
 
-/* Spotify-style dividers - subtle line always visible */
+/* Spotify-style dividers - invisible until hover, then appear between panels */
 .mosaic-split.-row {
   width: 100% !important;
-  height: 1px !important;
-  background: rgba(255, 255, 255, 0.1) !important;
+  height: 8px !important;
+  background: transparent !important;
   cursor: row-resize !important;
-  transition: all 0.2s ease !important;
+  transition: background 0.15s ease !important;
   pointer-events: all !important;
 }
 
 .mosaic-split.-column {
   height: 100% !important;
-  width: 1px !important;
-  background: rgba(255, 255, 255, 0.1) !important;
+  width: 8px !important;
+  background: transparent !important;
   cursor: col-resize !important;
-  transition: all 0.2s ease !important;
+  transition: background 0.15s ease !important;
   pointer-events: all !important;
 }
 
-/* Hover effect - line becomes thicker and brighter */
+/* Hover effect - cyan line appears between panels */
 .mosaic-split.-row:hover {
-  height: 2px !important;
-  background: rgba(79, 195, 247, 0.5) !important;
+  background: rgba(79, 195, 247, 0.6) !important;
 }
 
 .mosaic-split.-column:hover {
-  width: 2px !important;
-  background: rgba(79, 195, 247, 0.5) !important;
+  background: rgba(79, 195, 247, 0.6) !important;
 }
 
-/* Active dragging state - bright cyan */
+/* Active dragging state - brighter cyan */
 .mosaic-split.-row:active {
-  height: 3px !important;
-  background: rgba(79, 195, 247, 0.8) !important;
+  background: rgba(79, 195, 247, 0.9) !important;
 }
 
 .mosaic-split.-column:active {
-  width: 3px !important;
-  background: rgba(79, 195, 247, 0.8) !important;
+  background: rgba(79, 195, 247, 0.9) !important;
 }
 
 /* Drop target zones - subtle and clean */
