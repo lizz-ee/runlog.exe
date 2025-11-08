@@ -132,29 +132,26 @@
   box-shadow: 0 0 20px rgba(79, 195, 247, 0.4);
 }
 
-/* Hide the small square handle completely */
+/* Remove square handle styling and make dividers transparent by default */
 .mosaic-split {
-  opacity: 0 !important;
-  pointer-events: none !important;
+  background: transparent !important;
 }
 
 /* Spotify-style dividers - invisible until hover, then appear between panels */
+/* Horizontal divider (between top and bottom panels) */
 .mosaic-split.-row {
   width: 100% !important;
   height: 8px !important;
-  background: transparent !important;
   cursor: row-resize !important;
   transition: background 0.15s ease !important;
-  pointer-events: all !important;
 }
 
+/* Vertical divider (between left and right panels) */
 .mosaic-split.-column {
   height: 100% !important;
   width: 8px !important;
-  background: transparent !important;
   cursor: col-resize !important;
   transition: background 0.15s ease !important;
-  pointer-events: all !important;
 }
 
 /* Hover effect - cyan line appears between panels */
