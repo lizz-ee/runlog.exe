@@ -1,0 +1,194 @@
+/* Mosaic custom styling - iconik-inspired with depth and glow */
+.scian-mosaic {
+  height: 100%;
+  width: 100%;
+}
+
+.mosaic {
+  background: radial-gradient(ellipse at top, #252526 0%, #1E1E1E 100%);
+}
+
+.mosaic-window {
+  background: linear-gradient(135deg, #252526 0%, #1E1E1E 100%);
+  border: 1px solid rgba(79, 195, 247, 0.08);
+  overflow: hidden;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.6),
+    0 1px 0 rgba(79, 195, 247, 0.05),
+    inset 0 1px 1px rgba(255, 255, 255, 0.02);
+  border-radius: 12px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.mosaic-window:hover {
+  border-color: rgba(79, 195, 247, 0.4);
+  box-shadow:
+    0 12px 48px rgba(79, 195, 247, 0.2),
+    0 8px 32px rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(79, 195, 247, 0.2),
+    inset 0 1px 1px rgba(255, 255, 255, 0.1);
+  transform: translateY(-2px);
+}
+
+.mosaic-window-toolbar {
+  background: linear-gradient(180deg, rgba(45, 45, 48, 0.95) 0%, rgba(37, 37, 38, 0.95) 100%) !important;
+  border-bottom: 1px solid rgba(79, 195, 247, 0.1) !important;
+  height: 36px !important;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+}
+
+.mosaic-window-title {
+  color: #CCCCCC !important;
+  font-weight: 600 !important;
+  font-size: 0.875rem !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  letter-spacing: 0.02em;
+}
+
+/* Dark tabs matching Scian header */
+.mosaic-window .mosaic-window-toolbar .mosaic-window-title {
+  background-color: transparent !important;
+}
+
+.mosaic-window .mosaic-window-controls {
+  background-color: transparent !important;
+}
+
+.mosaic-window .mosaic-window-toolbar .mosaic-window-toolbar-icon {
+  color: #CCCCCC !important;
+  transition: all 0.2s ease;
+}
+
+.mosaic-window .mosaic-window-toolbar .mosaic-window-toolbar-icon:hover {
+  color: #4FC3F7 !important;
+  transform: scale(1.1);
+}
+
+.mosaic-window .mosaic-window-controls button {
+  color: #CCCCCC !important;
+  transition: all 0.2s ease;
+  font-size: 0 !important; /* Hide button text */
+  width: 24px !important;
+  height: 24px !important;
+  padding: 0 !important;
+  margin-left: 4px !important;
+  cursor: pointer !important;
+  pointer-events: all !important;
+  position: relative !important;
+}
+
+.mosaic-window .mosaic-window-controls button:hover {
+  color: #4FC3F7 !important;
+  background-color: rgba(79, 195, 247, 0.1) !important;
+}
+
+/* Hide the Replace and Split buttons - keep Expand and Close */
+.mosaic-window-controls .replace-button,
+.mosaic-window-controls .split-button {
+  display: none !important;
+}
+
+/* Style the expand button with icon */
+.mosaic-window-controls .expand-button {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.mosaic-window-controls .expand-button::before {
+  content: "⛶" !important;
+  font-size: 16px !important;
+  line-height: 1 !important;
+  display: block !important;
+  pointer-events: none !important;
+}
+
+.mosaic-window-controls .expand-button:hover {
+  color: #4FC3F7 !important;
+  background-color: rgba(79, 195, 247, 0.1) !important;
+}
+
+/* Style the close button with X icon */
+.mosaic-window-controls .close-button::before {
+  content: "×" !important;
+  font-size: 20px !important;
+  line-height: 1 !important;
+  display: block !important;
+}
+
+.mosaic-window-controls .close-button:hover {
+  color: #FF6B6B !important;
+  background-color: rgba(255, 107, 107, 0.1) !important;
+}
+
+.mosaic-window-body {
+  background: linear-gradient(135deg, #252526 0%, #1E1E1E 100%);
+}
+
+.mosaic-preview {
+  background: linear-gradient(135deg, #4FC3F7 0%, #42A5F5 100%);
+  opacity: 0.3;
+  box-shadow: 0 0 20px rgba(79, 195, 247, 0.4);
+}
+
+.mosaic-split {
+  background: linear-gradient(135deg, #3E3E42 0%, #2D2D30 100%);
+  width: 6px;
+  height: 6px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+}
+
+.mosaic-split:hover {
+  background: linear-gradient(135deg, #4FC3F7 0%, #42A5F5 100%);
+  box-shadow: 0 0 20px rgba(79, 195, 247, 0.6);
+  transform: scale(1.2);
+}
+
+/* Drop target zones - subtle and clean */
+.mosaic-drop-target {
+  background: rgba(79, 195, 247, 0.08) !important;
+  border: 1px solid rgba(79, 195, 247, 0.3) !important;
+  z-index: 1000 !important;
+  transition: all 0.2s ease !important;
+}
+
+.mosaic-drop-target.drop-target-hover {
+  background: rgba(79, 195, 247, 0.12) !important;
+  border-color: rgba(79, 195, 247, 0.5) !important;
+}
+
+/* Dragging window styling */
+.mosaic-window.mosaic-dragging {
+  opacity: 0.5;
+  box-shadow: 0 20px 60px rgba(79, 195, 247, 0.4) !important;
+  border: 2px solid rgba(79, 195, 247, 0.8) !important;
+  z-index: 2000 !important;
+}
+
+/* Make drop targets more prominent during drag */
+.mosaic.mosaic-drop-target-container .mosaic-drop-target {
+  pointer-events: all !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+/* Ensure proper z-index stacking */
+.mosaic-tile {
+  z-index: 1 !important;
+}
+
+.mosaic-window-toolbar {
+  cursor: move !important;
+  z-index: 10 !important;
+}
+
+/* Custom draggable region for Electron */
+.drag-region {
+  -webkit-app-region: drag;
+}
+
+.drag-region button {
+  -webkit-app-region: no-drag;
+}
