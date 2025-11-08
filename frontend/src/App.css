@@ -138,59 +138,45 @@
   pointer-events: none !important;
 }
 
-/* Divider lines - invisible by default, visible on hover */
+/* Spotify-style dividers - subtle line always visible */
 .mosaic-split.-row {
   width: 100% !important;
-  height: 6px !important;
-  background: transparent !important;
+  height: 1px !important;
+  background: rgba(255, 255, 255, 0.1) !important;
   cursor: row-resize !important;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  transition: all 0.2s ease !important;
   pointer-events: all !important;
-  position: relative !important;
 }
 
 .mosaic-split.-column {
   height: 100% !important;
-  width: 6px !important;
-  background: transparent !important;
+  width: 1px !important;
+  background: rgba(255, 255, 255, 0.1) !important;
   cursor: col-resize !important;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  transition: all 0.2s ease !important;
   pointer-events: all !important;
-  position: relative !important;
 }
 
-/* Hover effect - elegant cyan line appears */
+/* Hover effect - line becomes thicker and brighter */
 .mosaic-split.-row:hover {
-  height: 3px !important;
-  background: linear-gradient(90deg, transparent, rgba(79, 195, 247, 0.8), transparent) !important;
-  box-shadow:
-    0 0 15px rgba(79, 195, 247, 0.6),
-    0 0 30px rgba(79, 195, 247, 0.3) !important;
+  height: 2px !important;
+  background: rgba(79, 195, 247, 0.5) !important;
 }
 
 .mosaic-split.-column:hover {
-  width: 3px !important;
-  background: linear-gradient(180deg, transparent, rgba(79, 195, 247, 0.8), transparent) !important;
-  box-shadow:
-    0 0 15px rgba(79, 195, 247, 0.6),
-    0 0 30px rgba(79, 195, 247, 0.3) !important;
+  width: 2px !important;
+  background: rgba(79, 195, 247, 0.5) !important;
 }
 
-/* Active dragging state - brighter and thicker */
+/* Active dragging state - bright cyan */
 .mosaic-split.-row:active {
-  height: 4px !important;
-  background: linear-gradient(90deg, transparent, rgba(79, 195, 247, 1), transparent) !important;
-  box-shadow:
-    0 0 25px rgba(79, 195, 247, 0.8),
-    0 0 50px rgba(79, 195, 247, 0.5) !important;
+  height: 3px !important;
+  background: rgba(79, 195, 247, 0.8) !important;
 }
 
 .mosaic-split.-column:active {
-  width: 4px !important;
-  background: linear-gradient(180deg, transparent, rgba(79, 195, 247, 1), transparent) !important;
-  box-shadow:
-    0 0 25px rgba(79, 195, 247, 0.8),
-    0 0 50px rgba(79, 195, 247, 0.5) !important;
+  width: 3px !important;
+  background: rgba(79, 195, 247, 0.8) !important;
 }
 
 /* Drop target zones - subtle and clean */
