@@ -125,8 +125,8 @@ class Shot(Base):
     frame_duration = Column(Integer)
     fps = Column(Float, default=24.0)
 
-    # Metadata
-    metadata = Column(JSON)  # Additional custom fields
+    # Custom metadata
+    custom_metadata = Column(JSON)  # Additional custom fields
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -161,8 +161,8 @@ class Asset(Base):
     status = Column(SQLEnum(TaskStatus), default=TaskStatus.WTG)
     priority = Column(SQLEnum(Priority), default=Priority.MEDIUM)
 
-    # Metadata
-    metadata = Column(JSON)
+    # Custom metadata
+    custom_metadata = Column(JSON)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
