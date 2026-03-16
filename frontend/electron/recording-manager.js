@@ -208,11 +208,11 @@ class RecordingManager {
       ]
       filterComplex = '[0:v]hwdownload,format=bgra,split=2[seg][kfin];[kfin]fps=1[kf]'
     } else {
+      // Capture Marathon window specifically, fall back to desktop
       inputArgs = [
         '-f', 'gdigrab',
         '-framerate', '60',
-        '-video_size', `${w}x${h}`,
-        '-i', 'desktop',
+        '-i', 'title=Marathon',
       ]
       filterComplex = '[0:v]split=2[seg][kfin];[kfin]fps=1[kf]'
     }
