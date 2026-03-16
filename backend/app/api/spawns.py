@@ -142,6 +142,7 @@ def spawn_heatmap(db: DBSession = Depends(get_db)):
             maps[map_key][loc_key] = {
                 "location": loc_key,
                 "region": s.spawn_region,
+                "compass_bearing": s.compass_bearing,
                 "x": s.x,
                 "y": s.y,
                 "count": 0,
@@ -154,14 +155,24 @@ def spawn_heatmap(db: DBSession = Depends(get_db)):
                 "runner_kills": 0,
                 "total_deaths": 0,
                 "total_revives": 0,
+                "best_loot": None,
+                "worst_loot": None,
+                "longest_run": None,
+                "shortest_run": None,
+                "weapons": [],
+                "shells": [],
+                "killed_by": [],
+                "last_played": None,
+                "loot_values": [],
             }
 
         entry = maps[map_key][loc_key]
         entry["count"] += 1
-        # Update x/y with latest coords
         if s.x is not None:
             entry["x"] = s.x
             entry["y"] = s.y
+        if s.compass_bearing:
+            entry["compass_bearing"] = s.compass_bearing
 
         if s.run:
             if s.run.survived is not None:
@@ -169,13 +180,47 @@ def spawn_heatmap(db: DBSession = Depends(get_db)):
                     entry["runs_survived"] += 1
                 else:
                     entry["runs_died"] += 1
-            entry["total_loot"] += s.run.loot_value_total or 0
-            entry["total_time"] += s.run.duration_seconds or 0
+            loot = s.run.loot_value_total or 0
+            duration = s.run.duration_seconds or 0
+            entry["total_loot"] += loot
+            entry["total_time"] += duration
+            entry["loot_values"].append(loot)
             entry["pve_kills"] += s.run.combatant_eliminations or 0
             entry["runner_kills"] += s.run.runner_eliminations or 0
             entry["total_kills"] += (s.run.combatant_eliminations or 0) + (s.run.runner_eliminations or 0)
             entry["total_deaths"] += s.run.deaths or 0
             entry["total_revives"] += s.run.crew_revives or 0
+
+            # Track best/worst loot
+            if entry["best_loot"] is None or loot > entry["best_loot"]:
+                entry["best_loot"] = loot
+            if entry["worst_loot"] is None or loot < entry["worst_loot"]:
+                entry["worst_loot"] = loot
+
+            # Track longest/shortest run
+            if duration > 0:
+                if entry["longest_run"] is None or duration > entry["longest_run"]:
+                    entry["longest_run"] = duration
+                if entry["shortest_run"] is None or duration < entry["shortest_run"]:
+                    entry["shortest_run"] = duration
+
+            # Track weapons
+            if s.run.primary_weapon:
+                entry["weapons"].append(s.run.primary_weapon)
+
+            # Track shells
+            if s.run.runner and s.run.runner.name:
+                entry["shells"].append(s.run.runner.name)
+
+            # Track killers
+            if s.run.killed_by:
+                entry["killed_by"].append({"name": s.run.killed_by, "damage": s.run.killed_by_damage})
+
+            # Track last played
+            if s.run.date:
+                date_str = s.run.date.isoformat() if hasattr(s.run.date, 'isoformat') else str(s.run.date)
+                if entry["last_played"] is None or date_str > entry["last_played"]:
+                    entry["last_played"] = date_str
 
     result = []
     for mn, locations in maps.items():
@@ -185,6 +230,25 @@ def spawn_heatmap(db: DBSession = Depends(get_db)):
             loc["survival_rate"] = round(loc["runs_survived"] / total * 100, 1) if total else None
             loc["avg_loot"] = round(loc["total_loot"] / total, 0) if total else None
             loc["avg_time"] = round(loc["total_time"] / total) if total else None
+
+            # Most used weapon at this spawn
+            weapons = loc.pop("weapons")
+            if weapons:
+                from collections import Counter
+                loc["fav_weapon"] = Counter(weapons).most_common(1)[0][0]
+            else:
+                loc["fav_weapon"] = None
+
+            # Most used shell
+            shells = loc.pop("shells")
+            if shells:
+                from collections import Counter
+                loc["fav_shell"] = Counter(shells).most_common(1)[0][0]
+            else:
+                loc["fav_shell"] = None
+
+            # Clean up internal tracking
+            loc.pop("loot_values", None)
         result.append({
             "map": mn,
             "total_spawns": sum(l["count"] for l in loc_list),

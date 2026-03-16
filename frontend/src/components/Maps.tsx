@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { getMapStats, getSpawnHeatmap } from '../lib/api'
+import { useStore } from '../lib/store'
 import { MAPS, MAP_LIST } from '../lib/map-data'
 import type { SpawnRef } from '../lib/map-data'
 import type { MapStats, SpawnHeatmap } from '../lib/types'
@@ -35,6 +36,7 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
   const [mapStats, setMapStats] = useState<MapStats[]>([])
   const [heatmap, setHeatmap] = useState<SpawnHeatmap[]>([])
   const [hoveredSpawn, setHoveredSpawn] = useState<string | null>(null)
+  const { runs } = useStore()
   const [spawns, setSpawns] = useState<SpawnRef[]>([])
   const [dragState, setDragState] = useState<DragState | null>(null)
   const [dirty, setDirty] = useState<Set<string>>(new Set())
@@ -132,7 +134,7 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
   }
 
   return (
-    <div className="max-w-7xl mx-auto space-y-2">
+    <div className="max-w-7xl mx-auto space-y-4">
       {/* Header */}
       <div>
         <p className="label-tag text-m-green">MAPS / {selectedMap.toUpperCase()}</p>
@@ -141,50 +143,20 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
         </h2>
       </div>
 
-      {/* Map Stats — above map */}
-      {currentStats ? (
+      {/* Hero Stats */}
+      {currentStats && (
         <div className="grid grid-cols-4 gap-[1px] bg-m-border">
-          <div className="bg-m-card px-4 py-3 flex justify-between items-center">
-            <span className="label-tag text-m-text-muted">RUNS</span>
-            <span className="text-sm font-mono font-bold text-m-text">{currentStats.runs}</span>
-          </div>
-          <div className="bg-m-card px-4 py-3 flex justify-between items-center">
-            <span className="label-tag text-m-text-muted">SURVIVAL</span>
-            <span className={`text-sm font-mono font-bold ${currentStats.survival_rate >= 50 ? 'text-m-green' : 'text-m-red'}`}>{currentStats.survival_rate}%</span>
-          </div>
-          <div className="bg-m-card px-4 py-3 flex justify-between items-center">
-            <span className="label-tag text-m-text-muted">K/D</span>
-            <span className={`text-sm font-mono font-bold ${currentStats.kd >= 1 ? 'text-m-green' : 'text-m-red'}`}>{currentStats.kd}</span>
-          </div>
-          <div className="bg-m-card px-4 py-3 flex justify-between items-center">
-            <span className="label-tag text-m-text-muted">TOTAL LOOT</span>
-            <span className="text-sm font-mono font-bold text-m-yellow">${currentStats.loot.toLocaleString()}</span>
-          </div>
-          <div className="bg-m-card px-4 py-3 flex justify-between items-center">
-            <span className="label-tag text-m-text-muted">PVE KILLS</span>
-            <span className="text-sm font-mono font-bold text-m-green">{currentStats.pve_kills}</span>
-          </div>
-          <div className="bg-m-card px-4 py-3 flex justify-between items-center">
-            <span className="label-tag text-m-text-muted">RUNNER KILLS</span>
-            <span className="text-sm font-mono font-bold text-m-cyan">{currentStats.pvp_kills}</span>
-          </div>
-          <div className="bg-m-card px-4 py-3 flex justify-between items-center">
-            <span className="label-tag text-m-text-muted">AVG LOOT</span>
-            <span className="text-sm font-mono font-bold text-m-yellow">${currentStats.avg_loot.toLocaleString()}</span>
-          </div>
-          <div className="bg-m-card px-4 py-3 flex justify-between items-center">
-            <span className="label-tag text-m-text-muted">TOTAL TIME</span>
-            <span className="text-sm font-mono font-bold text-m-cyan">{formatTime(currentStats.time)}</span>
-          </div>
-        </div>
-      ) : (
-        <div className="bg-m-card p-4">
-          <p className="text-2xs text-m-text-muted">NO RUN DATA</p>
+          <StatBlock label="RUNS" value={String(currentStats.runs)} accent />
+          <StatBlock label="SURVIVAL RATE" value={`${currentStats.survival_rate}%`}
+            color={currentStats.survival_rate >= 50 ? 'green' : 'red'} />
+          <StatBlock label="K/D" value={String(currentStats.kd)}
+            color={currentStats.kd >= 1 ? 'green' : 'red'} />
+          <StatBlock label="TOTAL TIME" value={formatTime(currentStats.time)} color="cyan" />
         </div>
       )}
 
       {/* Map + Spawn sidebar */}
-      <div className="grid grid-cols-[1fr_200px] gap-4">
+      <div className="grid grid-cols-[1fr_160px] gap-4">
       <div
         ref={mapRef}
         className="relative w-full select-none"
@@ -248,19 +220,37 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
                     {isDragging && (
                       <p className="text-[10px] font-mono text-m-yellow mt-1">x: {spawn.x} &nbsp; y: {spawn.y}</p>
                     )}
-                    {!isDragging && loc && totalRuns > 0 && (
-                      <div className="mt-1.5 space-y-0.5">
-                        <TooltipStat label="SPAWNS" value={`${loc.count}x`} />
-                        <TooltipStat label="SURVIVAL" value={`${survRate}%`} color={survRate! >= 50 ? 'green' : 'red'} />
-                        <TooltipStat label="AVG LOOT" value={`$${Math.round(loc.avg_loot ?? 0).toLocaleString()}`} color="yellow" />
-                        <TooltipStat label="AVG TIME" value={loc.avg_time ? formatTime(loc.avg_time) : '—'} color="cyan" />
-                        <div className="border-t border-m-border/30 my-1 pt-1" />
-                        <TooltipStat label="PVE KILLS" value={String((loc as any).pve_kills ?? 0)} color={(loc as any).pve_kills ? 'green' : undefined} />
-                        <TooltipStat label="RUNNER KILLS" value={String((loc as any).runner_kills ?? 0)} color={(loc as any).runner_kills ? 'cyan' : undefined} />
-                        <TooltipStat label="DEATHS" value={String((loc as any).total_deaths ?? 0)} color={(loc as any).total_deaths ? 'red' : undefined} />
-                        <TooltipStat label="REVIVES" value={String((loc as any).total_revives ?? 0)} color={(loc as any).total_revives ? 'green' : undefined} />
-                      </div>
-                    )}
+                    {!isDragging && loc && totalRuns > 0 && (() => {
+                      const l = loc as any
+                      const killedBy = l.killed_by?.length > 0 ? l.killed_by[l.killed_by.length - 1] : null
+                      return (
+                        <div className="mt-1.5 space-y-0.5">
+                          <TooltipStat label="SPAWNS" value={`${loc.count}x`} />
+                          <TooltipStat label="SURVIVAL" value={`${survRate}%`} color={survRate! >= 50 ? 'green' : 'red'} />
+                          <TooltipStat label="WIN STREAK" value={(() => {
+                            // Count consecutive exfils from the end (most recent)
+                            // For now with 1 run per spawn, it's just survived ? 1 : 0
+                            // Will improve when we have multiple runs per spawn
+                            return String(loc.runs_survived > 0 && loc.runs_died === 0 ? loc.runs_survived : 0)
+                          })()} color={loc.runs_survived > 0 && loc.runs_died === 0 ? 'green' : undefined} />
+                          <div className="border-t border-m-border/30 my-1 pt-1" />
+                          <TooltipStat label="AVG LOOT" value={`$${Math.round(loc.avg_loot ?? 0).toLocaleString()}`} color="yellow" />
+                          <TooltipStat label="BEST LOOT" value={l.best_loot != null ? `$${l.best_loot.toLocaleString()}` : '—'} color="yellow" />
+                          <TooltipStat label="WORST LOOT" value={l.worst_loot != null ? `$${l.worst_loot.toLocaleString()}` : '—'} color={l.worst_loot < 0 ? 'red' : undefined} />
+                          <div className="border-t border-m-border/30 my-1 pt-1" />
+                          <TooltipStat label="PVE KILLS" value={String(l.pve_kills ?? 0)} color={l.pve_kills ? 'green' : undefined} />
+                          <TooltipStat label="RUNNER KILLS" value={String(l.runner_kills ?? 0)} color={l.runner_kills ? 'cyan' : undefined} />
+                          <TooltipStat label="DEATHS" value={String(l.total_deaths ?? 0)} color={l.total_deaths ? 'red' : undefined} />
+                          <TooltipStat label="REVIVES" value={String(l.total_revives ?? 0)} color={l.total_revives ? 'green' : undefined} />
+                          <div className="border-t border-m-border/30 my-1 pt-1" />
+                          <TooltipStat label="WEAPON" value={l.fav_weapon ?? '—'} />
+                          <TooltipStat label="SHELL" value={l.fav_shell ?? '—'} />
+                          {killedBy && (
+                            <TooltipStat label="ENEMY" value={killedBy.name} color="red" />
+                          )}
+                        </div>
+                      )
+                    })()}
                     {!isDragging && (!loc || totalRuns === 0) && (
                       <p className="text-[9px] text-m-text-muted mt-1">NO RUN DATA</p>
                     )}
@@ -310,7 +300,6 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
                     onMouseLeave={() => setHoveredSpawn(null)}
                   >
                     <div className="flex items-center gap-2 mb-1.5">
-                      <div className="w-2 h-2 rounded-full bg-m-green/60 border border-m-green" />
                       <span className="text-2xs text-m-text uppercase tracking-wider font-bold flex-1">{loc.location}</span>
                       <span className="text-[9px] font-mono text-m-text-muted">{loc.count}x</span>
                     </div>
@@ -342,6 +331,102 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
         </div>
       </div>
       </div>
+
+      {/* Detail Columns — below map */}
+      {currentStats && (
+        <div className="grid grid-cols-4 gap-[1px] bg-m-border">
+          {/* Favorites */}
+          <div className="bg-m-card">
+            <div className="px-4 py-2 border-b border-m-border">
+              <p className="label-tag text-m-green">FAVORITES</p>
+            </div>
+            <div className="divide-y divide-m-border">
+              <ColStat label="SHELL" value={(() => {
+                const mapRuns = runs.filter(r => r.map_name === selectedMap && r.shell_name)
+                if (!mapRuns.length) return '—'
+                const counts: Record<string, number> = {}
+                mapRuns.forEach(r => { counts[r.shell_name!] = (counts[r.shell_name!] || 0) + 1 })
+                return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0]
+              })()} />
+              <ColStat label="WEAPON" value={(() => {
+                const mapRuns = runs.filter(r => r.map_name === selectedMap && r.primary_weapon)
+                if (!mapRuns.length) return '—'
+                const counts: Record<string, number> = {}
+                mapRuns.forEach(r => { counts[r.primary_weapon!] = (counts[r.primary_weapon!] || 0) + 1 })
+                return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0]
+              })()} />
+              <ColStat label="BEST SPAWN" value={(() => {
+                if (!currentHeatmap?.locations.length) return '—'
+                const best = [...currentHeatmap.locations]
+                  .filter(l => l.runs_survived + l.runs_died > 0)
+                  .sort((a, b) => (b.avg_loot ?? 0) - (a.avg_loot ?? 0))[0]
+                return best?.location ?? '—'
+              })()} />
+              <ColStat label="SQUAD MATE" value={(() => {
+                const mapRuns = runs.filter(r => r.map_name === selectedMap && r.squad_members?.length)
+                if (!mapRuns.length) return '—'
+                const counts: Record<string, number> = {}
+                mapRuns.forEach(r => r.squad_members?.forEach(m => {
+                  if (m.toLowerCase() !== 'kale#8064') counts[m] = (counts[m] || 0) + 1
+                }))
+                const entries = Object.entries(counts)
+                return entries.length > 0 ? entries.sort((a, b) => b[1] - a[1])[0][0] : '—'
+              })()} />
+            </div>
+          </div>
+
+          {/* Economy */}
+          <div className="bg-m-card">
+            <div className="px-4 py-2 border-b border-m-border">
+              <p className="label-tag text-m-green">ECONOMY</p>
+            </div>
+            <div className="divide-y divide-m-border">
+              <ColStat label="TOTAL LOOT" value={`$${currentStats.loot.toLocaleString()}`} color="yellow" />
+              <ColStat label="AVG LOOT/RUN" value={`$${currentStats.avg_loot.toLocaleString()}`} color="yellow" />
+              <ColStat label="BEST RUN" value={(() => {
+                const mapRuns = runs.filter(r => r.map_name === selectedMap)
+                return mapRuns.length > 0 ? `$${Math.max(...mapRuns.map(r => r.loot_value_total)).toLocaleString()}` : '—'
+              })()} color="yellow" />
+              <ColStat label="WORST RUN" value={(() => {
+                const mapRuns = runs.filter(r => r.map_name === selectedMap)
+                return mapRuns.length > 0 ? `$${Math.min(...mapRuns.map(r => r.loot_value_total)).toLocaleString()}` : '—'
+              })()} color="red" />
+            </div>
+          </div>
+
+          {/* Combat */}
+          <div className="bg-m-card">
+            <div className="px-4 py-2 border-b border-m-border">
+              <p className="label-tag text-m-green">COMBAT</p>
+            </div>
+            <div className="divide-y divide-m-border">
+              <ColStat label="PVE KILLS" value={String(currentStats.pve_kills)} color="green" />
+              <ColStat label="RUNNER KILLS" value={String(currentStats.pvp_kills)} color="cyan" />
+              <ColStat label="DEATHS" value={String(currentStats.deaths)} color={currentStats.deaths > 0 ? 'red' : undefined} />
+              <ColStat label="REVIVES" value="0" />
+            </div>
+          </div>
+
+          {/* Time */}
+          <div className="bg-m-card">
+            <div className="px-4 py-2 border-b border-m-border">
+              <p className="label-tag text-m-green">TIME</p>
+            </div>
+            <div className="divide-y divide-m-border">
+              <ColStat label="TOTAL TIME" value={formatTime(currentStats.time)} color="cyan" />
+              <ColStat label="AVG TIME" value={formatTime(currentStats.avg_time)} color="cyan" />
+              <ColStat label="LONGEST RUN" value={(() => {
+                const mapRuns = runs.filter(r => r.map_name === selectedMap && r.duration_seconds)
+                return mapRuns.length > 0 ? formatTime(Math.max(...mapRuns.map(r => r.duration_seconds!))) : '—'
+              })()} color="cyan" />
+              <ColStat label="SHORTEST RUN" value={(() => {
+                const mapRuns = runs.filter(r => r.map_name === selectedMap && r.duration_seconds)
+                return mapRuns.length > 0 ? formatTime(Math.min(...mapRuns.map(r => r.duration_seconds!))) : '—'
+              })()} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -352,6 +437,26 @@ function StatRow({ label, value, color }: { label: string; value: string; color?
     <div className="flex justify-between">
       <span className="label-tag text-m-text-muted">{label}</span>
       <span className={`text-2xs font-mono ${c}`}>{value}</span>
+    </div>
+  )
+}
+
+function StatBlock({ label, value, color, accent }: { label: string; value: string; color?: 'green' | 'red' | 'yellow' | 'cyan'; accent?: boolean }) {
+  const c = { green: 'text-m-green', red: 'text-m-red', yellow: 'text-m-yellow', cyan: 'text-m-cyan' }[color ?? ''] ?? 'text-m-text'
+  return (
+    <div className={`bg-m-card p-5 ${accent ? 'border-t-2 border-m-green' : ''}`}>
+      <p className="label-tag text-m-text-muted">{label}</p>
+      <p className={`text-2xl font-mono font-bold mt-1 ${c}`}>{value}</p>
+    </div>
+  )
+}
+
+function ColStat({ label, value, color }: { label: string; value: string; color?: 'green' | 'red' | 'yellow' | 'cyan' }) {
+  const c = color ? { green: 'text-m-green', red: 'text-m-red', yellow: 'text-m-yellow', cyan: 'text-m-cyan' }[color] : 'text-m-text'
+  return (
+    <div className="flex justify-between items-center px-4 py-2.5">
+      <span className="label-tag text-m-text-muted">{label}</span>
+      <span className={`text-xs font-mono font-bold ${c}`}>{value}</span>
     </div>
   )
 }
