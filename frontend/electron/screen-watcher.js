@@ -57,9 +57,10 @@ class ScreenWatcher {
 
     // Keyframes directory (set by main.js from recording manager)
     this._keyframesDir = null
-    // OCR throttle — max once every 5 seconds
+    // OCR throttle — max once every 5 seconds normally, 1 second during results
     this._lastOcrTime = 0
     this._ocrCooldown = 5000
+    this._rapidOcrUntil = 0  // timestamp when rapid OCR mode ends
   }
 
   setKeyframesDir(dir) {
@@ -236,12 +237,14 @@ class ScreenWatcher {
       console.log('[watcher] EXFILTRATED detected!')
       this.runContext.survived = true
       this.state = STATES.RUN_ENDED
+      this._enterRapidOcr()
       this._emitEvent('run_ended', { survived: true })
       this._emitEvent('state_change', { state: STATES.RUN_ENDED })
     } else if (result.detected === 'eliminated') {
       console.log('[watcher] ELIMINATED detected!')
       this.runContext.survived = false
       this.state = STATES.RUN_ENDED
+      this._enterRapidOcr()
       this._emitEvent('run_ended', { survived: false })
       this._emitEvent('state_change', { state: STATES.RUN_ENDED })
     } else if (result.detected === 'unknown_change' && !this._claudeInFlight) {
@@ -410,10 +413,17 @@ class ScreenWatcher {
     })
   }
 
+  _enterRapidOcr() {
+    // Enable rapid OCR for next 30 seconds (for results screens)
+    this._rapidOcrUntil = Date.now() + 30000
+    console.log('[watcher] Rapid OCR mode ON for 30 seconds')
+  }
+
   async _detectFull(imageBuffer) {
-    // Throttle OCR: max once every 5 seconds
+    // Throttle: 5s normally, 1s during rapid mode (results capture)
     const now = Date.now()
-    if (now - this._lastOcrTime < this._ocrCooldown) {
+    const cooldown = now < this._rapidOcrUntil ? 1000 : this._ocrCooldown
+    if (now - this._lastOcrTime < cooldown) {
       return null
     }
     this._lastOcrTime = now
