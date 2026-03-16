@@ -46,6 +46,13 @@ def get_overview_stats(db: Session = Depends(get_db)):
         fav_runner = db.query(Runner).filter(Runner.id == fav_id).first()
         fav_runner_name = fav_runner.name if fav_runner else None
 
+    # Favorite weapon
+    weapon_counts: dict[str, int] = {}
+    for r in runs:
+        if r.primary_weapon:
+            weapon_counts[r.primary_weapon] = weapon_counts.get(r.primary_weapon, 0) + 1
+    fav_weapon = max(weapon_counts, key=weapon_counts.get) if weapon_counts else None
+
     # Favorite squad mate — count how often each name appears in squad_members
     mate_counts: dict[str, int] = {}
     for r in runs:
@@ -80,6 +87,7 @@ def get_overview_stats(db: Session = Depends(get_db)):
         favorite_map=fav_map,
         favorite_runner=fav_runner_name,
         favorite_shell=fav_runner_name,
+        favorite_weapon=fav_weapon,
         favorite_squad_mate=fav_mate,
         favorite_squad_mate_runs=fav_mate_runs,
         total_time_seconds=total_time,

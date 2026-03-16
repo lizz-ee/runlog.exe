@@ -70,6 +70,8 @@ class Run(Base):
     squad_size = Column(Integer, nullable=True)
     squad_members = Column(JSON, nullable=True)
     screenshot_path = Column(String(500), nullable=True)
+    primary_weapon = Column(String(100), nullable=True)
+    secondary_weapon = Column(String(100), nullable=True)
     notes = Column(Text, nullable=True)
     session_id = Column(Integer, ForeignKey("sessions.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)

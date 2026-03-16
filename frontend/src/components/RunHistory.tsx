@@ -178,10 +178,11 @@ function RunRow({ run, onDelete }: { run: Run; onDelete: () => void }) {
               <DetailRow label="MAP" value={run.map_name ?? '—'} />
               <DetailRow label="SPAWN" value={run.spawn_location ?? 'Unknown'} />
               <DetailRow label="SHELL" value={run.shell_name ?? 'Unknown'} />
+              <DetailRow label="PRIMARY" value={run.primary_weapon ?? '—'} />
+              <DetailRow label="SECONDARY" value={run.secondary_weapon ?? '—'} />
               <DetailRow label="OUTCOME" value={run.survived ? 'Exfiltrated' : 'Eliminated'}
                 color={run.survived ? 'green' : 'red'} />
               <DetailRow label="DURATION" value={formatDuration(run.duration_seconds)} />
-              <DetailRow label="DATE" value={format(new Date(run.date), 'yyyy.MM.dd HH:mm:ss')} />
             </div>
 
             {/* Middle column - Combat */}
@@ -191,7 +192,6 @@ function RunRow({ run, onDelete }: { run: Run; onDelete: () => void }) {
               <DetailRow label="RUNNER KILLS" value={String(run.runner_eliminations || 0)} color="cyan" />
               <DetailRow label="DEATHS" value={String(run.deaths)} color={run.deaths > 0 ? 'red' : undefined} />
               <DetailRow label="REVIVES" value={String(run.crew_revives || 0)} color="green" />
-              <DetailRow label="ASSISTS" value={String(run.assists || 0)} />
               <DetailRow label="TOTAL KILLS" value={String((run.combatant_eliminations || 0) + (run.runner_eliminations || 0))} />
             </div>
 
@@ -200,17 +200,14 @@ function RunRow({ run, onDelete }: { run: Run; onDelete: () => void }) {
               <p className="label-tag text-m-green mb-2">LOOT & SQUAD</p>
               <DetailRow label="INVENTORY" value={`$${run.loot_value_total.toLocaleString()}`}
                 color={run.loot_value_total >= 0 ? 'yellow' : 'red'} />
-              <DetailRow label="SQUAD SIZE" value={run.squad_size ? `${run.squad_size} players` : 'Solo'} />
-              {run.squad_members && run.squad_members.length > 0 && (
-                <div>
-                  <span className="text-[9px] text-m-text-muted uppercase">SQUAD</span>
-                  <div className="mt-0.5">
-                    {run.squad_members.map((m, i) => (
-                      <p key={i} className="text-[10px] font-mono text-m-text">{m}</p>
-                    ))}
-                  </div>
-                </div>
+              {run.squad_members && run.squad_members.length > 0 ? (
+                run.squad_members.map((m, i) => (
+                  <DetailRow key={i} label={i === 0 ? 'SQUAD' : ''} value={m} />
+                ))
+              ) : (
+                <DetailRow label="SQUAD" value="Solo" />
               )}
+              <DetailRow label="DATE" value={format(new Date(run.date), 'yyyy.MM.dd HH:mm:ss')} />
             </div>
           </div>
 

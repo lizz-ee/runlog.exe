@@ -145,6 +145,8 @@ class RunOut(BaseModel):
     notes: Optional[str]
     session_id: Optional[int]
     spawn_location: Optional[str] = None
+    primary_weapon: Optional[str] = None
+    secondary_weapon: Optional[str] = None
     shell_name: Optional[str] = None
     created_at: datetime
 
@@ -248,6 +250,7 @@ class OverviewStats(BaseModel):
     favorite_map: Optional[str] = None
     favorite_runner: Optional[str] = None
     favorite_shell: Optional[str] = None
+    favorite_weapon: Optional[str] = None
     favorite_squad_mate: Optional[str] = None
     favorite_squad_mate_runs: int = 0
     total_time_seconds: int = 0

@@ -36,7 +36,7 @@ export default function Dashboard() {
         </h2>
       </div>
 
-      {/* Core Stats — the numbers that matter most */}
+      {/* Core Stats — hero numbers */}
       <div className="grid grid-cols-4 gap-[1px] bg-m-border">
         <StatBlock label="TOTAL RUNS" value={String(stats?.total_runs ?? 0)} accent />
         <StatBlock label="SURVIVAL RATE" value={`${stats?.survival_rate ?? 0}%`}
@@ -46,50 +46,69 @@ export default function Dashboard() {
         <StatBlock label="TOTAL TIME" value={formatTime(stats?.total_time_seconds ?? 0)} color="cyan" />
       </div>
 
-      {/* Combat + Economy side by side */}
-      <div className="grid grid-cols-2 gap-6">
-        {/* Combat */}
-        <div>
-          <p className="label-tag text-m-text-muted mb-2">COMBAT</p>
-          <div className="grid grid-cols-2 gap-[1px] bg-m-border">
-            <StatBlock label="PVE KILLS" value={String(runs.reduce((s, r) => s + (r.combatant_eliminations || 0), 0))} small color="green" />
-            <StatBlock label="RUNNER KILLS" value={String(runs.reduce((s, r) => s + (r.runner_eliminations || 0), 0))} small color="cyan" />
-            <StatBlock label="DEATHS" value={String(stats?.total_deaths ?? 0)} small color="red" />
-            <StatBlock label="REVIVES" value={String(stats?.total_revives ?? 0)} small color="green" />
+      {/* Detail columns */}
+      <div className="grid grid-cols-4 gap-[1px] bg-m-border">
+        {/* Column 1: Favorites */}
+        <div className="bg-m-card">
+          <div className="px-4 py-2 border-b border-m-border">
+            <p className="label-tag text-m-green">FAVORITES</p>
+          </div>
+          <div className="divide-y divide-m-border">
+            <ColStat label="SHELL" value={stats?.favorite_shell ?? '—'} />
+            <ColStat label="WEAPON" value={stats?.favorite_weapon ?? '—'} />
+            <ColStat label="MAP" value={stats?.favorite_map ?? '—'} />
+            <ColStat label="SQUAD MATE" value={stats?.favorite_squad_mate ?? '—'} />
           </div>
         </div>
 
-        {/* Economy */}
-        <div>
-          <p className="label-tag text-m-text-muted mb-2">ECONOMY</p>
-          <div className="grid grid-cols-2 gap-[1px] bg-m-border">
-            <StatBlock label="TOTAL LOOT" value={`$${(stats?.total_loot_value ?? 0).toLocaleString()}`} small color="yellow" />
-            <StatBlock label="AVG LOOT/RUN" value={`$${stats?.avg_loot_per_run?.toFixed(0) ?? '0'}`} small color="yellow" />
+        {/* Column 2: Economy */}
+        <div className="bg-m-card">
+          <div className="px-4 py-2 border-b border-m-border">
+            <p className="label-tag text-m-green">ECONOMY</p>
+          </div>
+          <div className="divide-y divide-m-border">
+            <ColStat label="TOTAL LOOT" value={`$${(stats?.total_loot_value ?? 0).toLocaleString()}`} color="yellow" />
+            <ColStat label="AVG LOOT/RUN" value={`$${stats?.avg_loot_per_run?.toFixed(0) ?? '0'}`} color="yellow" />
+            <ColStat label="BEST RUN" value={runs.length > 0 ? `$${Math.max(...runs.map(r => r.loot_value_total)).toLocaleString()}` : '—'} color="yellow" />
+            <ColStat label="WORST RUN" value={runs.length > 0 ? `$${Math.min(...runs.map(r => r.loot_value_total)).toLocaleString()}` : '—'} color="red" />
+          </div>
+        </div>
+
+        {/* Column 3: Combat */}
+        <div className="bg-m-card">
+          <div className="px-4 py-2 border-b border-m-border">
+            <p className="label-tag text-m-green">COMBAT</p>
+          </div>
+          <div className="divide-y divide-m-border">
+            <ColStat label="PVE KILLS" value={String(runs.reduce((s, r) => s + (r.combatant_eliminations || 0), 0))} color="green" />
+            <ColStat label="RUNNER KILLS" value={String(runs.reduce((s, r) => s + (r.runner_eliminations || 0), 0))} color="cyan" />
+            <ColStat label="DEATHS" value={String(stats?.total_deaths ?? 0)} color="red" />
+            <ColStat label="REVIVES" value={String(stats?.total_revives ?? 0)}
+              color={(stats?.total_revives ?? 0) > 0 ? 'green' : undefined} />
+          </div>
+        </div>
+
+        {/* Column 4: Time by Map */}
+        <div className="bg-m-card">
+          <div className="px-4 py-2 border-b border-m-border">
+            <p className="label-tag text-m-green">TIME BY MAP</p>
+          </div>
+          <div className="divide-y divide-m-border">
+            {['Perimeter', 'Dire Marsh', 'Outpost', 'Cryo Archive'].map((mapName) => {
+              const mt = stats?.time_by_map?.find(t => t.map_name === mapName)
+              const seconds = mt?.total_seconds ?? 0
+              return (
+                <ColStat
+                  key={mapName}
+                  label={mapName.toUpperCase()}
+                  value={formatTime(seconds)}
+                  color={seconds > 0 ? 'cyan' : undefined}
+                />
+              )
+            })}
           </div>
         </div>
       </div>
-
-      {/* Favorites */}
-      <div>
-        <p className="label-tag text-m-text-muted mb-2">FAVORITES</p>
-        <div className="grid grid-cols-3 gap-[1px] bg-m-border">
-          <StatBlock label="FAV MAP" value={stats?.favorite_map ?? '—'} small />
-          <StatBlock label="FAV SHELL" value={stats?.favorite_shell ?? '—'} small />
-          <StatBlock label="FAV SQUAD MATE" value={stats?.favorite_squad_mate ?? '—'} small />
-        </div>
-      </div>
-
-      {/* Time by Map */}
-      {stats?.time_by_map && stats.time_by_map.length > 0 && (
-        <div>
-          <p className="label-tag text-m-text-muted mb-2">TIME BY MAP</p>
-          <div className={`grid grid-cols-${Math.min(stats.time_by_map.length, 4)} gap-[1px] bg-m-border`}>
-            {stats.time_by_map.map((mt) => (
-              <StatBlock key={mt.map_name} label={mt.map_name.toUpperCase()} value={formatTime(mt.total_seconds)} small color="cyan" />
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Recent Runs */}
       <div>
@@ -181,10 +200,11 @@ function RunRow({ run }: { run: Run }) {
               <DetailRow label="MAP" value={run.map_name ?? '—'} />
               <DetailRow label="SPAWN" value={run.spawn_location ?? 'Unknown'} />
               <DetailRow label="SHELL" value={run.shell_name ?? 'Unknown'} />
+              <DetailRow label="PRIMARY" value={run.primary_weapon ?? '—'} />
+              <DetailRow label="SECONDARY" value={run.secondary_weapon ?? '—'} />
               <DetailRow label="OUTCOME" value={run.survived ? 'Exfiltrated' : 'Eliminated'}
                 color={run.survived ? 'green' : 'red'} />
               <DetailRow label="DURATION" value={formatDuration(run.duration_seconds)} />
-              <DetailRow label="DATE" value={format(new Date(run.date), 'yyyy.MM.dd HH:mm:ss')} />
             </div>
             <div className="space-y-2">
               <p className="label-tag text-m-green mb-2">COMBAT</p>
@@ -198,17 +218,14 @@ function RunRow({ run }: { run: Run }) {
               <p className="label-tag text-m-green mb-2">LOOT & SQUAD</p>
               <DetailRow label="INVENTORY" value={`$${run.loot_value_total.toLocaleString()}`}
                 color={run.loot_value_total >= 0 ? 'yellow' : 'red'} />
-              <DetailRow label="SQUAD SIZE" value={run.squad_size ? `${run.squad_size} players` : 'Solo'} />
-              {run.squad_members && run.squad_members.length > 0 && (
-                <div>
-                  <span className="text-[9px] text-m-text-muted uppercase">SQUAD</span>
-                  <div className="mt-0.5">
-                    {run.squad_members.map((m, i) => (
-                      <p key={i} className="text-[10px] font-mono text-m-text">{m}</p>
-                    ))}
-                  </div>
-                </div>
+              {run.squad_members && run.squad_members.length > 0 ? (
+                run.squad_members.map((m, i) => (
+                  <DetailRow key={i} label={i === 0 ? 'SQUAD' : ''} value={m} />
+                ))
+              ) : (
+                <DetailRow label="SQUAD" value="Solo" />
               )}
+              <DetailRow label="DATE" value={format(new Date(run.date), 'yyyy.MM.dd HH:mm:ss')} />
             </div>
           </div>
           {run.notes && (
@@ -245,6 +262,18 @@ function StatBlock({
       <p className={`${small ? 'text-lg' : 'text-2xl'} font-mono font-bold mt-1 ${colorClass}`}>
         {value}
       </p>
+    </div>
+  )
+}
+
+function ColStat({ label, value, color }: { label: string; value: string; color?: 'green' | 'red' | 'yellow' | 'cyan' }) {
+  const c = color
+    ? { green: 'text-m-green', red: 'text-m-red', yellow: 'text-m-yellow', cyan: 'text-m-cyan' }[color]
+    : 'text-m-text'
+  return (
+    <div className="flex justify-between items-center px-4 py-2.5">
+      <span className="label-tag text-m-text-muted">{label}</span>
+      <span className={`text-xs font-mono font-bold ${c}`}>{value}</span>
     </div>
   )
 }

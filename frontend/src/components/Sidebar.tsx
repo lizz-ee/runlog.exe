@@ -3,7 +3,7 @@ import type { View } from '../lib/types'
 
 const navItems: { view: View; label: string; tag: string; disabled?: boolean }[] = [
   { view: 'dashboard', label: 'OVERVIEW', tag: '01' },
-  { view: 'history', label: 'HISTORY', tag: '02' },
+  { view: 'history', label: 'ARCHIVE', tag: '02' },
   { view: 'map-perimeter', label: 'PERIMETER', tag: '03' },
   { view: 'map-dire-marsh', label: 'DIRE MARSH', tag: '04' },
   { view: 'map-outpost', label: 'OUTPOST', tag: '05' },

@@ -49,6 +49,8 @@ export interface Run {
   screenshot_path: string | null
   notes: string | null
   session_id: number | null
+  primary_weapon: string | null
+  secondary_weapon: string | null
   spawn_location: string | null
   shell_name: string | null
   created_at: string
@@ -109,6 +111,7 @@ export interface OverviewStats {
   favorite_map: string | null
   favorite_runner: string | null
   favorite_shell: string | null
+  favorite_weapon: string | null
   favorite_squad_mate: string | null
   favorite_squad_mate_runs: number
   total_time_seconds: number
