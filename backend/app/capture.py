@@ -127,9 +127,68 @@ class CaptureEngine:
         }
 
     def get_latest_frame_jpeg(self) -> bytes | None:
-        """Return the latest detection frame as JPEG bytes."""
+        """Return latest frame as JPEG. Extracts from ring buffer via temp clip."""
+        # First try the cached frame from background decode
         with self._frame_lock:
-            return self._latest_frame
+            if self._latest_frame and time.time() - self._latest_frame_time < 2:
+                return self._latest_frame
+
+        # Fallback: extract frame from ring buffer directly
+        try:
+            import tempfile
+            with self._lock:
+                if not self._ring or not self._extradata:
+                    return None
+                # Get last 10 packets including a keyframe
+                packets = []
+                for p in reversed(list(self._ring)):
+                    packets.insert(0, p)
+                    if p['kf'] and len(packets) > 1:
+                        break
+                    if len(packets) > 10:
+                        break
+                extradata = self._extradata
+
+            tmp_mp4 = os.path.join(tempfile.gettempdir(), 'runlog_frame.mp4')
+            tmp_jpg = os.path.join(tempfile.gettempdir(), 'runlog_frame.jpg')
+
+            output = av.open(tmp_mp4, mode='w')
+            out_stream = output.add_stream('h264', rate=self.fps)
+            out_stream.width = self.capture_width
+            out_stream.height = self.capture_height
+            out_stream.codec_context.extradata = extradata
+            for i, p in enumerate(packets):
+                pkt = av.Packet(p['data'])
+                pkt.pts = i
+                pkt.dts = i
+                pkt.stream = out_stream
+                pkt.is_keyframe = p['kf']
+                pkt.time_base = Fraction(1, self.fps)
+                output.mux(pkt)
+            output.close()
+
+            subprocess.run(
+                ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
+                 '-sseof', '-0.1', '-i', tmp_mp4,
+                 '-frames:v', '1', '-q:v', '5', tmp_jpg],
+                timeout=5,
+            )
+
+            jpeg = None
+            if os.path.exists(tmp_jpg) and os.path.getsize(tmp_jpg) > 1000:
+                with open(tmp_jpg, 'rb') as f:
+                    jpeg = f.read()
+                with self._frame_lock:
+                    self._latest_frame = jpeg
+                    self._latest_frame_time = time.time()
+
+            for f in [tmp_mp4, tmp_jpg]:
+                try: os.unlink(f)
+                except: pass
+
+            return jpeg
+        except Exception:
+            return None
 
     def save_clip(
         self,
