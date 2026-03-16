@@ -198,12 +198,15 @@ class RecordingManager {
     const keyframesDir = this.config.keyframesDir
 
     // Build FFmpeg args based on capture method
-    let inputArgs
+    let inputArgs, filterComplex
     if (this.captureMethod === 'ddagrab') {
+      // ddagrab outputs d3d11 hardware frames
+      // hwdownload+format=bgra converts to CPU for the split
       inputArgs = [
         '-f', 'lavfi',
         '-i', `ddagrab=framerate=60:output_idx=0`,
       ]
+      filterComplex = '[0:v]hwdownload,format=bgra,split=2[seg][kfin];[kfin]fps=1[kf]'
     } else {
       inputArgs = [
         '-f', 'gdigrab',
@@ -211,6 +214,7 @@ class RecordingManager {
         '-video_size', `${w}x${h}`,
         '-i', 'desktop',
       ]
+      filterComplex = '[0:v]split=2[seg][kfin];[kfin]fps=1[kf]'
     }
 
     // Encoder args
@@ -238,16 +242,16 @@ class RecordingManager {
     // Keyframe interval: 1 per second at 60fps
     const gopArgs = ['-g', '60', '-keyint_min', '60']
 
-    // Full command: split input → segments + keyframes
+    // Full command: use filter_complex to split and apply fps to keyframe branch
     const segPattern = path.join(segmentsDir, 'seg_%Y%m%d_%H%M%S.mp4').replace(/\\/g, '/')
-    const kfPattern = path.join(keyframesDir, 'kf_%04d.jpg').replace(/\\/g, '/')
+    const latestJpg = path.join(keyframesDir, 'latest.jpg').replace(/\\/g, '/')
 
     const args = [
       '-y',
       '-hide_banner',
       '-loglevel', 'warning',
       ...inputArgs,
-      '-filter_complex', '[0:v]split=2[seg][kf]',
+      '-filter_complex', filterComplex,
       // Output 1: segmented video
       '-map', '[seg]',
       ...encoderArgs,
@@ -258,14 +262,13 @@ class RecordingManager {
       '-reset_timestamps', '1',
       '-strftime', '1',
       segPattern,
-      // Output 2: keyframe JPEGs (1 per second)
+      // Output 2: keyframe JPEG (overwrite latest.jpg every second)
       '-map', '[kf]',
-      '-vf', 'fps=1',
       '-c:v', 'mjpeg',
       '-q:v', '5',
       '-f', 'image2',
       '-update', '1',
-      path.join(keyframesDir, 'latest.jpg').replace(/\\/g, '/'),
+      latestJpg,
     ]
 
     console.log(`[recording] Starting FFmpeg: ${this.encoder} @ ${w}x${h} 60fps`)
