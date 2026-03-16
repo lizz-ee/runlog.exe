@@ -3,7 +3,6 @@
   "private": true,
   "version": "1.0.0",
   "description": "Marathon run tracker - screenshot powered stats",
-  "type": "module",
   "scripts": {
     "dev": "RUNLOG_DEV=1 vite",
     "build": "tsc && vite build",

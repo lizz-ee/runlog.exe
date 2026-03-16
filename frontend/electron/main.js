@@ -358,10 +358,10 @@ function createWindow() {
     },
   })
 
+  // In dev mode, load Vite dev server immediately
+  // In production, the app lifecycle handler manages loading (backend first)
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173')
-  } else {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
   }
 
   // Minimize to tray instead of closing

@@ -16,10 +16,18 @@ const http = require('http')
 const { app } = require('electron')
 
 const isDev = !app.isPackaged
+
+// Log to file for debugging packaged app issues
+const LOG_FILE = path.join(app.getPath('userData'), 'backend-manager.log')
+function logToFile(msg) {
+  const line = `[${new Date().toISOString()}] ${msg}\n`
+  try { fs.appendFileSync(LOG_FILE, line) } catch {}
+  console.log(msg)
+}
 const API_PORT = 8000
-const HEALTH_URL = `http://localhost:${API_PORT}/`
-const HEALTH_TIMEOUT = 30000 // 30s max wait
-const HEALTH_INTERVAL = 500  // poll every 500ms
+const HEALTH_URL = `http://127.0.0.1:${API_PORT}/`
+const HEALTH_TIMEOUT = 60000 // 60s max wait
+const HEALTH_INTERVAL = 1000 // poll every 1s
 
 class BackendManager {
   constructor(onStatus) {
@@ -34,14 +42,14 @@ class BackendManager {
    * Start the Python backend. Returns a promise that resolves when healthy.
    */
   async start() {
+    // Check if backend is already running (dev mode or previous instance)
+    const alreadyUp = await this._healthCheck()
+    if (alreadyUp) {
+      this.onStatus('ready', 'Backend already running')
+      return true
+    }
+
     if (isDev) {
-      this.onStatus('dev_mode', 'Skipping backend spawn (dev mode)')
-      // Check if backend is already running
-      const alive = await this._healthCheck()
-      if (alive) {
-        this.onStatus('ready', 'Backend already running (dev)')
-        return true
-      }
       this.onStatus('error', 'Backend not running — start it manually with: cd backend && python run.py')
       return false
     }
@@ -77,6 +85,14 @@ class BackendManager {
       PYTHONUNBUFFERED: '1',
     }
 
+    logToFile(`[backend] isDev: ${isDev}`)
+    logToFile(`[backend] app.isPackaged: ${app.isPackaged}`)
+    logToFile(`[backend] resourcesPath: ${process.resourcesPath}`)
+    logToFile(`[backend] Backend path: ${this.backendPath}`)
+    logToFile(`[backend] User data path: ${this.userDataPath}`)
+    logToFile(`[backend] Python: ${this.pythonPath}`)
+    logToFile(`[backend] run.py exists: ${fs.existsSync(path.join(this.backendPath, 'run.py'))}`)
+
     this.onStatus('starting', 'Spawning backend process...')
     this.process = spawn(this.pythonPath, ['run.py'], {
       cwd: this.backendPath,
@@ -86,15 +102,15 @@ class BackendManager {
     })
 
     this.process.stdout.on('data', (data) => {
-      console.log(`[backend] ${data.toString().trim()}`)
+      logToFile(`[backend stdout] ${data.toString().trim()}`)
     })
 
     this.process.stderr.on('data', (data) => {
-      console.error(`[backend] ${data.toString().trim()}`)
+      logToFile(`[backend stderr] ${data.toString().trim()}`)
     })
 
     this.process.on('exit', (code) => {
-      console.log(`[backend] Process exited with code ${code}`)
+      logToFile(`[backend] Process exited with code ${code}`)
       if (code !== 0 && code !== null) {
         this.onStatus('error', `Backend exited with code ${code}`)
       }
@@ -102,7 +118,7 @@ class BackendManager {
     })
 
     this.process.on('error', (err) => {
-      console.error('[backend] Process error:', err)
+      logToFile(`[backend] Process error: ${err.message}`)
       this.onStatus('error', `Failed to start backend: ${err.message}`)
       this.process = null
     })
@@ -127,7 +143,7 @@ class BackendManager {
     if (!this.process) return
 
     const pid = this.process.pid
-    console.log(`[backend] Stopping process tree (PID: ${pid})`)
+    logToFile(`[backend] Stopping process tree (PID: ${pid})`)
 
     try {
       // Windows: kill entire process tree
@@ -137,7 +153,7 @@ class BackendManager {
         this.process.kill('SIGTERM')
       }
     } catch (err) {
-      console.error('[backend] Kill error:', err.message)
+      logToFile(`[backend] Kill error: ${err.message}`)
     }
 
     this.process = null
@@ -168,7 +184,7 @@ class BackendManager {
           stdio: ['pipe', 'pipe', 'pipe'],
         })
         const version = result.toString().trim()
-        console.log(`[backend] Found: ${cmd} (${version})`)
+        logToFile(`[backend] Found: ${cmd} (${version})`)
         return cmd
       } catch {}
     }
@@ -182,10 +198,18 @@ class BackendManager {
   _healthCheck() {
     return new Promise((resolve) => {
       const req = http.get(HEALTH_URL, { timeout: 2000 }, (res) => {
+        logToFile(`[health] Response: ${res.statusCode}`)
         resolve(res.statusCode === 200)
       })
-      req.on('error', () => resolve(false))
-      req.on('timeout', () => { req.destroy(); resolve(false) })
+      req.on('error', (err) => {
+        logToFile(`[health] Error: ${err.message}`)
+        resolve(false)
+      })
+      req.on('timeout', () => {
+        logToFile('[health] Timeout')
+        req.destroy()
+        resolve(false)
+      })
     })
   }
 
