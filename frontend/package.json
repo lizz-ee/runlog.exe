@@ -40,7 +40,7 @@
   "main": "electron/main.js",
   "build": {
     "appId": "com.runlog.marathon",
-    "productName": "Marathon RunLog",
+    "productName": "RunLog",
     "directories": {
       "output": "../release"
     },

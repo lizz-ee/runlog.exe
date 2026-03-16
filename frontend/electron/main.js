@@ -1,4 +1,4 @@
-const { app, BrowserWindow, globalShortcut, Tray, Menu, Notification, nativeImage, ipcMain } = require('electron')
+const { app, BrowserWindow, Tray, Menu, Notification, nativeImage, ipcMain } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const http = require('http')
@@ -414,27 +414,19 @@ function createTray() {
   )
 
   tray = new Tray(icon)
-  tray.setToolTip('Marathon RunLog — watching for screenshots')
+  tray.setToolTip('RunLog')
 
   const contextMenu = Menu.buildFromTemplate([
     { label: 'Show RunLog', click: () => mainWindow.show() },
-    { type: 'separator' },
-    {
-      label: 'Capture Run (Ctrl+Shift+F5)',
-      click: handleRunScreenshot,
-    },
-    {
-      label: 'Capture Spawn (Ctrl+Shift+F6)',
-      click: handleSpawnScreenshot,
-    },
-    { type: 'separator' },
-    { label: 'Steam F12 auto-detect: ON', enabled: false },
     { type: 'separator' },
     {
       label: 'Quit',
       click: () => {
         app.isQuitting = true
         if (steamWatcher) steamWatcher.stop()
+        if (screenWatcher) screenWatcher.stop()
+        if (recordingManager) recordingManager.stop()
+        if (backendManager) backendManager.stop()
         app.quit()
       },
     },
@@ -496,10 +488,6 @@ app.whenReady().then(async () => {
     }
   }
 
-  // Register global hotkeys (work even when game is focused)
-  globalShortcut.register('Ctrl+Shift+F5', handleRunScreenshot)
-  globalShortcut.register('Ctrl+Shift+F6', handleSpawnScreenshot)
-
   // Start watching Steam screenshot folder
   startSteamWatcher()
 
@@ -530,7 +518,6 @@ app.whenReady().then(async () => {
 })
 
 app.on('will-quit', () => {
-  globalShortcut.unregisterAll()
   if (steamWatcher) steamWatcher.stop()
   if (screenWatcher) screenWatcher.stop()
   if (recordingManager) recordingManager.stop()
