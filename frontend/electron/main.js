@@ -92,12 +92,7 @@ function createWindow() {
 // ── Tray ────────────────────────────────────────────────────────────
 
 function createTray() {
-  const icon = nativeImage.createFromBuffer(
-    Buffer.from(
-      'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAARklEQVQ4T2P8z8Dwn4EIwMjAwMBEjAYGBgYGFmI0MDAwMBAyACRANBBrAMkuINoAkl1AtAEku4BoA0h2AcZoYCBkOzYAAFraEBGVSXgEAAAAAElFTkSuQmCC',
-      'base64'
-    )
-  )
+  const icon = nativeImage.createFromPath(path.join(__dirname, 'icon.png'))
 
   tray = new Tray(icon)
   tray.setToolTip('RunLog')

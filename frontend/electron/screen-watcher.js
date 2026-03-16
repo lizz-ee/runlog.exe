@@ -57,10 +57,10 @@ class ScreenWatcher {
 
     // Keyframes directory (set by main.js from recording manager)
     this._keyframesDir = null
-    // OCR throttle — max once every 5 seconds normally, 1 second during results
+    // OCR throttle — max once every 3 seconds normally, 1 second during rapid mode
     this._lastOcrTime = 0
-    this._ocrCooldown = 5000
-    this._rapidOcrUntil = 0  // timestamp when rapid OCR mode ends
+    this._ocrCooldown = 3000
+    this._rapidOcrUntil = 0
   }
 
   setKeyframesDir(dir) {

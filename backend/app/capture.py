@@ -33,9 +33,9 @@ class CaptureEngine:
     def __init__(
         self,
         fps: int = 60,
-        buffer_seconds: int = 180,
+        buffer_seconds: int = 300,
         clips_dir: str | None = None,
-        detection_fps: int = 1,
+        detection_fps: int = 2,
     ):
         self.fps = fps
         self.buffer_seconds = buffer_seconds
