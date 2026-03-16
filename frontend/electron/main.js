@@ -5,11 +5,13 @@ const http = require('http')
 const { SteamScreenshotWatcher } = require('./steam-watcher')
 const { ScreenWatcher } = require('./screen-watcher')
 const { BackendManager } = require('./backend-manager')
+const { RecordingManager } = require('./recording-manager')
 
 const isDev = !app.isPackaged
 const API_BASE = 'http://127.0.0.1:8000'
 
 let backendManager = null
+let recordingManager = null
 
 // Marathon Steam App ID
 const MARATHON_APP_ID = '3065800'
@@ -242,6 +244,17 @@ function startScreenWatcher() {
       case 'run_ended':
         const outcome = event.survived ? 'EXFILTRATED' : 'ELIMINATED'
         showNotification('RunLog', `${outcome} — capturing results...`)
+        // Save clip from recording buffer
+        if (recordingManager && recordingManager.isActive()) {
+          recordingManager.saveClip(Date.now(), 20, 5, {
+            event: event.survived ? 'exfil' : 'death',
+          }).then(clip => {
+            if (clip) {
+              showNotification('RunLog', `Clip saved: ${clip.eventType} (${clip.duration}s)`)
+              sendToRenderer('clip-saved', clip)
+            }
+          }).catch(err => console.error('[clip] Save failed:', err.message))
+        }
         break
 
       case 'results_ready':
@@ -490,8 +503,23 @@ app.whenReady().then(async () => {
   // Start watching Steam screenshot folder
   startSteamWatcher()
 
-  // Start auto-capture screen watcher
+  // Start recording manager (FFmpeg continuous capture)
+  const userDataPath = app.getPath('userData')
+  recordingManager = new RecordingManager({
+    segmentsDir: path.join(userDataPath, 'recordings', 'segments'),
+    keyframesDir: path.join(userDataPath, 'recordings', 'keyframes'),
+    clipsDir: path.join(userDataPath, 'recordings', 'clips'),
+  }, (status, message) => {
+    console.log(`[recording] ${status}: ${message}`)
+    sendToRenderer('recording-status', { status, message })
+  })
+  recordingManager.start()
+
+  // Start auto-capture screen watcher (uses keyframes from recording manager)
   startScreenWatcher()
+  if (screenWatcher && recordingManager) {
+    screenWatcher.setKeyframesDir(path.join(userDataPath, 'recordings', 'keyframes'))
+  }
 
   console.log('=== Marathon RunLog ===')
   console.log('Hotkeys:')
@@ -505,6 +533,7 @@ app.on('will-quit', () => {
   globalShortcut.unregisterAll()
   if (steamWatcher) steamWatcher.stop()
   if (screenWatcher) screenWatcher.stop()
+  if (recordingManager) recordingManager.stop()
   if (backendManager) backendManager.stop()
 })
 

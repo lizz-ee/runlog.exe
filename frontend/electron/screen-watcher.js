@@ -8,6 +8,8 @@
  */
 
 const http = require('http')
+const fs = require('fs')
+const path = require('path')
 const { exec } = require('child_process')
 
 const API_BASE = 'http://127.0.0.1:8000'
@@ -53,8 +55,12 @@ class ScreenWatcher {
     this.lastDetectionTime = 0
     this.captureCount = 0
 
-    // Screenshot module (lazy loaded)
-    this._screenshot = null
+    // Keyframes directory (set by main.js from recording manager)
+    this._keyframesDir = null
+  }
+
+  setKeyframesDir(dir) {
+    this._keyframesDir = dir
   }
 
   async start() {
@@ -333,14 +339,22 @@ class ScreenWatcher {
 
   async _captureScreen() {
     try {
-      if (!this._screenshot) {
-        this._screenshot = require('screenshot-desktop')
+      // Read latest keyframe from recording manager
+      if (this._keyframesDir) {
+        const latestPath = path.join(this._keyframesDir, 'latest.jpg')
+        if (fs.existsSync(latestPath)) {
+          const buffer = fs.readFileSync(latestPath)
+          this.captureCount++
+          return buffer
+        }
       }
-      const buffer = await this._screenshot({ format: 'png' })
+      // Fallback to screenshot-desktop if no keyframes available
+      const screenshot = require('screenshot-desktop')
+      const buffer = await screenshot({ format: 'png' })
       this.captureCount++
       return buffer
     } catch (err) {
-      console.error('[watcher] Capture failed:', err.message)
+      // Silently fail — recording may not be active yet
       return null
     }
   }
