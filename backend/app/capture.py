@@ -278,11 +278,29 @@ class CaptureEngine:
     # ── Detection frame from ring buffer ─────────────────────────────
 
     def _decode_keyframe_background(self, pkt_bytes):
-        """Decode a keyframe H.264 packet to JPEG in a background thread.
-        Uses a temporary ffmpeg call to decode the single packet.
-        Runs ~30ms, happens once per second, never blocks capture."""
+        """Decode a keyframe from the ring buffer to JPEG in a background thread.
+        Grabs the last few packets (from keyframe) and decodes via ffmpeg.
+        Runs ~50ms, happens once per second, never blocks capture."""
         try:
-            # Use ffmpeg to decode single keyframe from raw H.264
+            # Get recent packets from ring buffer (from last keyframe onwards)
+            with self._lock:
+                # Find last keyframe and take packets from there
+                recent = []
+                found_kf = False
+                for p in reversed(list(self._ring)):
+                    recent.insert(0, p['data'])
+                    if p['kf']:
+                        found_kf = True
+                        break
+                    if len(recent) > 5:
+                        break
+
+            if not found_kf or not recent:
+                return
+
+            # Concatenate packets into a mini mpegts stream
+            ts_data = b''.join(recent)
+
             proc = subprocess.Popen(
                 ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
                  '-f', 'mpegts', '-i', 'pipe:0',
@@ -290,8 +308,8 @@ class CaptureEngine:
                  '-q:v', '5', 'pipe:1'],
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             )
-            jpeg, _ = proc.communicate(input=pkt_bytes, timeout=3)
-            if jpeg and len(jpeg) > 100:
+            jpeg, _ = proc.communicate(input=ts_data, timeout=5)
+            if jpeg and len(jpeg) > 1000:
                 with self._frame_lock:
                     self._latest_frame = jpeg
         except Exception:

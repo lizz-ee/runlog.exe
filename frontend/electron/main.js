@@ -70,6 +70,7 @@ function createWindow() {
     minHeight: 600,
     backgroundColor: '#0a0a0f',
     frame: false,
+    icon: path.join(__dirname, 'icon.ico'),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
