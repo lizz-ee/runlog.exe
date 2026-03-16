@@ -278,39 +278,67 @@ class CaptureEngine:
     # ── Detection frame from ring buffer ─────────────────────────────
 
     def _decode_keyframe_background(self, pkt_bytes):
-        """Decode a keyframe from the ring buffer to JPEG in a background thread.
-        Grabs the last few packets (from keyframe) and decodes via ffmpeg.
-        Runs ~50ms, happens once per second, never blocks capture."""
+        """Decode a frame from the ring buffer to JPEG in a background thread.
+        Saves 1 second of buffer to a temp MP4, extracts one frame via ffmpeg.
+        Runs ~100ms, happens once per second, never blocks capture."""
         try:
-            # Get recent packets from ring buffer (from last keyframe onwards)
-            with self._lock:
-                # Find last keyframe and take packets from there
-                recent = []
-                found_kf = False
-                for p in reversed(list(self._ring)):
-                    recent.insert(0, p['data'])
-                    if p['kf']:
-                        found_kf = True
-                        break
-                    if len(recent) > 5:
-                        break
+            import tempfile
 
-            if not found_kf or not recent:
+            # Snapshot recent packets (1 second from last keyframe)
+            with self._lock:
+                packets = []
+                for p in reversed(list(self._ring)):
+                    packets.insert(0, p)
+                    if p['kf'] and len(packets) > 1:
+                        break
+                    if len(packets) > self.fps:
+                        break
+                extradata = self._extradata
+
+            if not packets or not extradata:
                 return
 
-            # Concatenate packets into a mini mpegts stream
-            ts_data = b''.join(recent)
+            # Write mini MP4
+            tmp_mp4 = os.path.join(tempfile.gettempdir(), 'runlog_detect.mp4')
+            tmp_jpg = os.path.join(tempfile.gettempdir(), 'runlog_detect.jpg')
 
+            output = av.open(tmp_mp4, mode='w')
+            out_stream = output.add_stream('h264', rate=self.fps)
+            out_stream.width = self.capture_width
+            out_stream.height = self.capture_height
+            out_stream.codec_context.extradata = extradata
+
+            for i, p in enumerate(packets[-10:]):  # last 10 packets
+                pkt = av.Packet(p['data'])
+                pkt.pts = i
+                pkt.dts = i
+                pkt.stream = out_stream
+                pkt.is_keyframe = p['kf']
+                pkt.time_base = Fraction(1, self.fps)
+                output.mux(pkt)
+            output.close()
+
+            # Extract last frame as JPEG
             proc = subprocess.Popen(
                 ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
-                 '-f', 'mpegts', '-i', 'pipe:0',
-                 '-frames:v', '1', '-f', 'image2pipe', '-c:v', 'mjpeg',
-                 '-q:v', '5', 'pipe:1'],
-                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                 '-sseof', '-0.1', '-i', tmp_mp4,
+                 '-frames:v', '1', '-q:v', '5', tmp_jpg],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             )
-            jpeg, _ = proc.communicate(input=ts_data, timeout=5)
-            if jpeg and len(jpeg) > 1000:
+            proc.wait(timeout=5)
+
+            if os.path.exists(tmp_jpg) and os.path.getsize(tmp_jpg) > 1000:
+                with open(tmp_jpg, 'rb') as f:
+                    jpeg = f.read()
                 with self._frame_lock:
                     self._latest_frame = jpeg
-        except Exception:
+
+            # Cleanup
+            for f in [tmp_mp4, tmp_jpg]:
+                try:
+                    os.unlink(f)
+                except:
+                    pass
+
+        except Exception as e:
             pass
