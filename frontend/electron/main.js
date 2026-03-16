@@ -3,6 +3,7 @@ const path = require('path')
 const fs = require('fs')
 const http = require('http')
 const { SteamScreenshotWatcher } = require('./steam-watcher')
+const { ScreenWatcher } = require('./screen-watcher')
 
 const isDev = !app.isPackaged
 const API_BASE = 'http://localhost:8000'
@@ -13,6 +14,7 @@ const MARATHON_APP_ID = '3065800'
 let mainWindow = null
 let tray = null
 let steamWatcher = null
+let screenWatcher = null
 
 // ── Screenshot capture ──────────────────────────────────────────────
 
@@ -219,6 +221,118 @@ function startSteamWatcher() {
   }
 }
 
+// ── Auto-capture screen watcher ──────────────────────────────────────
+
+function startScreenWatcher() {
+  screenWatcher = new ScreenWatcher((event) => {
+    console.log(`[auto-capture] ${event.type}`, event.state || event.detected || '')
+
+    // Forward all events to renderer
+    sendToRenderer('auto-capture-event', event)
+
+    // Handle specific events
+    switch (event.type) {
+      case 'state_change':
+        updateTrayMenu()
+        break
+
+      case 'run_ended':
+        const outcome = event.survived ? 'EXFILTRATED' : 'ELIMINATED'
+        showNotification('RunLog', `${outcome} — capturing results...`)
+        break
+
+      case 'results_ready':
+        handleAutoResults(event)
+        break
+
+      case 'ready_up':
+        showNotification('RunLog', 'Ready up detected — good luck!')
+        break
+
+      case 'loading_screen':
+        showNotification('RunLog', 'Loading into match...')
+        break
+    }
+  })
+
+  screenWatcher.start()
+  console.log('[auto-capture] Screen watcher started')
+}
+
+async function handleAutoResults(event) {
+  const { context, screenshotCount } = event
+  if (screenshotCount === 0) {
+    console.log('[auto-capture] No screenshots captured for results')
+    return
+  }
+
+  showNotification('RunLog', `Parsing ${screenshotCount} result screenshot(s)...`)
+
+  // Upload each captured screenshot to Claude for parsing
+  for (const ss of context.screenshots) {
+    try {
+      const parsed = await uploadScreenshot(ss.buffer, '/api/screenshot/parse')
+      const status = parsed.survived ? 'EXFILTRATED' : 'KIA'
+      const kills = (parsed.combatant_eliminations || 0) + (parsed.runner_eliminations || 0)
+      showNotification('RunLog - Auto Capture', `${status} | ${kills} kills | $${parsed.loot_value_total || 0}`)
+      sendToRenderer('screenshot-parsed', { type: 'run', data: parsed, timestamp: Date.now(), auto: true })
+    } catch (err) {
+      console.error('[auto-capture] Parse failed:', err.message)
+    }
+  }
+}
+
+function updateTrayMenu() {
+  if (!tray || !screenWatcher) return
+  const status = screenWatcher.getStatus()
+  const stateLabel = {
+    IDLE: 'Idle (Marathon not focused)',
+    LOBBY: 'Watching lobby...',
+    IN_RUN: 'In run — monitoring...',
+    RUN_ENDED: 'Run ended — capturing...',
+    RESULTS: 'Capturing results...',
+    COOLDOWN: 'Cooldown...',
+  }[status.state] || status.state
+
+  const contextMenu = Menu.buildFromTemplate([
+    { label: 'Show RunLog', click: () => mainWindow.show() },
+    { type: 'separator' },
+    { label: `Auto-Capture: ${status.enabled ? 'ON' : 'OFF'}`, enabled: false },
+    { label: `  Status: ${stateLabel}`, enabled: false },
+    { label: `  Captures: ${status.captureCount}`, enabled: false },
+    { type: 'separator' },
+    {
+      label: status.enabled ? 'Disable Auto-Capture' : 'Enable Auto-Capture',
+      click: () => {
+        if (status.enabled) screenWatcher.stop()
+        else screenWatcher.start()
+        updateTrayMenu()
+      },
+    },
+    { type: 'separator' },
+    {
+      label: 'Capture Run (Ctrl+Shift+F5)',
+      click: handleRunScreenshot,
+    },
+    {
+      label: 'Capture Spawn (Ctrl+Shift+F6)',
+      click: handleSpawnScreenshot,
+    },
+    { type: 'separator' },
+    {
+      label: 'Quit',
+      click: () => {
+        app.isQuitting = true
+        if (steamWatcher) steamWatcher.stop()
+        if (screenWatcher) screenWatcher.stop()
+        app.quit()
+      },
+    },
+  ])
+
+  tray.setContextMenu(contextMenu)
+}
+
 // ── Window ──────────────────────────────────────────────────────────
 
 function createWindow() {
@@ -310,11 +424,15 @@ app.whenReady().then(() => {
   // Start watching Steam screenshot folder
   startSteamWatcher()
 
+  // Start auto-capture screen watcher
+  startScreenWatcher()
+
   console.log('=== Marathon RunLog ===')
   console.log('Hotkeys:')
   console.log('  Ctrl+Shift+F5 → Capture run results')
   console.log('  Ctrl+Shift+F6 → Capture spawn location')
   console.log('  F12 (Steam)   → Auto-detected and parsed')
+  console.log('  Auto-capture  → Watching for game states')
 })
 
 app.on('will-quit', () => {

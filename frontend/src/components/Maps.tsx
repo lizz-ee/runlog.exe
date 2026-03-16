@@ -133,11 +133,11 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
 
   return (
     <div className="max-w-7xl mx-auto">
-      <div className="grid grid-cols-[1fr_220px] gap-[1px] bg-m-border">
+      <div className="grid grid-cols-[1fr_220px]">
         {/* Map with draggable dots */}
         <div
           ref={mapRef}
-          className="bg-m-black relative w-full select-none"
+          className="relative w-full select-none"
           style={{ aspectRatio: '1.414', cursor: dragState ? 'grabbing' : 'default' }}
           onMouseMove={onMouseMove}
           onMouseUp={onMouseUp}
@@ -147,7 +147,7 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
             <img
               src={mapImage}
               alt={selectedMap}
-              className="absolute inset-0 w-full h-full opacity-80 pointer-events-none"
+              className="absolute inset-0 w-full h-full pointer-events-none"
               draggable={false}
             />
           ) : (
