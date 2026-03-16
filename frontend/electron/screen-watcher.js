@@ -346,24 +346,33 @@ class ScreenWatcher {
 
   async _captureScreen() {
     try {
-      // Read latest keyframe from recording manager
-      if (this._keyframesDir) {
-        const latestPath = path.join(this._keyframesDir, 'latest.jpg')
-        if (fs.existsSync(latestPath)) {
-          const buffer = fs.readFileSync(latestPath)
-          this.captureCount++
-          return buffer
-        }
+      // Fetch latest frame from capture engine API
+      const buffer = await this._fetchFrame()
+      if (buffer) {
+        this.captureCount++
+        return buffer
       }
-      // Fallback to screenshot-desktop if no keyframes available
+      // Fallback to screenshot-desktop
       const screenshot = require('screenshot-desktop')
-      const buffer = await screenshot({ format: 'png' })
+      const buf = await screenshot({ format: 'png' })
       this.captureCount++
-      return buffer
-    } catch (err) {
-      // Silently fail — recording may not be active yet
+      return buf
+    } catch {
       return null
     }
+  }
+
+  _fetchFrame() {
+    return new Promise((resolve) => {
+      const req = http.get('http://127.0.0.1:8000/api/capture/frame', { timeout: 2000 }, (res) => {
+        if (res.statusCode !== 200) return resolve(null)
+        const chunks = []
+        res.on('data', chunk => chunks.push(chunk))
+        res.on('end', () => resolve(Buffer.concat(chunks)))
+      })
+      req.on('error', () => resolve(null))
+      req.on('timeout', () => { req.destroy(); resolve(null) })
+    })
   }
 
   async _detect(imageBuffer, region) {

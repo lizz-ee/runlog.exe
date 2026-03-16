@@ -471,23 +471,15 @@ app.whenReady().then(async () => {
   // Start watching Steam screenshot folder
   startSteamWatcher()
 
-  // Start recording manager (FFmpeg continuous capture)
-  const userDataPath = app.getPath('userData')
-  recordingManager = new RecordingManager({
-    segmentsDir: path.join(userDataPath, 'recordings', 'segments'),
-    keyframesDir: path.join(userDataPath, 'recordings', 'keyframes'),
-    clipsDir: path.join(userDataPath, 'recordings', 'clips'),
-  }, (status, message) => {
+  // Start recording manager (PyAV capture engine via API)
+  recordingManager = new RecordingManager({}, (status, message) => {
     console.log(`[recording] ${status}: ${message}`)
     sendToRenderer('recording-status', { status, message })
   })
   recordingManager.start()
 
-  // Start auto-capture screen watcher (uses keyframes from recording manager)
+  // Start auto-capture screen watcher (fetches frames from capture API)
   startScreenWatcher()
-  if (screenWatcher && recordingManager) {
-    screenWatcher.setKeyframesDir(path.join(userDataPath, 'recordings', 'keyframes'))
-  }
 
   console.log('=== Marathon RunLog ===')
   console.log('Hotkeys:')
