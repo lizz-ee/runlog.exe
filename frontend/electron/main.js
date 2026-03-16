@@ -249,7 +249,8 @@ function startScreenWatcher() {
         break
 
       case 'ready_up':
-        showNotification('RunLog', 'Ready up detected — good luck!')
+        showNotification('RunLog', 'Ready up detected — capturing loadout...')
+        handleReadyUpCapture(event)
         break
 
       case 'loading_screen':
@@ -260,6 +261,27 @@ function startScreenWatcher() {
 
   screenWatcher.start()
   console.log('[auto-capture] Screen watcher started')
+}
+
+async function handleReadyUpCapture(event) {
+  if (!event.screenshot) return
+  try {
+    const parsed = await uploadScreenshot(event.screenshot, '/api/screenshot/parse')
+    console.log('[auto-capture] Ready-up parsed:', JSON.stringify(parsed).slice(0, 200))
+    // Store pre-run info in the screen watcher's context
+    if (screenWatcher) {
+      const ctx = screenWatcher.getStatus().runContext
+      if (ctx) {
+        ctx.shellName = parsed.shell_name || parsed.runner || null
+        ctx.mapName = parsed.map_name || null
+        ctx.preRunData = parsed
+      }
+    }
+    showNotification('RunLog', `Loadout captured: ${parsed.map_name || 'Unknown map'}`)
+    sendToRenderer('screenshot-parsed', { type: 'ready_up', data: parsed, timestamp: Date.now(), auto: true })
+  } catch (err) {
+    console.error('[auto-capture] Ready-up parse failed:', err.message)
+  }
 }
 
 async function handleAutoResults(event) {
