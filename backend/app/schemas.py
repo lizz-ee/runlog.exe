@@ -96,6 +96,7 @@ class RunCreate(BaseModel):
     runner_eliminations: int = 0
     deaths: int = 0
     assists: int = 0
+    crew_revives: int = 0
     loot_extracted: Optional[list] = None
     loot_value_total: float = 0.0
     duration_seconds: Optional[int] = None
@@ -113,6 +114,7 @@ class RunUpdate(BaseModel):
     kills: Optional[int] = None
     deaths: Optional[int] = None
     assists: Optional[int] = None
+    crew_revives: Optional[int] = None
     loot_extracted: Optional[list] = None
     loot_value_total: Optional[float] = None
     duration_seconds: Optional[int] = None
@@ -133,6 +135,7 @@ class RunOut(BaseModel):
     runner_eliminations: int
     deaths: int
     assists: int
+    crew_revives: int
     loot_extracted: Optional[list]
     loot_value_total: float
     duration_seconds: Optional[int]
@@ -141,6 +144,7 @@ class RunOut(BaseModel):
     screenshot_path: Optional[str]
     notes: Optional[str]
     session_id: Optional[int]
+    spawn_location: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -224,6 +228,10 @@ class ParsedScreenshot(BaseModel):
 
 # --- Stats ---
 
+class MapTime(BaseModel):
+    map_name: str
+    total_seconds: int = 0
+
 class OverviewStats(BaseModel):
     total_runs: int = 0
     total_survived: int = 0
@@ -231,9 +239,14 @@ class OverviewStats(BaseModel):
     total_kills: int = 0
     total_deaths: int = 0
     total_assists: int = 0
+    total_revives: int = 0
     kd_ratio: float = 0.0
     total_loot_value: float = 0.0
     avg_kills_per_run: float = 0.0
     avg_loot_per_run: float = 0.0
     favorite_map: Optional[str] = None
     favorite_runner: Optional[str] = None
+    favorite_squad_mate: Optional[str] = None
+    favorite_squad_mate_runs: int = 0
+    total_time_seconds: int = 0
+    time_by_map: list[MapTime] = []

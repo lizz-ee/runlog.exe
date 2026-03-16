@@ -4,6 +4,13 @@ import { getRuns, deleteRun } from '../lib/api'
 import { useStore } from '../lib/store'
 import type { Run } from '../lib/types'
 
+function formatDuration(seconds: number | null): string {
+  if (!seconds) return '—'
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
 export default function RunHistory() {
   const { runs, setRuns } = useStore()
   const [filter, setFilter] = useState<'all' | 'survived' | 'died'>('all')
@@ -73,6 +80,20 @@ export default function RunHistory() {
         </span>
       </div>
 
+      {/* Column headers */}
+      <div className="grid grid-cols-[50px_6px_110px_1fr_40px_40px_30px_30px_75px_50px] items-center gap-x-3 px-4 py-2 border-b border-m-border">
+        <span className="label-tag text-m-text-muted text-center">STATUS</span>
+        <span />
+        <span className="label-tag text-m-text-muted">DATE</span>
+        <span className="label-tag text-m-text-muted">LOCATION</span>
+        <span className="label-tag text-m-text-muted text-right">PVE</span>
+        <span className="label-tag text-m-text-muted text-right">RNR</span>
+        <span className="label-tag text-m-text-muted text-right">DEATH</span>
+        <span className="label-tag text-m-text-muted text-right">REV</span>
+        <span className="label-tag text-m-text-muted text-right">LOOT</span>
+        <span className="label-tag text-m-text-muted text-right">TIME</span>
+      </div>
+
       {/* Run List */}
       {filtered.length === 0 ? (
         <div className="border border-1 border-m-border bg-m-card p-10 text-center">
@@ -96,59 +117,128 @@ function RunRow({ run, onDelete }: { run: Run; onDelete: () => void }) {
     <div>
       <div
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-4 px-4 py-3 bg-m-card hover:bg-m-surface transition-colors cursor-pointer"
+        className="grid grid-cols-[50px_6px_110px_1fr_40px_40px_30px_30px_75px_50px] items-center gap-x-3 px-4 py-3 bg-m-card hover:bg-m-surface transition-colors cursor-pointer"
       >
-        <div className={`w-1.5 h-8 ${run.survived ? 'bg-m-green' : 'bg-m-red'}`} />
-        <span className="label-tag text-m-text-muted w-32 shrink-0">
-          {format(new Date(run.date), 'yyyy.MM.dd HH:mm')}
-        </span>
-        <span className="text-xs text-m-text tracking-wider flex-1 uppercase">
-          {run.map_name ?? 'UNKNOWN ZONE'}
-        </span>
-        <div className="flex items-center gap-3 font-mono text-xs">
-          <span className="text-m-green">{run.combatant_eliminations || 0}<span className="text-m-text-muted text-2xs">PVE</span></span>
-          <span className="text-m-cyan">{run.runner_eliminations || 0}<span className="text-m-text-muted text-2xs">PVP</span></span>
-          <span className="text-m-red">{run.deaths}<span className="text-m-text-muted text-2xs">D</span></span>
-        </div>
-        <span className={`text-xs font-mono w-20 text-right ${
-          run.loot_value_total >= 0 ? 'text-m-yellow' : 'text-m-red'
-        }`}>
-          ${run.loot_value_total.toLocaleString()}
-        </span>
-        <span className={`label-tag px-2 py-1 border border-1 ${
+        {/* Status badge */}
+        <span className={`label-tag px-2 py-0.5 border border-1 text-center ${
           run.survived
             ? 'border-m-green/30 text-m-green bg-m-green-glow'
             : 'border-m-red/30 text-m-red bg-m-red-glow'
         }`}>
           {run.survived ? 'EXFIL' : 'KIA'}
         </span>
+
+        {/* Status bar */}
+        <div className={`w-1.5 h-8 ${run.survived ? 'bg-m-green' : 'bg-m-red'}`} />
+
+        {/* Timestamp */}
+        <span className="label-tag text-m-text-muted">
+          {format(new Date(run.date), 'yyyy.MM.dd HH:mm')}
+        </span>
+
+        {/* Map + Spawn */}
+        <span className="text-xs text-m-text tracking-wider uppercase truncate">
+          {run.map_name ?? 'UNKNOWN'}
+          {run.spawn_location && (
+            <span className="text-m-text-muted"> — {run.spawn_location}</span>
+          )}
+        </span>
+
+        <span className={`text-xs font-mono text-right ${run.combatant_eliminations ? 'text-m-green' : 'text-m-text-muted'}`}>
+          {run.combatant_eliminations || 0}<span className="text-m-text-muted text-2xs">PVE</span>
+        </span>
+        <span className={`text-xs font-mono text-right ${run.runner_eliminations ? 'text-m-cyan' : 'text-m-text-muted'}`}>
+          {run.runner_eliminations || 0}<span className="text-m-text-muted text-2xs">RNR</span>
+        </span>
+        <span className={`text-xs font-mono text-right ${run.deaths ? 'text-m-red' : 'text-m-text-muted'}`}>
+          {run.deaths}<span className="text-m-text-muted text-2xs">D</span>
+        </span>
+        <span className={`text-xs font-mono text-right ${run.crew_revives ? 'text-m-green' : 'text-m-text-muted'}`}>
+          {run.crew_revives || 0}<span className="text-m-text-muted text-2xs">R</span>
+        </span>
+        <span className={`text-xs font-mono text-right ${
+          run.loot_value_total >= 0 ? 'text-m-yellow' : 'text-m-red'
+        }`}>
+          ${run.loot_value_total.toLocaleString()}
+        </span>
+        <span className="text-xs font-mono text-m-text-muted text-right">
+          {formatDuration(run.duration_seconds)}
+        </span>
       </div>
 
       {expanded && (
-        <div className="px-4 py-3 bg-m-surface border-t border-m-border space-y-2">
-          {run.duration_seconds && (
-            <p className="text-xs text-m-text-dim font-mono">
-              DURATION: {Math.floor(run.duration_seconds / 60)}:{String(run.duration_seconds % 60).padStart(2, '0')}
-            </p>
-          )}
-          {run.notes && <p className="text-xs text-m-text">{run.notes}</p>}
-          {run.loot_extracted && run.loot_extracted.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {run.loot_extracted.map((item, i) => (
-                <span key={i} className="label-tag bg-m-card border border-1 border-m-border px-2 py-1 text-m-yellow">
-                  {item.name}: ${item.value}
-                </span>
-              ))}
+        <div className="px-6 py-4 bg-m-surface border-t border-m-border">
+          <div className="grid grid-cols-3 gap-6">
+            {/* Left column - Run details */}
+            <div className="space-y-2">
+              <p className="label-tag text-m-green mb-2">RUN DETAILS</p>
+              <DetailRow label="MAP" value={run.map_name ?? '—'} />
+              <DetailRow label="SPAWN" value={run.spawn_location ?? 'Unknown'} />
+              <DetailRow label="OUTCOME" value={run.survived ? 'Exfiltrated' : 'Eliminated'}
+                color={run.survived ? 'green' : 'red'} />
+              <DetailRow label="DURATION" value={formatDuration(run.duration_seconds)} />
+              <DetailRow label="DATE" value={format(new Date(run.date), 'yyyy.MM.dd HH:mm:ss')} />
+            </div>
+
+            {/* Middle column - Combat */}
+            <div className="space-y-2">
+              <p className="label-tag text-m-green mb-2">COMBAT</p>
+              <DetailRow label="PVE KILLS" value={String(run.combatant_eliminations || 0)} color="green" />
+              <DetailRow label="RUNNER KILLS" value={String(run.runner_eliminations || 0)} color="cyan" />
+              <DetailRow label="DEATHS" value={String(run.deaths)} color={run.deaths > 0 ? 'red' : undefined} />
+              <DetailRow label="REVIVES" value={String(run.crew_revives || 0)} color="green" />
+              <DetailRow label="ASSISTS" value={String(run.assists || 0)} />
+              <DetailRow label="TOTAL KILLS" value={String((run.combatant_eliminations || 0) + (run.runner_eliminations || 0))} />
+            </div>
+
+            {/* Right column - Loot & Squad */}
+            <div className="space-y-2">
+              <p className="label-tag text-m-green mb-2">LOOT & SQUAD</p>
+              <DetailRow label="INVENTORY" value={`$${run.loot_value_total.toLocaleString()}`}
+                color={run.loot_value_total >= 0 ? 'yellow' : 'red'} />
+              <DetailRow label="SQUAD SIZE" value={run.squad_size ? `${run.squad_size} players` : 'Solo'} />
+              {run.squad_members && run.squad_members.length > 0 && (
+                <div>
+                  <span className="text-[9px] text-m-text-muted uppercase">SQUAD</span>
+                  <div className="mt-0.5">
+                    {run.squad_members.map((m, i) => (
+                      <p key={i} className="text-[10px] font-mono text-m-text">{m}</p>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Notes */}
+          {run.notes && (
+            <div className="mt-4 pt-3 border-t border-m-border">
+              <p className="label-tag text-m-text-muted mb-1">NOTES</p>
+              <p className="text-xs text-m-text">{run.notes}</p>
             </div>
           )}
-          <button
-            onClick={(e) => { e.stopPropagation(); onDelete() }}
-            className="label-tag text-m-red/40 hover:text-m-red transition-colors"
-          >
-            DELETE RECORD
-          </button>
+
+          {/* Delete */}
+          <div className="mt-4 pt-3 border-t border-m-border">
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete() }}
+              className="label-tag text-m-red/40 hover:text-m-red transition-colors"
+            >
+              DELETE RECORD
+            </button>
+          </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function DetailRow({ label, value, color }: { label: string; value: string; color?: 'green' | 'red' | 'yellow' | 'cyan' }) {
+  const c = color === 'green' ? 'text-m-green' : color === 'red' ? 'text-m-red' : color === 'yellow' ? 'text-m-yellow' : color === 'cyan' ? 'text-m-cyan' : 'text-m-text'
+  return (
+    <div className="flex justify-between">
+      <span className="text-[9px] text-m-text-muted uppercase">{label}</span>
+      <span className={`text-[10px] font-mono ${c}`}>{value}</span>
     </div>
   )
 }

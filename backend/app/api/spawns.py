@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session as DBSession
 from PIL import Image
 import io
 
+from pydantic import BaseModel
+
 from ..database import get_db
 from ..models import SpawnPoint
 from ..config import settings
@@ -89,6 +91,33 @@ def create_spawn(data: SpawnPointCreate, db: DBSession = Depends(get_db)):
     return spawn
 
 
+class CoordsUpdate(BaseModel):
+    map_name: str
+    spawn_location: str
+    x: float
+    y: float
+
+
+@router.put("/update-coords")
+def update_spawn_coords(body: CoordsUpdate, db: DBSession = Depends(get_db)):
+    """Update x,y coordinates for a spawn point by map + location name."""
+    q = db.query(SpawnPoint).filter(
+        SpawnPoint.map_name == body.map_name,
+        SpawnPoint.spawn_location == body.spawn_location,
+    )
+    spawns = q.all()
+
+    if not spawns:
+        raise HTTPException(status_code=404, detail=f"No spawn found for {body.map_name}/{body.spawn_location}")
+
+    for s in spawns:
+        s.x = body.x
+        s.y = body.y
+
+    db.commit()
+    return {"updated": len(spawns), "map": body.map_name, "location": body.spawn_location, "x": body.x, "y": body.y}
+
+
 @router.get("/", response_model=list[SpawnPointOut])
 def list_spawns(map_name: str = None, db: DBSession = Depends(get_db)):
     q = db.query(SpawnPoint)
@@ -118,20 +147,27 @@ def spawn_heatmap(db: DBSession = Depends(get_db)):
                 "count": 0,
                 "runs_survived": 0,
                 "runs_died": 0,
+                "total_loot": 0,
+                "total_time": 0,
+                "total_kills": 0,
             }
 
         entry = maps[map_key][loc_key]
         entry["count"] += 1
-        # Update x/y if this entry doesn't have one yet
-        if entry["x"] is None and s.x is not None:
+        # Update x/y with latest coords
+        if s.x is not None:
             entry["x"] = s.x
             entry["y"] = s.y
 
-        if s.run and s.run.survived is not None:
-            if s.run.survived:
-                entry["runs_survived"] += 1
-            else:
-                entry["runs_died"] += 1
+        if s.run:
+            if s.run.survived is not None:
+                if s.run.survived:
+                    entry["runs_survived"] += 1
+                else:
+                    entry["runs_died"] += 1
+            entry["total_loot"] += s.run.loot_value_total or 0
+            entry["total_time"] += s.run.duration_seconds or 0
+            entry["total_kills"] += (s.run.combatant_eliminations or 0) + (s.run.runner_eliminations or 0)
 
     result = []
     for mn, locations in maps.items():
@@ -139,6 +175,8 @@ def spawn_heatmap(db: DBSession = Depends(get_db)):
         for loc in loc_list:
             total = loc["runs_survived"] + loc["runs_died"]
             loc["survival_rate"] = round(loc["runs_survived"] / total * 100, 1) if total else None
+            loc["avg_loot"] = round(loc["total_loot"] / total, 0) if total else None
+            loc["avg_time"] = round(loc["total_time"] / total) if total else None
         result.append({
             "map": mn,
             "total_spawns": sum(l["count"] for l in loc_list),

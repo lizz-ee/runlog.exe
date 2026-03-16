@@ -40,6 +40,7 @@ export interface Run {
   runner_eliminations: number
   deaths: number
   assists: number
+  crew_revives: number
   loot_extracted: LootItem[] | null
   loot_value_total: number
   duration_seconds: number | null
@@ -48,6 +49,7 @@ export interface Run {
   screenshot_path: string | null
   notes: string | null
   session_id: number | null
+  spawn_location: string | null
   created_at: string
 }
 
@@ -86,6 +88,11 @@ export interface ParsedScreenshot {
   confidence: string | null
 }
 
+export interface MapTime {
+  map_name: string
+  total_seconds: number
+}
+
 export interface OverviewStats {
   total_runs: number
   total_survived: number
@@ -93,12 +100,17 @@ export interface OverviewStats {
   total_kills: number
   total_deaths: number
   total_assists: number
+  total_revives: number
   kd_ratio: number
   total_loot_value: number
   avg_kills_per_run: number
   avg_loot_per_run: number
   favorite_map: string | null
   favorite_runner: string | null
+  favorite_squad_mate: string | null
+  favorite_squad_mate_runs: number
+  total_time_seconds: number
+  time_by_map: MapTime[]
 }
 
 export interface MapStats {
@@ -106,10 +118,15 @@ export interface MapStats {
   runs: number
   survived: number
   kills: number
+  pve_kills: number
+  pvp_kills: number
   deaths: number
   loot: number
+  time: number
   survival_rate: number
   kd: number
+  avg_loot: number
+  avg_time: number
 }
 
 export interface TrendData {
@@ -141,6 +158,11 @@ export interface SpawnHeatmapEntry {
   runs_survived: number
   runs_died: number
   survival_rate: number | null
+  total_loot: number
+  total_time: number
+  total_kills: number
+  avg_loot: number | null
+  avg_time: number | null
 }
 
 export interface SpawnHeatmap {

@@ -63,6 +63,7 @@ class Run(Base):
     runner_eliminations = Column(Integer, default=0)
     deaths = Column(Integer, default=0)
     assists = Column(Integer, default=0)
+    crew_revives = Column(Integer, default=0)
     loot_extracted = Column(JSON, nullable=True)
     loot_value_total = Column(Float, default=0.0)
     duration_seconds = Column(Integer, nullable=True)
@@ -77,6 +78,10 @@ class Run(Base):
     loadout = relationship("Loadout", back_populates="runs")
     session = relationship("Session", back_populates="runs")
     spawn_point = relationship("SpawnPoint", back_populates="run", uselist=False)
+
+    @property
+    def spawn_location(self) -> str | None:
+        return self.spawn_point.spawn_location if self.spawn_point else None
 
 
 class SpawnPoint(Base):
