@@ -71,6 +71,22 @@ export default function App() {
         {view === 'dashboard' && <Dashboard />}
         {view === 'history' && <RunHistory />}
         {mapName && <Maps selectedMap={mapName} />}
+        {view === 'live' && (
+          <div className="max-w-6xl mx-auto space-y-6">
+            <div>
+              <p className="label-tag text-m-green">CAPTURE / LIVE</p>
+              <h2 className="text-xl font-display font-black tracking-wider text-m-text mt-1">
+                AUTO-CAPTURE
+              </h2>
+            </div>
+            <div className="border border-1 border-m-border bg-m-card p-10 text-center">
+              <p className="text-m-text-muted text-sm">AUTO-CAPTURE COMING SOON</p>
+              <p className="label-tag text-m-text-muted mt-2">
+                REQUIRES ELECTRON APP MODE
+              </p>
+            </div>
+          </div>
+        )}
       </main>
       <Toasts />
     </div>

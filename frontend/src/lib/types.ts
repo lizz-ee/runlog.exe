@@ -178,4 +178,4 @@ export interface SpawnHeatmap {
   locations: SpawnHeatmapEntry[]
 }
 
-export type View = 'dashboard' | 'history' | 'map-perimeter' | 'map-dire-marsh' | 'map-outpost' | 'map-cryo-archive'
+export type View = 'dashboard' | 'history' | 'map-perimeter' | 'map-dire-marsh' | 'map-outpost' | 'map-cryo-archive' | 'live'

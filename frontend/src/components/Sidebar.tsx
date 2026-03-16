@@ -1,13 +1,41 @@
 import { useStore } from '../lib/store'
 import type { View } from '../lib/types'
 
-const navItems: { view: View; label: string; tag: string; disabled?: boolean }[] = [
-  { view: 'dashboard', label: 'OVERVIEW', tag: '01' },
-  { view: 'history', label: 'ARCHIVE', tag: '02' },
-  { view: 'map-perimeter', label: 'PERIMETER', tag: '03' },
-  { view: 'map-dire-marsh', label: 'DIRE MARSH', tag: '04' },
-  { view: 'map-outpost', label: 'OUTPOST', tag: '05' },
-  { view: 'map-cryo-archive', label: 'CRYO ARCHIVE', tag: '06', disabled: true },
+interface NavItem {
+  view: View
+  label: string
+  tag: string
+  disabled?: boolean
+}
+
+interface NavSection {
+  title: string
+  items: NavItem[]
+}
+
+const sections: NavSection[] = [
+  {
+    title: 'SYSTEM',
+    items: [
+      { view: 'dashboard', label: 'OVERVIEW', tag: '01' },
+      { view: 'history', label: 'ARCHIVE', tag: '02' },
+    ],
+  },
+  {
+    title: 'MAPS',
+    items: [
+      { view: 'map-perimeter', label: 'PERIMETER', tag: '03' },
+      { view: 'map-dire-marsh', label: 'DIRE MARSH', tag: '04' },
+      { view: 'map-outpost', label: 'OUTPOST', tag: '05' },
+      { view: 'map-cryo-archive', label: 'CRYO ARCHIVE', tag: '06', disabled: true },
+    ],
+  },
+  {
+    title: 'CAPTURE',
+    items: [
+      { view: 'live' as View, label: 'LIVE', tag: '07' },
+    ],
+  },
 ]
 
 export default function Sidebar() {
@@ -27,32 +55,44 @@ export default function Sidebar() {
         <p className="label-tag text-m-text-muted mt-1">MARATHON TRACKER v1.0</p>
       </div>
 
-      {/* Nav */}
+      {/* Nav with sections */}
       <nav className="flex-1 py-2">
-        {navItems.map((item) => (
-          <button
-            key={item.view}
-            onClick={() => !item.disabled && setView(item.view)}
-            className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-all border-l-2 ${
-              item.disabled
-                ? 'border-transparent cursor-not-allowed opacity-40'
-                : view === item.view
-                  ? 'border-m-green bg-m-green-glow text-m-green'
-                  : 'border-transparent text-m-text-dim hover:text-m-text hover:bg-m-surface'
-            }`}
-          >
-            <span className={`label-tag ${
-              item.disabled ? 'text-m-text-muted' : view === item.view ? 'text-m-green' : 'text-m-text-muted'
-            }`}>
-              {item.tag}
-            </span>
-            <span className={`text-xs tracking-[0.1em] font-medium ${item.disabled ? 'line-through decoration-m-red/60' : ''}`}>
-              {item.label}
-            </span>
-            {item.disabled && (
-              <span className="label-tag text-m-red/50 ml-auto">REDACTED</span>
-            )}
-          </button>
+        {sections.map((section) => (
+          <div key={section.title}>
+            {/* Section header */}
+            <div className="px-4 pt-4 pb-1">
+              <span className="text-[9px] tracking-[0.2em] font-bold text-m-text-muted/70 uppercase">
+                {section.title}
+              </span>
+            </div>
+
+            {/* Section items */}
+            {section.items.map((item) => (
+              <button
+                key={item.view}
+                onClick={() => !item.disabled && setView(item.view)}
+                className={`w-full flex items-center gap-3 px-4 py-2 text-left transition-all border-l-2 ${
+                  item.disabled
+                    ? 'border-transparent cursor-not-allowed opacity-40'
+                    : view === item.view
+                      ? 'border-m-green bg-m-green-glow text-m-green'
+                      : 'border-transparent text-m-text-dim hover:text-m-text hover:bg-m-surface'
+                }`}
+              >
+                <span className={`label-tag ${
+                  item.disabled ? 'text-m-text-muted' : view === item.view ? 'text-m-green' : 'text-m-text-muted'
+                }`}>
+                  {item.tag}
+                </span>
+                <span className={`text-xs tracking-[0.1em] font-medium ${item.disabled ? 'line-through decoration-m-red/60' : ''}`}>
+                  {item.label}
+                </span>
+                {item.disabled && (
+                  <span className="label-tag text-m-red/50 ml-auto">REDACTED</span>
+                )}
+              </button>
+            ))}
+          </div>
         ))}
       </nav>
 
