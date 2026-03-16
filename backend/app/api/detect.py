@@ -1,16 +1,73 @@
 """
-Fast game state detection endpoint.
+Game state detection endpoint.
 
-Receives small screen region captures from Electron and returns
-what game state is detected. Designed to respond in <10ms.
+Two-tier approach:
+1. Fast local check: color analysis for EXFILTRATED/ELIMINATED banners + screen change detection
+2. Claude Vision: full screen read for everything else (ready_up, lobby, results, etc.)
 """
 
 from fastapi import APIRouter, UploadFile, File, Form
 from typing import Optional
+import numpy as np
 
-from ..detection.templates import get_store, bytes_to_cv2, analyze_color, detect_loading_screen, detect_banner
+from ..detection.templates import bytes_to_cv2, analyze_color
 
 router = APIRouter()
+
+# Store last frame hash to detect screen changes
+_last_frame_hash = None
+
+
+def _compute_frame_hash(image: np.ndarray) -> str:
+    """Quick perceptual hash — resize to tiny image and hash the pixels."""
+    small = image[::32, ::32]  # Sample every 32nd pixel
+    return hash(small.tobytes())
+
+
+def _check_banner_colors(image: np.ndarray) -> dict:
+    """Fast color-based detection for EXFILTRATED/ELIMINATED banners.
+    These are the most reliable local detections since nothing else
+    in the game looks like a big green/red banner center-screen."""
+    h, w = image.shape[:2]
+
+    # Check center-screen region where banners appear (y=55-66%)
+    center = image[int(h*0.55):int(h*0.66), int(w*0.28):int(w*0.72)]
+    center_strip = center[int(center.shape[0]*0.2):int(center.shape[0]*0.8),
+                          int(center.shape[1]*0.2):int(center.shape[1]*0.8)]
+    colors = analyze_color(center_strip)
+
+    # EXFILTRATED: bright green/yellow banner
+    if colors["avg_g"] > 100 and colors["avg_g"] > colors["avg_b"] * 2:
+        return {"detected": "exfiltrated", "confidence": min(1.0, colors["avg_g"] / 200), "method": "color"}
+
+    # ELIMINATED: red banner
+    if colors["avg_r"] > 80 and colors["avg_r"] > colors["avg_g"] * 1.5:
+        return {"detected": "eliminated", "confidence": min(1.0, colors["avg_r"] / 200), "method": "color"}
+
+    return {"detected": "none", "confidence": 0}
+
+
+def _check_loading_screen(image: np.ndarray) -> dict:
+    """Detect the Marathon loading screen: solid dark blue bg with green text center."""
+    h, w = image.shape[:2]
+
+    corners = [
+        image[10:50, 10:50],
+        image[10:50, w-50:w-10],
+        image[h-50:h-10, 10:50],
+    ]
+
+    for corner in corners:
+        colors = analyze_color(corner)
+        if not (colors["avg_b"] > 80 and colors["avg_r"] < 60 and colors["avg_g"] < 40):
+            return {"detected": "none", "confidence": 0}
+
+    center = image[h//2-50:h//2+50, w//2-100:w//2+100]
+    center_colors = analyze_color(center)
+    if center_colors["avg_g"] > 80:
+        return {"detected": "loading_screen", "confidence": min(1.0, center_colors["avg_g"] / 200), "method": "color"}
+
+    return {"detected": "none", "confidence": 0}
 
 
 @router.post("/check")
@@ -19,101 +76,94 @@ async def check_screen(
     region: Optional[str] = Form(None),
 ):
     """
-    Check a screen region for game state indicators.
+    Fast local detection check. Only detects high-confidence states locally:
+    - EXFILTRATED / ELIMINATED banners (color analysis)
+    - Loading screen (color analysis)
+    - Screen changed (frame hash comparison)
 
-    Regions:
-      - center_banner: check for EXFILTRATED/ELIMINATED
-      - bottom_center: check for READY UP button
-      - full: check for loading screen + all indicators
-      - top_right: check for STATS/LOADOUT tab indicators
-
-    Returns detected state and confidence.
+    Everything else should use /check-full with Claude Vision.
     """
+    global _last_frame_hash
+
     contents = await file.read()
     image = bytes_to_cv2(contents)
-
     if image is None:
-        return {"detected": "error", "confidence": 0, "detail": "Invalid image"}
+        return {"detected": "error", "confidence": 0}
 
-    store = get_store()
-    region = region or "full"
+    # Check if screen has changed
+    frame_hash = _compute_frame_hash(image)
+    screen_changed = frame_hash != _last_frame_hash
+    _last_frame_hash = frame_hash
 
-    # Route detection based on region hint
-    if region == "center_banner":
-        return _check_banner(image, store)
+    if not screen_changed:
+        return {"detected": "no_change", "confidence": 1.0}
 
-    elif region == "bottom_center":
-        return _check_ready_up(image, store)
+    # 1. Loading screen (very distinctive)
+    result = _check_loading_screen(image)
+    if result["detected"] != "none":
+        return result
 
-    elif region == "top_right":
-        return _check_tabs(image, store)
+    # 2. Banner detection (exfiltrated / eliminated)
+    result = _check_banner_colors(image)
+    if result["detected"] != "none":
+        return result
 
-    elif region == "full":
-        # Check everything in priority order
-
-        # 1. Loading screen (very distinctive)
-        is_loading, conf = detect_loading_screen(image)
-        if is_loading:
-            return {"detected": "loading_screen", "confidence": conf}
-
-        # 2. Banner detection (center region — exfiltrated/eliminated)
-        h, w = image.shape[:2]
-        center = image[int(h*0.55):int(h*0.66), int(w*0.28):int(w*0.72)]
-        result = _check_banner(center, store)
-        if result["detected"] != "none":
-            return result
-
-        # 3. Ready up button (bottom center)
-        bottom = image[int(h*0.78):int(h*0.90), int(w*0.30):int(w*0.70)]
-        result = _check_ready_up(bottom, store)
-        if result["detected"] != "none":
-            return result
-
-        # 4. Tab indicators (results screen)
-        top_right = image[0:int(h*0.05), int(w*0.70):w]
-        result = _check_tabs(top_right, store)
-        if result["detected"] != "none":
-            return result
-
-        return {"detected": "none", "confidence": 0}
-
-    return {"detected": "none", "confidence": 0}
+    # Screen changed but nothing detected locally — caller should use Claude Vision
+    return {"detected": "unknown_change", "confidence": 0, "screen_changed": True}
 
 
-def _check_banner(image, store):
-    """Check for EXFILTRATED or ELIMINATED banner."""
-    # Fast color check first
-    banner_type, color_conf = detect_banner(image)
+@router.post("/check-full")
+async def check_screen_full(
+    file: UploadFile = File(...),
+):
+    """
+    Full screen analysis via Claude Vision. Used when the fast check detects
+    a screen change but can't identify the state locally.
 
-    if banner_type != "none":
-        # Confirm with template match
-        template_name = f"{banner_type}_banner"
-        matched, tpl_conf = store.match(image, template_name, threshold=0.5)
-        if matched:
-            return {"detected": banner_type, "confidence": tpl_conf, "method": "template+color"}
-        # Color alone was strong enough
-        if color_conf > 0.6:
-            return {"detected": banner_type, "confidence": color_conf, "method": "color"}
+    Returns the game state and all visible data.
+    """
+    contents = await file.read()
 
-    return {"detected": "none", "confidence": 0}
+    from .screenshot import _call_claude, _extract_json
+    import json
 
+    prompt = """Analyze this Marathon (Bungie 2026) game screenshot and identify the current game state.
 
-def _check_ready_up(image, store):
-    """Check for READY UP button. Template-only, no color fallback to avoid
-    false positives from other green UI elements in Marathon menus."""
-    matched, conf = store.match(image, "ready_up_button", threshold=0.8)
-    if matched:
-        return {"detected": "ready_up", "confidence": conf}
+Return ONLY valid JSON with these fields:
+{
+  "game_state": "lobby" | "prepare" | "select_zone" | "ready_up" | "deploying" | "loading" | "gameplay" | "run_complete" | "exfiltrated" | "eliminated" | "stats_screen" | "progress_screen" | "loadout_screen" | "shell_select" | "other",
+  "map_name": "string or null",
+  "shell_name": "string or null (if character/shell is visible)",
+  "crew": "solo" | "squad" | null,
+  "crew_members": ["list of visible player names"] or null,
+  "zone_name": "string or null (HUD zone name if visible)",
+  "compass_bearing": "string or null (e.g. 'S 195')",
+  "primary_weapon": "string or null",
+  "secondary_weapon": "string or null",
+  "survived": true | false | null,
+  "combatant_eliminations": number or null,
+  "runner_eliminations": number or null,
+  "crew_revives": number or null,
+  "inventory_value": number or null,
+  "run_time": "string or null (e.g. '12:56')",
+  "killed_by": "string or null (player name if death screen)",
+  "killed_by_damage": number or null,
+  "raw_text": "any other important text visible on screen"
+}
 
-    return {"detected": "none", "confidence": 0}
+Return ONLY the JSON object."""
 
+    try:
+        # Save temp file for Claude
+        import tempfile, os
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as f:
+            f.write(contents)
+            temp_path = f.name
 
-def _check_tabs(image, store):
-    """Check for active STATS or LOADOUT tab."""
-    for tab_name in ["tab_stats_active", "tab_loadout_active"]:
-        matched, conf = store.match(image, tab_name, threshold=0.6)
-        if matched:
-            detected = "stats_tab" if "stats" in tab_name else "loadout_tab"
-            return {"detected": detected, "confidence": conf}
+        response_text = await _call_claude([temp_path], prompt)
+        os.unlink(temp_path)
 
-    return {"detected": "none", "confidence": 0}
+        parsed = _extract_json(response_text)
+        return parsed
+    except Exception as e:
+        return {"game_state": "error", "error": str(e)}

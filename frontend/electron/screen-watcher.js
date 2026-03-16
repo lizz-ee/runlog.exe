@@ -157,6 +157,7 @@ class ScreenWatcher {
     const imgBuffer = await this._captureScreen()
     if (!imgBuffer) return
 
+    // Fast local check first
     const result = await this._detect(imgBuffer, 'full')
     if (!result) return
 
@@ -174,12 +175,41 @@ class ScreenWatcher {
       }
       this._emitEvent('loading_screen', { context: this.runContext })
       this._emitEvent('state_change', { state: STATES.IN_RUN })
-    } else if (result.detected === 'ready_up') {
-      // Only fire once per lobby session (prevent spam from green UI elements)
-      if (!this._readyUpFired) {
-        console.log('[watcher] Ready up screen detected')
-        this._readyUpFired = true
-        this._emitEvent('ready_up', { screenshot: imgBuffer })
+      return
+    }
+
+    // Screen changed but not a banner/loading — ask Claude what it is
+    if (result.detected === 'unknown_change' && !this._claudeInFlight) {
+      this._claudeInFlight = true
+      console.log('[watcher] Screen changed — asking Claude...')
+      const fullResult = await this._detectFull(imgBuffer)
+      this._claudeInFlight = false
+      if (!fullResult) return
+
+      console.log(`[watcher] Claude says: ${fullResult.game_state}`)
+      this._emitEvent('claude_detected', { state: fullResult.game_state, data: fullResult })
+
+      if (fullResult.game_state === 'ready_up' || fullResult.game_state === 'deploying') {
+        if (!this._readyUpFired) {
+          this._readyUpFired = true
+          this.runContext.mapName = fullResult.map_name
+          this.runContext.shellName = fullResult.shell_name
+          this.runContext.preRunData = fullResult
+          this._emitEvent('ready_up', { screenshot: imgBuffer, data: fullResult })
+        }
+      } else if (fullResult.game_state === 'loading') {
+        this.state = STATES.IN_RUN
+        this._readyUpFired = false
+        this.runContext = {
+          mapName: fullResult.map_name,
+          spawnZone: null,
+          shellName: fullResult.shell_name,
+          survived: null,
+          screenshots: [],
+          startedAt: Date.now(),
+        }
+        this._emitEvent('loading_screen', { context: this.runContext })
+        this._emitEvent('state_change', { state: STATES.IN_RUN })
       }
     }
   }
@@ -188,6 +218,7 @@ class ScreenWatcher {
     const imgBuffer = await this._captureScreen()
     if (!imgBuffer) return
 
+    // Fast local check for banners
     const result = await this._detect(imgBuffer, 'full')
     if (!result) return
 
@@ -203,15 +234,39 @@ class ScreenWatcher {
       this.state = STATES.RUN_ENDED
       this._emitEvent('run_ended', { survived: false })
       this._emitEvent('state_change', { state: STATES.RUN_ENDED })
-    } else if (result.detected === 'stats_tab' || result.detected === 'loadout_tab') {
-      // Jumped straight to results (missed the banner)
-      console.log('[watcher] Results screen detected directly')
-      this.state = STATES.RESULTS
-      this.runContext.screenshots = []
-      this._emitEvent('state_change', { state: STATES.RESULTS })
-      this.resultsTimer = setTimeout(() => this._finishResults(), 20000)
-      // Capture this screenshot
-      this.runContext.screenshots.push({ type: result.detected, buffer: imgBuffer })
+    } else if (result.detected === 'unknown_change' && !this._claudeInFlight) {
+      // Screen changed significantly during run — check with Claude
+      // (could be run_complete death screen, or we missed the banner)
+      this._claudeInFlight = true
+      const fullResult = await this._detectFull(imgBuffer)
+      this._claudeInFlight = false
+      if (!fullResult) return
+
+      console.log(`[watcher] Claude says: ${fullResult.game_state}`)
+
+      if (fullResult.game_state === 'gameplay' && fullResult.zone_name) {
+        // Capture zone name for spawn tracking
+        if (!this.runContext.spawnZone) {
+          this.runContext.spawnZone = fullResult.zone_name
+          this.runContext.compassBearing = fullResult.compass_bearing
+          this._emitEvent('zone_detected', { zone: fullResult.zone_name })
+        }
+      } else if (fullResult.game_state === 'run_complete') {
+        this.runContext.survived = false
+        this.runContext.killedBy = fullResult.killed_by
+        this.state = STATES.RUN_ENDED
+        this._emitEvent('run_ended', { survived: false, data: fullResult })
+        this._emitEvent('state_change', { state: STATES.RUN_ENDED })
+      } else if (fullResult.game_state === 'exfiltrated' || fullResult.game_state === 'stats_screen'
+                 || fullResult.game_state === 'loadout_screen' || fullResult.game_state === 'progress_screen') {
+        // Hit results directly
+        this.runContext.screenshots.push({ type: fullResult.game_state, buffer: imgBuffer, data: fullResult })
+        if (this.state !== STATES.RESULTS) {
+          this.state = STATES.RESULTS
+          this._emitEvent('state_change', { state: STATES.RESULTS })
+          this.resultsTimer = setTimeout(() => this._finishResults(), 20000)
+        }
+      }
     }
   }
 
@@ -222,24 +277,26 @@ class ScreenWatcher {
     const result = await this._detect(imgBuffer, 'full')
     if (!result) return
 
-    if (result.detected === 'stats_tab' || result.detected === 'loadout_tab') {
-      // Check if we already have this tab
-      const existing = this.runContext.screenshots.find(s => s.type === result.detected)
-      if (!existing) {
-        console.log(`[watcher] Captured ${result.detected}`)
-        this.runContext.screenshots.push({ type: result.detected, buffer: imgBuffer })
-        this._emitEvent('tab_captured', { tab: result.detected })
-      }
+    // Skip if no screen change
+    if (result.detected === 'no_change') return
 
-      // If we have both tabs, finish early
-      const hasStats = this.runContext.screenshots.some(s => s.type === 'stats_tab')
-      const hasLoadout = this.runContext.screenshots.some(s => s.type === 'loadout_tab')
-      if (hasStats && hasLoadout) {
-        this._finishResults()
-      }
-    } else if (result.detected === 'none' || result.detected === 'ready_up') {
-      // Left the results screen — finish with what we have
-      if (this.runContext.screenshots.length > 0) {
+    if (result.detected === 'unknown_change' && !this._claudeInFlight) {
+      this._claudeInFlight = true
+      const fullResult = await this._detectFull(imgBuffer)
+      this._claudeInFlight = false
+      if (!fullResult) return
+
+      console.log(`[watcher] Results - Claude says: ${fullResult.game_state}`)
+
+      if (['stats_screen', 'loadout_screen', 'progress_screen', 'exfiltrated', 'eliminated'].includes(fullResult.game_state)) {
+        // New results tab — check if we already have this type
+        const existing = this.runContext.screenshots.find(s => s.type === fullResult.game_state)
+        if (!existing) {
+          this.runContext.screenshots.push({ type: fullResult.game_state, buffer: imgBuffer, data: fullResult })
+          this._emitEvent('tab_captured', { tab: fullResult.game_state, data: fullResult })
+        }
+      } else if (['lobby', 'prepare', 'select_zone'].includes(fullResult.game_state)) {
+        // Left results — finish with what we have
         this._finishResults()
       }
     }
@@ -322,6 +379,48 @@ class ScreenWatcher {
             this.lastDetection = result
             this.lastDetectionTime = Date.now()
             resolve(result)
+          } catch {
+            resolve(null)
+          }
+        })
+      })
+
+      req.on('error', () => resolve(null))
+      req.on('timeout', () => { req.destroy(); resolve(null) })
+      req.write(body)
+      req.end()
+    })
+  }
+
+  async _detectFull(imageBuffer) {
+    return new Promise((resolve) => {
+      const boundary = '----DetectFull' + Date.now()
+      const header = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="capture.png"\r\nContent-Type: image/png\r\n\r\n`
+      const footer = `\r\n--${boundary}--\r\n`
+
+      const body = Buffer.concat([
+        Buffer.from(header),
+        imageBuffer,
+        Buffer.from(footer),
+      ])
+
+      const url = new URL(API_BASE + '/api/detect/check-full')
+      const req = http.request({
+        hostname: url.hostname,
+        port: url.port,
+        path: url.pathname,
+        method: 'POST',
+        headers: {
+          'Content-Type': `multipart/form-data; boundary=${boundary}`,
+          'Content-Length': body.length,
+        },
+        timeout: 30000, // Claude Vision can take a while
+      }, (res) => {
+        let data = ''
+        res.on('data', chunk => data += chunk)
+        res.on('end', () => {
+          try {
+            resolve(JSON.parse(data))
           } catch {
             resolve(null)
           }
