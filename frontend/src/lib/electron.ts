@@ -18,8 +18,6 @@ export interface AutoCaptureEvent {
 interface RunlogBridge {
   onScreenshotParsed: (callback: (event: ScreenshotEvent) => void) => void
   onAutoCaptureEvent: (callback: (event: AutoCaptureEvent) => void) => void
-  captureRun: () => Promise<void>
-  captureSpawn: () => Promise<void>
   getApiBaseUrl: () => string
 }
 
@@ -47,10 +45,3 @@ export function onAutoCaptureEvent(callback: (event: AutoCaptureEvent) => void) 
   }
 }
 
-export function captureRun() {
-  return window.runlog?.captureRun()
-}
-
-export function captureSpawn() {
-  return window.runlog?.captureSpawn()
-}

@@ -346,17 +346,12 @@ class ScreenWatcher {
 
   async _captureScreen() {
     try {
-      // Fetch latest frame from capture engine API
       const buffer = await this._fetchFrame()
       if (buffer) {
         this.captureCount++
         return buffer
       }
-      // Fallback to screenshot-desktop
-      const screenshot = require('screenshot-desktop')
-      const buf = await screenshot({ format: 'png' })
-      this.captureCount++
-      return buf
+      return null
     } catch {
       return null
     }
