@@ -99,15 +99,11 @@ def _check_banner(image, store):
 
 
 def _check_ready_up(image, store):
-    """Check for READY UP button."""
-    matched, conf = store.match(image, "ready_up_button", threshold=0.6)
+    """Check for READY UP button. Template-only, no color fallback to avoid
+    false positives from other green UI elements in Marathon menus."""
+    matched, conf = store.match(image, "ready_up_button", threshold=0.8)
     if matched:
         return {"detected": "ready_up", "confidence": conf}
-
-    # Fallback: color check for bright green/yellow bar
-    colors = analyze_color(image)
-    if colors["avg_g"] > 180 and colors["avg_r"] > 140 and colors["avg_b"] < 50:
-        return {"detected": "ready_up", "confidence": 0.7, "method": "color"}
 
     return {"detected": "none", "confidence": 0}
 

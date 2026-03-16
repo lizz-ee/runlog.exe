@@ -163,6 +163,7 @@ class ScreenWatcher {
     if (result.detected === 'loading_screen') {
       console.log('[watcher] Loading screen detected — run starting')
       this.state = STATES.IN_RUN
+      this._readyUpFired = false
       this.runContext = {
         mapName: null,
         spawnZone: null,
@@ -174,9 +175,12 @@ class ScreenWatcher {
       this._emitEvent('loading_screen', { context: this.runContext })
       this._emitEvent('state_change', { state: STATES.IN_RUN })
     } else if (result.detected === 'ready_up') {
-      console.log('[watcher] Ready up screen detected')
-      // Capture full screenshot for Claude to parse pre-run info
-      this._emitEvent('ready_up', { screenshot: imgBuffer })
+      // Only fire once per lobby session (prevent spam from green UI elements)
+      if (!this._readyUpFired) {
+        console.log('[watcher] Ready up screen detected')
+        this._readyUpFired = true
+        this._emitEvent('ready_up', { screenshot: imgBuffer })
+      }
     }
   }
 
@@ -262,6 +266,7 @@ class ScreenWatcher {
     this._emitEvent('state_change', { state: STATES.COOLDOWN })
     this.cooldownTimer = setTimeout(() => {
       this.state = STATES.LOBBY
+      this._readyUpFired = false
       this._emitEvent('state_change', { state: STATES.LOBBY })
       console.log('[watcher] Cooldown ended, back to lobby')
     }, 15000) // 15s cooldown
