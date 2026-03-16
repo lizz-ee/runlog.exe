@@ -33,27 +33,35 @@ class TemplateStore:
                     print(f"[detect] Loaded template: {name} ({img.shape[1]}x{img.shape[0]})")
 
     def match(self, image: np.ndarray, template_name: str, threshold: float = 0.7) -> tuple[bool, float]:
-        """Match a template against an image region. Returns (matched, confidence)."""
+        """Match a template against an image region. Returns (matched, confidence).
+
+        Templates are stored at 4K (3840x2160) resolution. When matching against
+        a different resolution, the template is scaled proportionally so UI elements
+        match regardless of screen size.
+        """
         tpl = self.templates.get(template_name)
         if tpl is None:
             return False, 0.0
 
-        # Scale template to match image if needed (templates are 4K, image might be different)
         th, tw = tpl.shape[:2]
         ih, iw = image.shape[:2]
 
-        # If template is larger than image, scale it down
-        if tw > iw or th > ih:
-            scale = min(iw / tw, ih / th) * 0.9
-            tpl = cv2.resize(tpl, (int(tw * scale), int(th * scale)), interpolation=cv2.INTER_LINEAR)
-            th, tw = tpl.shape[:2]
+        # Try multiple scales to handle resolution differences
+        # Templates are from 4K, but screens can be 1080p, 1440p, 3072x1728, etc.
+        best_val = 0.0
+        for scale_factor in [1.0, 0.8, 0.66, 0.5]:
+            stw = int(tw * scale_factor)
+            sth = int(th * scale_factor)
+            if stw >= iw or sth >= ih or stw < 10 or sth < 10:
+                continue
+            scaled = cv2.resize(tpl, (stw, sth), interpolation=cv2.INTER_LINEAR)
+            result = cv2.matchTemplate(image, scaled, cv2.TM_CCOEFF_NORMED)
+            _, max_val, _, _ = cv2.minMaxLoc(result)
+            best_val = max(best_val, max_val)
+            if max_val >= threshold:
+                return True, float(max_val)
 
-        if tw > iw or th > ih:
-            return False, 0.0
-
-        result = cv2.matchTemplate(image, tpl, cv2.TM_CCOEFF_NORMED)
-        _, max_val, _, _ = cv2.minMaxLoc(result)
-        return max_val >= threshold, float(max_val)
+        return best_val >= threshold, float(best_val)
 
 
 def bytes_to_cv2(image_bytes: bytes) -> np.ndarray:
