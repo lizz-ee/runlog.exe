@@ -51,6 +51,8 @@ export interface Run {
   session_id: number | null
   primary_weapon: string | null
   secondary_weapon: string | null
+  killed_by: string | null
+  killed_by_damage: number | null
   spawn_location: string | null
   shell_name: string | null
   created_at: string

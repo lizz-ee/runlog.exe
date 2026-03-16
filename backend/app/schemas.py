@@ -147,6 +147,8 @@ class RunOut(BaseModel):
     spawn_location: Optional[str] = None
     primary_weapon: Optional[str] = None
     secondary_weapon: Optional[str] = None
+    killed_by: Optional[str] = None
+    killed_by_damage: Optional[int] = None
     shell_name: Optional[str] = None
     created_at: datetime
 

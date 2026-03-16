@@ -182,6 +182,9 @@ function RunRow({ run, onDelete }: { run: Run; onDelete: () => void }) {
               <DetailRow label="SECONDARY" value={run.secondary_weapon ?? '—'} />
               <DetailRow label="OUTCOME" value={run.survived ? 'Exfiltrated' : 'Eliminated'}
                 color={run.survived ? 'green' : 'red'} />
+              {run.killed_by && (
+                <DetailRow label="KILLED BY" value={`${run.killed_by}${run.killed_by_damage ? ` (${run.killed_by_damage} DMG)` : ''}`} color="red" />
+              )}
               <DetailRow label="DURATION" value={formatDuration(run.duration_seconds)} />
             </div>
 

@@ -72,6 +72,8 @@ class Run(Base):
     screenshot_path = Column(String(500), nullable=True)
     primary_weapon = Column(String(100), nullable=True)
     secondary_weapon = Column(String(100), nullable=True)
+    killed_by = Column(String(100), nullable=True)
+    killed_by_damage = Column(Integer, nullable=True)
     notes = Column(Text, nullable=True)
     session_id = Column(Integer, ForeignKey("sessions.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -100,6 +102,7 @@ class SpawnPoint(Base):
     spawn_region = Column(String(100), nullable=True)
     x = Column(Float, nullable=True)  # % position on map image (0-100)
     y = Column(Float, nullable=True)  # % position on map image (0-100)
+    compass_bearing = Column(String(20), nullable=True)  # e.g. "S 195" — direction facing on spawn
     screenshot_path = Column(String(500), nullable=True)
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
