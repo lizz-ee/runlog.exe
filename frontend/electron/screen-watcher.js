@@ -94,7 +94,7 @@ class ScreenWatcher {
 
     try {
       // Check if Marathon is the foreground window
-      const marathonFocused = await this._isMarathonFocused()
+      const marathonFocused = await this._isMarathonRunning()
 
       if (!marathonFocused) {
         if (this.state !== STATES.IDLE) {
@@ -434,14 +434,14 @@ class ScreenWatcher {
     })
   }
 
-  _isMarathonFocused() {
+  _isMarathonRunning() {
     return new Promise((resolve) => {
       exec(
-        'powershell -command "try { (Get-Process -Name Marathon -ErrorAction Stop).MainWindowTitle } catch { \'\' }"',
-        { timeout: 2000 },
+        'tasklist /FI "IMAGENAME eq Marathon.exe" /NH',
+        { timeout: 3000 },
         (err, stdout) => {
           if (err) return resolve(false)
-          resolve(stdout.trim().length > 0)
+          resolve(stdout.toLowerCase().includes('marathon.exe'))
         }
       )
     })
