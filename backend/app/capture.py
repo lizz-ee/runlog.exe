@@ -79,13 +79,9 @@ class CaptureEngine:
         self._packet_count = 0
         self._start_time = time.time()
 
-        # Start recording thread (60fps GPU capture → ring buffer)
+        # Start recording thread (60fps GPU capture → ring buffer + detection frames)
         self._capture_thread = threading.Thread(target=self._capture_loop, daemon=True)
         self._capture_thread.start()
-
-        # Start detection frame thread (1fps for OCR)
-        self._detection_thread = threading.Thread(target=self._detection_loop, daemon=True)
-        self._detection_thread.start()
 
         return self.get_status()
 
@@ -93,25 +89,21 @@ class CaptureEngine:
         """Stop the capture engine. Returns status dict."""
         self._running = False
 
-        # Kill FFmpeg processes
-        for proc in [self._ffmpeg_proc, self._detection_proc]:
-            if proc and proc.poll() is None:
+        # Kill FFmpeg process
+        if self._ffmpeg_proc and self._ffmpeg_proc.poll() is None:
+            try:
+                self._ffmpeg_proc.terminate()
+                self._ffmpeg_proc.wait(timeout=5)
+            except:
                 try:
-                    proc.terminate()
-                    proc.wait(timeout=5)
+                    self._ffmpeg_proc.kill()
                 except:
-                    try:
-                        proc.kill()
-                    except:
-                        pass
-
+                    pass
         self._ffmpeg_proc = None
-        self._detection_proc = None
 
-        # Wait for threads
-        for thread in [self._capture_thread, self._detection_thread]:
-            if thread and thread.is_alive():
-                thread.join(timeout=5)
+        # Wait for capture thread
+        if self._capture_thread and self._capture_thread.is_alive():
+            self._capture_thread.join(timeout=5)
 
         return self.get_status()
 
@@ -253,71 +245,54 @@ class CaptureEngine:
                         self._extradata = bytes(codec_ctx.extradata)
                         print(f"[capture] Got extradata: {len(self._extradata)} bytes")
 
+                pkt_bytes = bytes(packet)
+                is_kf = packet.is_keyframe
+                now = time.time()
+
                 with self._lock:
                     self._ring.append({
-                        'data': bytes(packet),
+                        'data': pkt_bytes,
                         'pts': packet.pts,
                         'dts': packet.dts,
-                        'kf': packet.is_keyframe,
+                        'kf': is_kf,
                         'size': packet.size,
-                        'wall_time': time.time(),
+                        'wall_time': now,
                     })
 
                 self._packet_count += 1
+
+                # Every keyframe (~1/sec): queue for background detection decode
+                if is_kf and now - self._latest_frame_time > 0.8:
+                    self._latest_frame_time = now  # prevent re-queuing
+                    threading.Thread(
+                        target=self._decode_keyframe_background,
+                        args=(pkt_bytes,),
+                        daemon=True
+                    ).start()
 
         except Exception as e:
             print(f"[capture] Recording error: {e}")
         finally:
             print(f"[capture] Recording stopped ({self._packet_count} packets)")
 
-    # ── Detection frame thread (1fps for OCR) ─────────────────────────
+    # ── Detection frame from ring buffer ─────────────────────────────
 
-    def _detection_loop(self):
-        """Low-fps frame extraction for OCR detection. Separate FFmpeg process."""
+    def _decode_keyframe_background(self, pkt_bytes):
+        """Decode a keyframe H.264 packet to JPEG in a background thread.
+        Uses a temporary ffmpeg call to decode the single packet.
+        Runs ~30ms, happens once per second, never blocks capture."""
         try:
-            cmd = [
-                'ffmpeg', '-y', '-hide_banner', '-loglevel', 'warning',
-                '-f', 'lavfi', '-i',
-                f'ddagrab=framerate={self.detection_fps}:output_idx=0,hwdownload,format=bgra',
-                '-vf', f'fps={self.detection_fps}',
-                '-f', 'image2pipe', '-c:v', 'mjpeg', '-q:v', '5',
-                'pipe:1',
-            ]
-
-            self._detection_proc = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            # Use ffmpeg to decode single keyframe from raw H.264
+            proc = subprocess.Popen(
+                ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
+                 '-f', 'mpegts', '-i', 'pipe:0',
+                 '-frames:v', '1', '-f', 'image2pipe', '-c:v', 'mjpeg',
+                 '-q:v', '5', 'pipe:1'],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             )
-
-            print(f"[capture] Detection frames: {self.detection_fps}fps")
-
-            # Read JPEG frames from pipe
-            buf = b''
-            while self._running:
-                chunk = self._detection_proc.stdout.read(65536)
-                if not chunk:
-                    break
-                buf += chunk
-
-                # Find JPEG boundaries (SOI: FFD8, EOI: FFD9)
-                while True:
-                    soi = buf.find(b'\xff\xd8')
-                    if soi == -1:
-                        buf = b''
-                        break
-                    eoi = buf.find(b'\xff\xd9', soi + 2)
-                    if eoi == -1:
-                        buf = buf[soi:]  # keep from SOI, wait for more data
-                        break
-
-                    # Extract complete JPEG
-                    jpeg = buf[soi:eoi + 2]
-                    buf = buf[eoi + 2:]
-
-                    with self._frame_lock:
-                        self._latest_frame = jpeg
-                        self._latest_frame_time = time.time()
-
-        except Exception as e:
-            print(f"[capture] Detection error: {e}")
-        finally:
-            print("[capture] Detection frames stopped")
+            jpeg, _ = proc.communicate(input=pkt_bytes, timeout=3)
+            if jpeg and len(jpeg) > 100:
+                with self._frame_lock:
+                    self._latest_frame = jpeg
+        except Exception:
+            pass
