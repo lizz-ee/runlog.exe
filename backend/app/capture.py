@@ -24,7 +24,7 @@ class CaptureEngine:
 
     def __init__(
         self,
-        fps: int = 60,
+        fps: int = 30,
         buffer_seconds: int = 180,
         clips_dir: str | None = None,
     ):
