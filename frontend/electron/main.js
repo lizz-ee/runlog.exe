@@ -468,8 +468,8 @@ app.whenReady().then(async () => {
     }
   }
 
-  // Start watching Steam screenshot folder
-  startSteamWatcher()
+  // Steam watcher disabled — auto-capture handles everything now
+  // startSteamWatcher()
 
   // Start recording manager (PyAV capture engine via API)
   recordingManager = new RecordingManager({}, (status, message) => {
