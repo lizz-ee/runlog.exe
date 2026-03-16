@@ -11,6 +11,7 @@ from typing import Optional
 import numpy as np
 
 from ..detection.templates import bytes_to_cv2, analyze_color
+from ..detection.ocr import detect_game_state as ocr_detect
 
 router = APIRouter()
 
@@ -117,53 +118,10 @@ async def check_screen_full(
     file: UploadFile = File(...),
 ):
     """
-    Full screen analysis via Claude Vision. Used when the fast check detects
-    a screen change but can't identify the state locally.
-
-    Returns the game state and all visible data.
+    Full screen analysis via local OCR. Reads specific screen regions
+    to identify game state and extract all visible data.
+    Fast (~1-2 seconds), no API calls, works offline.
     """
     contents = await file.read()
-
-    from .screenshot import _call_claude, _extract_json
-    import json
-
-    prompt = """Analyze this Marathon (Bungie 2026) game screenshot and identify the current game state.
-
-Return ONLY valid JSON with these fields:
-{
-  "game_state": "lobby" | "prepare" | "select_zone" | "ready_up" | "deploying" | "loading" | "gameplay" | "run_complete" | "exfiltrated" | "eliminated" | "stats_screen" | "progress_screen" | "loadout_screen" | "shell_select" | "other",
-  "map_name": "string or null",
-  "shell_name": "string or null (if character/shell is visible)",
-  "crew": "solo" | "squad" | null,
-  "crew_members": ["list of visible player names"] or null,
-  "zone_name": "string or null (HUD zone name if visible)",
-  "compass_bearing": "string or null (e.g. 'S 195')",
-  "primary_weapon": "string or null",
-  "secondary_weapon": "string or null",
-  "survived": true | false | null,
-  "combatant_eliminations": number or null,
-  "runner_eliminations": number or null,
-  "crew_revives": number or null,
-  "inventory_value": number or null,
-  "run_time": "string or null (e.g. '12:56')",
-  "killed_by": "string or null (player name if death screen)",
-  "killed_by_damage": number or null,
-  "raw_text": "any other important text visible on screen"
-}
-
-Return ONLY the JSON object."""
-
-    try:
-        # Save temp file for Claude
-        import tempfile, os
-        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as f:
-            f.write(contents)
-            temp_path = f.name
-
-        response_text = await _call_claude([temp_path], prompt)
-        os.unlink(temp_path)
-
-        parsed = _extract_json(response_text)
-        return parsed
-    except Exception as e:
-        return {"game_state": "error", "error": str(e)}
+    result = ocr_detect(contents)
+    return result

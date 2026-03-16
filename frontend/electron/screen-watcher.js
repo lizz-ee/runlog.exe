@@ -184,39 +184,40 @@ class ScreenWatcher {
       return
     }
 
-    // Screen changed but not a banner/loading — ask Claude what it is
+    // Screen changed but not a banner/loading — ask Claude what it is (non-blocking)
     if (result.detected === 'unknown_change' && !this._claudeInFlight) {
       this._claudeInFlight = true
       console.log('[watcher] Screen changed — asking Claude...')
-      const fullResult = await this._detectFull(imgBuffer)
-      this._claudeInFlight = false
-      if (!fullResult) return
+      this._detectFull(imgBuffer).then(fullResult => {
+        this._claudeInFlight = false
+        if (!fullResult) return
 
-      console.log(`[watcher] Claude says: ${fullResult.game_state}`)
-      this._emitEvent('claude_detected', { state: fullResult.game_state, data: fullResult })
+        console.log(`[watcher] Claude says: ${fullResult.game_state}`)
+        this._emitEvent('claude_detected', { state: fullResult.game_state, data: fullResult })
 
-      if (fullResult.game_state === 'ready_up' || fullResult.game_state === 'deploying') {
-        if (!this._readyUpFired) {
-          this._readyUpFired = true
-          this.runContext.mapName = fullResult.map_name
-          this.runContext.shellName = fullResult.shell_name
-          this.runContext.preRunData = fullResult
-          this._emitEvent('ready_up', { screenshot: imgBuffer, data: fullResult })
+        if (fullResult.game_state === 'ready_up' || fullResult.game_state === 'deploying') {
+          if (!this._readyUpFired) {
+            this._readyUpFired = true
+            this.runContext.mapName = fullResult.map_name
+            this.runContext.shellName = fullResult.shell_name
+            this.runContext.preRunData = fullResult
+            this._emitEvent('ready_up', { screenshot: imgBuffer, data: fullResult })
+          }
+        } else if (fullResult.game_state === 'loading') {
+          this.state = STATES.IN_RUN
+          this._readyUpFired = false
+          this.runContext = {
+            mapName: fullResult.map_name,
+            spawnZone: null,
+            shellName: fullResult.shell_name,
+            survived: null,
+            screenshots: [],
+            startedAt: Date.now(),
+          }
+          this._emitEvent('loading_screen', { context: this.runContext })
+          this._emitEvent('state_change', { state: STATES.IN_RUN })
         }
-      } else if (fullResult.game_state === 'loading') {
-        this.state = STATES.IN_RUN
-        this._readyUpFired = false
-        this.runContext = {
-          mapName: fullResult.map_name,
-          spawnZone: null,
-          shellName: fullResult.shell_name,
-          survived: null,
-          screenshots: [],
-          startedAt: Date.now(),
-        }
-        this._emitEvent('loading_screen', { context: this.runContext })
-        this._emitEvent('state_change', { state: STATES.IN_RUN })
-      }
+      }).catch(() => { this._claudeInFlight = false })
     }
   }
 

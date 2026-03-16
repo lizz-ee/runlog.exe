@@ -335,34 +335,14 @@ function updateTrayMenu() {
   const contextMenu = Menu.buildFromTemplate([
     { label: 'Show RunLog', click: () => mainWindow.show() },
     { type: 'separator' },
-    { label: `Auto-Capture: ${status.enabled ? 'ON' : 'OFF'}`, enabled: false },
-    { label: `  Status: ${stateLabel}`, enabled: false },
-    { label: `  Captures: ${status.captureCount}`, enabled: false },
-    { type: 'separator' },
-    {
-      label: status.enabled ? 'Disable Auto-Capture' : 'Enable Auto-Capture',
-      click: () => {
-        if (status.enabled) screenWatcher.stop()
-        else screenWatcher.start()
-        updateTrayMenu()
-      },
-    },
-    { type: 'separator' },
-    {
-      label: 'Capture Run (Ctrl+Shift+F5)',
-      click: handleRunScreenshot,
-    },
-    {
-      label: 'Capture Spawn (Ctrl+Shift+F6)',
-      click: handleSpawnScreenshot,
-    },
-    { type: 'separator' },
     {
       label: 'Quit',
       click: () => {
         app.isQuitting = true
         if (steamWatcher) steamWatcher.stop()
         if (screenWatcher) screenWatcher.stop()
+        if (recordingManager) recordingManager.stop()
+        if (backendManager) backendManager.stop()
         app.quit()
       },
     },
