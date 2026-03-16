@@ -76,16 +76,19 @@ class Run(Base):
     killed_by_damage = Column(Integer, nullable=True)
     notes = Column(Text, nullable=True)
     session_id = Column(Integer, ForeignKey("sessions.id"), nullable=True)
+    spawn_point_id = Column(Integer, ForeignKey("spawn_points.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     runner = relationship("Runner", back_populates="runs")
     loadout = relationship("Loadout", back_populates="runs")
     session = relationship("Session", back_populates="runs")
-    spawn_point = relationship("SpawnPoint", back_populates="run", uselist=False)
+    spawn_point = relationship("SpawnPoint", back_populates="runs", foreign_keys=[spawn_point_id])
 
     @property
     def spawn_location(self) -> str | None:
-        return self.spawn_point.spawn_location if self.spawn_point else None
+        if self.spawn_point:
+            return self.spawn_point.spawn_location
+        return None
 
     @property
     def shell_name(self) -> str | None:
@@ -107,7 +110,7 @@ class SpawnPoint(Base):
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    run = relationship("Run", back_populates="spawn_point")
+    runs = relationship("Run", back_populates="spawn_point", foreign_keys="Run.spawn_point_id")
 
 
 class Session(Base):

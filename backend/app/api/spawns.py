@@ -167,29 +167,29 @@ def spawn_heatmap(db: DBSession = Depends(get_db)):
             }
 
         entry = maps[map_key][loc_key]
-        entry["count"] += 1
+        entry["count"] = len(s.runs)  # count of runs from this spawn
         if s.x is not None:
             entry["x"] = s.x
             entry["y"] = s.y
         if s.compass_bearing:
             entry["compass_bearing"] = s.compass_bearing
 
-        if s.run:
-            if s.run.survived is not None:
-                if s.run.survived:
+        for run in s.runs:
+            if run.survived is not None:
+                if run.survived:
                     entry["runs_survived"] += 1
                 else:
                     entry["runs_died"] += 1
-            loot = s.run.loot_value_total or 0
-            duration = s.run.duration_seconds or 0
+            loot = run.loot_value_total or 0
+            duration = run.duration_seconds or 0
             entry["total_loot"] += loot
             entry["total_time"] += duration
             entry["loot_values"].append(loot)
-            entry["pve_kills"] += s.run.combatant_eliminations or 0
-            entry["runner_kills"] += s.run.runner_eliminations or 0
-            entry["total_kills"] += (s.run.combatant_eliminations or 0) + (s.run.runner_eliminations or 0)
-            entry["total_deaths"] += s.run.deaths or 0
-            entry["total_revives"] += s.run.crew_revives or 0
+            entry["pve_kills"] += run.combatant_eliminations or 0
+            entry["runner_kills"] += run.runner_eliminations or 0
+            entry["total_kills"] += (run.combatant_eliminations or 0) + (run.runner_eliminations or 0)
+            entry["total_deaths"] += run.deaths or 0
+            entry["total_revives"] += run.crew_revives or 0
 
             # Track best/worst loot
             if entry["best_loot"] is None or loot > entry["best_loot"]:
@@ -205,20 +205,20 @@ def spawn_heatmap(db: DBSession = Depends(get_db)):
                     entry["shortest_run"] = duration
 
             # Track weapons
-            if s.run.primary_weapon:
-                entry["weapons"].append(s.run.primary_weapon)
+            if run.primary_weapon:
+                entry["weapons"].append(run.primary_weapon)
 
             # Track shells
-            if s.run.runner and s.run.runner.name:
-                entry["shells"].append(s.run.runner.name)
+            if run.runner and run.runner.name:
+                entry["shells"].append(run.runner.name)
 
             # Track killers
-            if s.run.killed_by:
-                entry["killed_by"].append({"name": s.run.killed_by, "damage": s.run.killed_by_damage})
+            if run.killed_by:
+                entry["killed_by"].append({"name": run.killed_by, "damage": run.killed_by_damage})
 
             # Track last played
-            if s.run.date:
-                date_str = s.run.date.isoformat() if hasattr(s.run.date, 'isoformat') else str(s.run.date)
+            if run.date:
+                date_str = run.date.isoformat() if hasattr(run.date, 'isoformat') else str(run.date)
                 if entry["last_played"] is None or date_str > entry["last_played"]:
                     entry["last_played"] = date_str
 
