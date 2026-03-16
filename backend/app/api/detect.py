@@ -96,7 +96,17 @@ async def check_screen(
     if image is None:
         return {"detected": "error", "confidence": 0}
 
-    # Check if screen has changed
+    # ALWAYS check banners first — they're the most important detection (<5ms)
+    result = _check_banner_colors(image)
+    if result["detected"] != "none":
+        return result
+
+    # Check loading screen
+    result = _check_loading_screen(image)
+    if result["detected"] != "none":
+        return result
+
+    # Check if screen has changed for OCR trigger
     frame_hash = _compute_frame_hash(image)
     screen_changed = frame_hash != _last_frame_hash
     _last_frame_hash = frame_hash
@@ -104,17 +114,7 @@ async def check_screen(
     if not screen_changed:
         return {"detected": "no_change", "confidence": 1.0}
 
-    # 1. Loading screen (very distinctive)
-    result = _check_loading_screen(image)
-    if result["detected"] != "none":
-        return result
-
-    # 2. Banner detection (exfiltrated / eliminated)
-    result = _check_banner_colors(image)
-    if result["detected"] != "none":
-        return result
-
-    # Screen changed but nothing detected locally — caller should use Claude Vision
+    # Screen changed but not a banner/loading — trigger OCR
     return {"detected": "unknown_change", "confidence": 0, "screen_changed": True}
 
 
