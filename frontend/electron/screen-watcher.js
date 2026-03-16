@@ -57,6 +57,9 @@ class ScreenWatcher {
 
     // Keyframes directory (set by main.js from recording manager)
     this._keyframesDir = null
+    // OCR throttle — max once every 5 seconds
+    this._lastOcrTime = 0
+    this._ocrCooldown = 5000
   }
 
   setKeyframesDir(dir) {
@@ -408,6 +411,13 @@ class ScreenWatcher {
   }
 
   async _detectFull(imageBuffer) {
+    // Throttle OCR: max once every 5 seconds
+    const now = Date.now()
+    if (now - this._lastOcrTime < this._ocrCooldown) {
+      return null
+    }
+    this._lastOcrTime = now
+
     return new Promise((resolve) => {
       const boundary = '----DetectFull' + Date.now()
       const header = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="capture.png"\r\nContent-Type: image/png\r\n\r\n`

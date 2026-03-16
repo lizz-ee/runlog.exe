@@ -20,9 +20,14 @@ _last_frame_hash = None
 
 
 def _compute_frame_hash(image: np.ndarray) -> str:
-    """Quick perceptual hash — resize to tiny image and hash the pixels."""
-    small = image[::32, ::32]  # Sample every 32nd pixel
-    return hash(small.tobytes())
+    """Coarse perceptual hash — detect major screen transitions, not gameplay movement.
+    Samples very few pixels and quantizes colors so minor changes don't trigger."""
+    h, w = image.shape[:2]
+    # Sample a 4x4 grid of the image
+    small = image[::h//4, ::w//4]
+    # Quantize to reduce sensitivity (divide by 32 so small color shifts are ignored)
+    quantized = (small // 32).tobytes()
+    return hash(quantized)
 
 
 def _check_banner_colors(image: np.ndarray) -> dict:
