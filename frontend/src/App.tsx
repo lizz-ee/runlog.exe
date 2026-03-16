@@ -7,6 +7,7 @@ import Dashboard from './components/Dashboard'
 import RunHistory from './components/RunHistory'
 import Maps from './components/Maps'
 import Toasts from './components/Toasts'
+import TitleBar from './components/TitleBar'
 
 const MAP_VIEW_TO_NAME: Record<string, string> = {
   'map-perimeter': 'Perimeter',
@@ -64,8 +65,10 @@ export default function App() {
   const mapName = MAP_VIEW_TO_NAME[view]
 
   return (
-    <div className="flex h-screen bg-m-bg">
+    <div className="flex flex-col h-screen bg-m-bg">
+      <TitleBar />
       <div className="fixed inset-0 scanlines z-50 pointer-events-none" />
+      <div className="flex flex-1 overflow-hidden">
       <Sidebar />
       <main className="flex-1 overflow-y-auto p-8">
         {view === 'dashboard' && <Dashboard />}
@@ -89,6 +92,7 @@ export default function App() {
         )}
       </main>
       <Toasts />
+      </div>
     </div>
   )
 }

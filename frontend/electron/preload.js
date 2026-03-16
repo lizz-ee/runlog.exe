@@ -15,6 +15,11 @@ contextBridge.exposeInMainWorld('runlog', {
   captureRun: () => ipcRenderer.invoke('capture-run'),
   captureSpawn: () => ipcRenderer.invoke('capture-spawn'),
 
-  // Get API base URL (empty in dev for Vite proxy, http://localhost:8000 in production)
+  // Get API base URL (empty in dev for Vite proxy, http://127.0.0.1:8000 in production)
   getApiBaseUrl: () => ipcRenderer.sendSync('get-api-base-url'),
+
+  // Window controls
+  windowMinimize: () => ipcRenderer.send('window-minimize'),
+  windowMaximize: () => ipcRenderer.send('window-maximize'),
+  windowClose: () => ipcRenderer.send('window-close'),
 })

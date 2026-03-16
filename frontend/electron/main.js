@@ -345,12 +345,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     backgroundColor: '#0a0a0f',
-    titleBarStyle: 'hidden',
-    titleBarOverlay: {
-      color: '#12121a',
-      symbolColor: '#8888aa',
-      height: 36,
-    },
+    frame: false,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -503,6 +498,18 @@ app.on('activate', () => {
 // IPC: let renderer request a screenshot manually
 ipcMain.handle('capture-run', handleRunScreenshot)
 ipcMain.handle('capture-spawn', handleSpawnScreenshot)
+
+// IPC: window controls
+ipcMain.on('window-minimize', () => mainWindow?.minimize())
+ipcMain.on('window-maximize', () => {
+  if (mainWindow?.isMaximized()) mainWindow.unmaximize()
+  else mainWindow?.maximize()
+})
+ipcMain.on('window-close', () => {
+  if (mainWindow) {
+    mainWindow.hide()
+  }
+})
 
 // IPC: API base URL for renderer
 ipcMain.on('get-api-base-url', (event) => {
