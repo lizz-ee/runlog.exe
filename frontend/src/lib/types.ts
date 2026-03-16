@@ -50,6 +50,7 @@ export interface Run {
   notes: string | null
   session_id: number | null
   spawn_location: string | null
+  shell_name: string | null
   created_at: string
 }
 
@@ -107,6 +108,7 @@ export interface OverviewStats {
   avg_loot_per_run: number
   favorite_map: string | null
   favorite_runner: string | null
+  favorite_shell: string | null
   favorite_squad_mate: string | null
   favorite_squad_mate_runs: number
   total_time_seconds: number

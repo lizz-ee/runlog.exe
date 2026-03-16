@@ -213,7 +213,11 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
                           <TooltipStat label="SURVIVAL" value={`${survRate}%`} color={survRate! >= 50 ? 'green' : 'red'} />
                           <TooltipStat label="AVG LOOT" value={`$${Math.round(loc.avg_loot ?? 0).toLocaleString()}`} color="yellow" />
                           <TooltipStat label="AVG TIME" value={loc.avg_time ? formatTime(loc.avg_time) : '—'} color="cyan" />
-                          <TooltipStat label="KILLS" value={String(loc.total_kills)} color="green" />
+                          <div className="border-t border-m-border/30 my-1 pt-1" />
+                          <TooltipStat label="PVE KILLS" value={String((loc as any).pve_kills ?? 0)} color={(loc as any).pve_kills ? 'green' : undefined} />
+                          <TooltipStat label="RUNNER KILLS" value={String((loc as any).runner_kills ?? 0)} color={(loc as any).runner_kills ? 'cyan' : undefined} />
+                          <TooltipStat label="DEATHS" value={String((loc as any).total_deaths ?? 0)} color={(loc as any).total_deaths ? 'red' : undefined} />
+                          <TooltipStat label="REVIVES" value={String((loc as any).total_revives ?? 0)} color={(loc as any).total_revives ? 'green' : undefined} />
                         </div>
                       )}
                       {!isDragging && (!loc || totalRuns === 0) && (

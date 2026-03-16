@@ -142,6 +142,9 @@ function RunRow({ run, onDelete }: { run: Run; onDelete: () => void }) {
           {run.spawn_location && (
             <span className="text-m-text-muted"> — {run.spawn_location}</span>
           )}
+          {run.shell_name && (
+            <span className="text-m-text-muted text-2xs ml-2">[{run.shell_name}]</span>
+          )}
         </span>
 
         <span className={`text-xs font-mono text-right ${run.combatant_eliminations ? 'text-m-green' : 'text-m-text-muted'}`}>
@@ -174,6 +177,7 @@ function RunRow({ run, onDelete }: { run: Run; onDelete: () => void }) {
               <p className="label-tag text-m-green mb-2">RUN DETAILS</p>
               <DetailRow label="MAP" value={run.map_name ?? '—'} />
               <DetailRow label="SPAWN" value={run.spawn_location ?? 'Unknown'} />
+              <DetailRow label="SHELL" value={run.shell_name ?? 'Unknown'} />
               <DetailRow label="OUTCOME" value={run.survived ? 'Exfiltrated' : 'Eliminated'}
                 color={run.survived ? 'green' : 'red'} />
               <DetailRow label="DURATION" value={formatDuration(run.duration_seconds)} />

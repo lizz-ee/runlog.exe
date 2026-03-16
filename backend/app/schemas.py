@@ -145,6 +145,7 @@ class RunOut(BaseModel):
     notes: Optional[str]
     session_id: Optional[int]
     spawn_location: Optional[str] = None
+    shell_name: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -246,6 +247,7 @@ class OverviewStats(BaseModel):
     avg_loot_per_run: float = 0.0
     favorite_map: Optional[str] = None
     favorite_runner: Optional[str] = None
+    favorite_shell: Optional[str] = None
     favorite_squad_mate: Optional[str] = None
     favorite_squad_mate_runs: int = 0
     total_time_seconds: int = 0

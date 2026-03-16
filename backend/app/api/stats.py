@@ -79,6 +79,7 @@ def get_overview_stats(db: Session = Depends(get_db)):
         avg_loot_per_run=round(loot / total, 1) if total else 0,
         favorite_map=fav_map,
         favorite_runner=fav_runner_name,
+        favorite_shell=fav_runner_name,
         favorite_squad_mate=fav_mate,
         favorite_squad_mate_runs=fav_mate_runs,
         total_time_seconds=total_time,

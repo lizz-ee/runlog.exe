@@ -83,6 +83,10 @@ class Run(Base):
     def spawn_location(self) -> str | None:
         return self.spawn_point.spawn_location if self.spawn_point else None
 
+    @property
+    def shell_name(self) -> str | None:
+        return self.runner.name if self.runner else None
+
 
 class SpawnPoint(Base):
     __tablename__ = "spawn_points"

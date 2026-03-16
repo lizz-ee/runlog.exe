@@ -150,6 +150,10 @@ def spawn_heatmap(db: DBSession = Depends(get_db)):
                 "total_loot": 0,
                 "total_time": 0,
                 "total_kills": 0,
+                "pve_kills": 0,
+                "runner_kills": 0,
+                "total_deaths": 0,
+                "total_revives": 0,
             }
 
         entry = maps[map_key][loc_key]
@@ -167,7 +171,11 @@ def spawn_heatmap(db: DBSession = Depends(get_db)):
                     entry["runs_died"] += 1
             entry["total_loot"] += s.run.loot_value_total or 0
             entry["total_time"] += s.run.duration_seconds or 0
+            entry["pve_kills"] += s.run.combatant_eliminations or 0
+            entry["runner_kills"] += s.run.runner_eliminations or 0
             entry["total_kills"] += (s.run.combatant_eliminations or 0) + (s.run.runner_eliminations or 0)
+            entry["total_deaths"] += s.run.deaths or 0
+            entry["total_revives"] += s.run.crew_revives or 0
 
     result = []
     for mn, locations in maps.items():

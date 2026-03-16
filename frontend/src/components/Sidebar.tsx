@@ -1,13 +1,13 @@
 import { useStore } from '../lib/store'
 import type { View } from '../lib/types'
 
-const navItems: { view: View; label: string; tag: string }[] = [
+const navItems: { view: View; label: string; tag: string; disabled?: boolean }[] = [
   { view: 'dashboard', label: 'OVERVIEW', tag: '01' },
   { view: 'history', label: 'HISTORY', tag: '02' },
   { view: 'map-perimeter', label: 'PERIMETER', tag: '03' },
   { view: 'map-dire-marsh', label: 'DIRE MARSH', tag: '04' },
   { view: 'map-outpost', label: 'OUTPOST', tag: '05' },
-  { view: 'map-cryo-archive', label: 'CRYO ARCHIVE', tag: '06' },
+  { view: 'map-cryo-archive', label: 'CRYO ARCHIVE', tag: '06', disabled: true },
 ]
 
 export default function Sidebar() {
@@ -32,21 +32,26 @@ export default function Sidebar() {
         {navItems.map((item) => (
           <button
             key={item.view}
-            onClick={() => setView(item.view)}
+            onClick={() => !item.disabled && setView(item.view)}
             className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-all border-l-2 ${
-              view === item.view
-                ? 'border-m-green bg-m-green-glow text-m-green'
-                : 'border-transparent text-m-text-dim hover:text-m-text hover:bg-m-surface'
+              item.disabled
+                ? 'border-transparent cursor-not-allowed opacity-40'
+                : view === item.view
+                  ? 'border-m-green bg-m-green-glow text-m-green'
+                  : 'border-transparent text-m-text-dim hover:text-m-text hover:bg-m-surface'
             }`}
           >
             <span className={`label-tag ${
-              view === item.view ? 'text-m-green' : 'text-m-text-muted'
+              item.disabled ? 'text-m-text-muted' : view === item.view ? 'text-m-green' : 'text-m-text-muted'
             }`}>
               {item.tag}
             </span>
-            <span className="text-xs tracking-[0.1em] font-medium">
+            <span className={`text-xs tracking-[0.1em] font-medium ${item.disabled ? 'line-through decoration-m-red/60' : ''}`}>
               {item.label}
             </span>
+            {item.disabled && (
+              <span className="label-tag text-m-red/50 ml-auto">REDACTED</span>
+            )}
           </button>
         ))}
       </nav>

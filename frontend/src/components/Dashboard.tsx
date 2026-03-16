@@ -65,9 +65,17 @@ export default function Dashboard() {
           <div className="grid grid-cols-2 gap-[1px] bg-m-border">
             <StatBlock label="TOTAL LOOT" value={`$${(stats?.total_loot_value ?? 0).toLocaleString()}`} small color="yellow" />
             <StatBlock label="AVG LOOT/RUN" value={`$${stats?.avg_loot_per_run?.toFixed(0) ?? '0'}`} small color="yellow" />
-            <StatBlock label="FAV MAP" value={stats?.favorite_map ?? '—'} small />
-            <StatBlock label="FAV SQUAD MATE" value={stats?.favorite_squad_mate ?? '—'} small color="cyan" />
           </div>
+        </div>
+      </div>
+
+      {/* Favorites */}
+      <div>
+        <p className="label-tag text-m-text-muted mb-2">FAVORITES</p>
+        <div className="grid grid-cols-3 gap-[1px] bg-m-border">
+          <StatBlock label="FAV MAP" value={stats?.favorite_map ?? '—'} small />
+          <StatBlock label="FAV SHELL" value={stats?.favorite_shell ?? '—'} small />
+          <StatBlock label="FAV SQUAD MATE" value={stats?.favorite_squad_mate ?? '—'} small />
         </div>
       </div>
 
@@ -139,6 +147,9 @@ function RunRow({ run }: { run: Run }) {
           {run.spawn_location && (
             <span className="text-m-text-muted"> — {run.spawn_location}</span>
           )}
+          {run.shell_name && (
+            <span className="text-m-text-muted text-2xs ml-2">[{run.shell_name}]</span>
+          )}
         </span>
         <span className={`text-xs font-mono text-right ${run.combatant_eliminations ? 'text-m-green' : 'text-m-text-muted'}`}>
           {run.combatant_eliminations || 0}<span className="text-m-text-muted text-2xs">PVE</span>
@@ -169,6 +180,7 @@ function RunRow({ run }: { run: Run }) {
               <p className="label-tag text-m-green mb-2">RUN DETAILS</p>
               <DetailRow label="MAP" value={run.map_name ?? '—'} />
               <DetailRow label="SPAWN" value={run.spawn_location ?? 'Unknown'} />
+              <DetailRow label="SHELL" value={run.shell_name ?? 'Unknown'} />
               <DetailRow label="OUTCOME" value={run.survived ? 'Exfiltrated' : 'Eliminated'}
                 color={run.survived ? 'green' : 'red'} />
               <DetailRow label="DURATION" value={formatDuration(run.duration_seconds)} />
