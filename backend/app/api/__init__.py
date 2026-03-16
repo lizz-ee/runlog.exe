@@ -8,6 +8,7 @@ from .weapons import router as weapons_router
 from .stats import router as stats_router
 from .sessions import router as sessions_router
 from .spawns import router as spawns_router
+from .detect import router as detect_router
 
 api_router = APIRouter(prefix="/api")
 
@@ -19,3 +20,4 @@ api_router.include_router(weapons_router, prefix="/weapons", tags=["weapons"])
 api_router.include_router(stats_router, prefix="/stats", tags=["stats"])
 api_router.include_router(sessions_router, prefix="/sessions", tags=["sessions"])
 api_router.include_router(spawns_router, prefix="/spawns", tags=["spawns"])
+api_router.include_router(detect_router, prefix="/detect", tags=["detect"])
