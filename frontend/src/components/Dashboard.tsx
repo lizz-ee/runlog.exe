@@ -27,7 +27,7 @@ export default function Dashboard() {
   }, [])
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
+    <div className="max-w-7xl mx-auto space-y-4">
       {/* Header */}
       <div>
         <p className="label-tag text-m-green">SYSTEM / OVERVIEW</p>

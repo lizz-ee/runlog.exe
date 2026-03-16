@@ -41,6 +41,7 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
   const [dragState, setDragState] = useState<DragState | null>(null)
   const [dirty, setDirty] = useState<Set<string>>(new Set())
   const [saving, setSaving] = useState(false)
+  const [spawnSort, setSpawnSort] = useState<'name' | 'surv' | 'loot' | 'streak'>('name')
   const mapRef = useRef<HTMLDivElement>(null)
 
   const mapData = MAPS[selectedMap]
@@ -156,7 +157,7 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
       )}
 
       {/* Map + Spawn sidebar */}
-      <div className="grid grid-cols-[1fr_160px] gap-4">
+      <div className="grid grid-cols-[1fr_150px] gap-4">
       <div
         ref={mapRef}
         className="relative w-full select-none"
@@ -279,14 +280,44 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
       </div>
 
       {/* Spawn Points sidebar */}
-      <div className="bg-m-card flex flex-col">
-        <div className="px-3 py-3 border-b border-m-border">
-          <p className="label-tag text-m-green">SPAWN POINTS</p>
+      <div className="bg-m-card flex flex-col max-h-full">
+        <div className="px-3 py-2 border-b border-m-border">
+          <p className="label-tag text-m-green mb-2">SPAWN POINTS</p>
+          <div className="border-t border-m-border pt-2 mt-2 -mx-3" />
+          <div className="flex gap-[1px]">
+            {([['name', 'AZ'], ['surv', 'SRV'], ['loot', 'LT'], ['streak', 'STRK']] as const).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setSpawnSort(key)}
+                className={`px-2 py-0.5 text-[8px] tracking-wider transition-all ${
+                  spawnSort === key
+                    ? 'bg-m-green/15 text-m-green'
+                    : 'text-m-text-muted hover:text-m-text'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto">
           {currentHeatmap && currentHeatmap.locations.length > 0 ? (
             <div className="divide-y divide-m-border">
-              {[...currentHeatmap.locations].sort((a, b) => b.count - a.count || (b.runs_survived + b.runs_died) - (a.runs_survived + a.runs_died)).map((loc) => {
+              {[...currentHeatmap.locations].sort((a, b) => {
+                const aTotal = a.runs_survived + a.runs_died
+                const bTotal = b.runs_survived + b.runs_died
+                const aSurv = aTotal > 0 ? a.runs_survived / aTotal : -1
+                const bSurv = bTotal > 0 ? b.runs_survived / bTotal : -1
+                const aStreak = a.runs_survived > 0 && a.runs_died === 0 ? a.runs_survived : 0
+                const bStreak = b.runs_survived > 0 && b.runs_died === 0 ? b.runs_survived : 0
+                switch (spawnSort) {
+                  case 'name': return a.location.localeCompare(b.location)
+                  case 'surv': return bSurv - aSurv
+                  case 'loot': return (b.avg_loot ?? -Infinity) - (a.avg_loot ?? -Infinity)
+                  case 'streak': return bStreak - aStreak
+                  default: return 0
+                }
+              }).map((loc) => {
                 const spawnMatch = spawns.find(s => s.zone === loc.location)
                 const totalRuns = loc.runs_survived + loc.runs_died
                 const survRate = totalRuns > 0 ? Math.round(loc.runs_survived / totalRuns * 100) : null
@@ -299,26 +330,27 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
                     onMouseEnter={() => spawnMatch && setHoveredSpawn(spawnMatch.id)}
                     onMouseLeave={() => setHoveredSpawn(null)}
                   >
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <span className="text-2xs text-m-text uppercase tracking-wider font-bold flex-1">{loc.location}</span>
-                      <span className="text-[9px] font-mono text-m-text-muted">{loc.count}x</span>
-                    </div>
-                    {totalRuns > 0 && (
-                      <div className="ml-4 space-y-0.5 text-[9px] font-mono">
-                        <div className="flex justify-between">
-                          <span className="text-m-text-muted">SURV</span>
-                          <span className={survRate !== null && survRate >= 50 ? 'text-m-green' : 'text-m-red'}>{survRate}%</span>
+                    <p className="text-2xs text-m-text uppercase tracking-wider font-bold mb-1.5">{loc.location}</p>
+                    {totalRuns > 0 && (() => {
+                      const l = loc as any
+                      const streak = loc.runs_survived > 0 && loc.runs_died === 0 ? loc.runs_survived : 0
+                      return (
+                        <div className="ml-0 mt-1 space-y-0.5 text-[9px] font-mono">
+                          <div className="flex justify-between">
+                            <span className="text-m-text-muted">SURVIVE</span>
+                            <span className={survRate !== null && survRate >= 50 ? 'text-m-green' : 'text-m-red'}>{survRate}%</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-m-text-muted">AVG LOOT</span>
+                            <span className="text-m-yellow">${Math.round(loc.avg_loot ?? 0).toLocaleString()}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-m-text-muted">STREAK</span>
+                            <span className={streak > 0 ? 'text-m-green' : 'text-m-text-muted'}>{streak}</span>
+                          </div>
                         </div>
-                        <div className="flex justify-between">
-                          <span className="text-m-text-muted">LOOT</span>
-                          <span className="text-m-yellow">${Math.round(loc.avg_loot ?? 0).toLocaleString()}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-m-text-muted">TIME</span>
-                          <span className="text-m-cyan">{loc.avg_time ? formatTime(loc.avg_time) : '—'}</span>
-                        </div>
-                      </div>
-                    )}
+                      )
+                    })()}
                   </div>
                 )
               })}

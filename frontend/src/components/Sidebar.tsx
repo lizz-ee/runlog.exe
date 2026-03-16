@@ -84,12 +84,14 @@ export default function Sidebar() {
                 }`}>
                   {item.tag}
                 </span>
-                <span className={`text-xs tracking-[0.1em] font-medium ${item.disabled ? 'line-through decoration-m-red/60' : ''}`}>
-                  {item.label}
-                </span>
-                {item.disabled && (
-                  <span className="label-tag text-m-red/50 ml-auto">REDACTED</span>
-                )}
+                <div className="flex-1">
+                  <span className={`text-xs tracking-[0.1em] font-medium ${item.disabled ? 'line-through decoration-m-red/60' : ''}`}>
+                    {item.label}
+                  </span>
+                  {item.disabled && (
+                    <p className="label-tag text-m-red/50 mt-0.5">REDACTED</p>
+                  )}
+                </div>
               </button>
             ))}
           </div>

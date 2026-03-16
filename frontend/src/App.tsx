@@ -72,7 +72,7 @@ export default function App() {
         {view === 'history' && <RunHistory />}
         {mapName && <Maps selectedMap={mapName} />}
         {view === 'live' && (
-          <div className="max-w-6xl mx-auto space-y-6">
+          <div className="max-w-7xl mx-auto space-y-6">
             <div>
               <p className="label-tag text-m-green">CAPTURE / LIVE</p>
               <h2 className="text-xl font-display font-black tracking-wider text-m-text mt-1">

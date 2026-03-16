@@ -35,7 +35,7 @@ export default function RunHistory() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
+    <div className="max-w-7xl mx-auto space-y-4">
       <div>
         <p className="label-tag text-m-green">SYSTEM / ARCHIVE</p>
         <h2 className="text-xl font-display font-black tracking-wider text-m-text mt-1">
