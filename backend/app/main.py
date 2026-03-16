@@ -1,57 +1,36 @@
-"""
-Scian Backend - Main FastAPI Application
-Production Tracking System
-"""
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.config import settings
-from app.api import router
-from app.database import init_db
+from fastapi.staticfiles import StaticFiles
+import os
+
+from .database import engine, Base
+from .api import api_router
+from .config import settings
+
+# Create all tables
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
-    title="Scian Flow API",
-    description="Production tracking and review system for VFX, animation, and media production",
+    title="Marathon RunLog",
+    description="Track your Marathon extraction runs with screenshot parsing",
     version="1.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc"
 )
 
-# CORS middleware for Electron app
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify your Electron app origin
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Include API routes
-app.include_router(router, prefix="/api")
+# Serve uploaded screenshots
+os.makedirs(settings.media_upload_dir, exist_ok=True)
+app.mount("/media", StaticFiles(directory=settings.media_upload_dir), name="media")
 
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize database on startup"""
-    init_db()
+app.include_router(api_router)
 
 
 @app.get("/")
-async def root():
-    """Health check endpoint"""
-    return {
-        "status": "ok",
-        "app": "Scian Flow",
-        "version": "1.0.0",
-        "message": "Production tracking and review system"
-    }
-
-
-@app.get("/health")
-async def health_check():
-    """Detailed health check"""
-    return {
-        "status": "healthy",
-        "database": "connected",
-        "api": "ready"
-    }
+def root():
+    return {"app": "Marathon RunLog", "version": "1.0.0", "status": "running"}

@@ -1,52 +1,57 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  content: [
-    "./index.html",
-    "./src/**/*.{js,ts,jsx,tsx}",
-  ],
+  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
       colors: {
-        scian: {
-          // Brand accent colors
-          cyan: '#4FC3F7',
-          peach: '#FF9E80',
-          blue: '#42A5F5',
-          violet: '#AB47BC',
-          green: '#66BB6A',
+        // Core Marathon palette
+        'm-black': '#000000',
+        'm-bg': '#050508',
+        'm-surface': '#0a0a10',
+        'm-card': '#0f0f18',
+        'm-border': '#1a1a2a',
+        'm-border-bright': '#2a2a40',
 
-          // VSCode Dark+ theme backgrounds
-          darker: '#1E1E1E',      // Main editor background
-          dark: '#252526',         // Sidebar/panel background
-          panel: '#2D2D30',        // Panel header
-          hover: '#2A2D2E',        // Hover state
-          border: '#3E3E42',       // Borders
+        // Accent — Marathon neon lime
+        'm-green': '#c8ff00',
+        'm-green-dim': '#a0cc00',
+        'm-green-glow': 'rgba(200, 255, 0, 0.08)',
+        'm-green-bright': '#d4ff2a',
 
-          // Text colors (VSCode-inspired) - FLATTENED for @apply
-          'text-primary': '#CCCCCC',    // Main text
-          'text-secondary': '#858585',  // Secondary text
-          'text-muted': '#6A6A6A',      // Muted text
-        },
-        // Platform-specific brand colors
-        platform: {
-          'instagram-start': '#833AB4',    // Instagram gradient start
-          'instagram-mid': '#E1306C',      // Instagram gradient middle
-          'instagram-end': '#FD1D1D',      // Instagram gradient end
-          'facebook': '#1877F2',            // Facebook blue
-          'twitter': '#1DA1F2',             // Twitter blue
-          'tiktok': '#000000',              // TikTok black
-          'tiktok-accent': '#FF0050',       // TikTok pink/red
-          'linkedin': '#0A66C2',            // LinkedIn blue
-          'youtube': '#FF0000',             // YouTube red
-        },
+        // Status
+        'm-red': '#ff2244',
+        'm-red-dim': '#cc1133',
+        'm-red-glow': 'rgba(255, 34, 68, 0.08)',
+        'm-yellow': '#ffcc00',
+        'm-cyan': '#00ddff',
+        'm-purple': '#8844ff',
+
+        // Text
+        'm-text': '#e8e8f0',
+        'm-text-dim': '#888899',
+        'm-text-muted': '#555566',
       },
       fontFamily: {
-        sans: ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', 'sans-serif'],
-        display: ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', 'sans-serif'],
-        mono: ['Consolas', 'Monaco', 'Courier New', 'monospace'],
+        mono: ['"JetBrains Mono"', '"Fira Code"', '"Consolas"', 'monospace'],
+        display: ['"Inter"', '"Helvetica Neue"', 'Arial', 'sans-serif'],
+      },
+      fontSize: {
+        '2xs': '0.625rem',
+      },
+      borderWidth: {
+        '1': '1px',
+      },
+      animation: {
+        'pulse-slow': 'pulse 3s ease-in-out infinite',
+        'scan': 'scan 4s linear infinite',
+      },
+      keyframes: {
+        scan: {
+          '0%': { backgroundPosition: '0% 0%' },
+          '100%': { backgroundPosition: '0% 100%' },
+        },
       },
     },
   },
   plugins: [],
-  darkMode: 'class',
 }

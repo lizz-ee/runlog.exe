@@ -1,50 +1,336 @@
-const { app, BrowserWindow } = require('electron');
-const path = require('path');
+const { app, BrowserWindow, globalShortcut, Tray, Menu, Notification, nativeImage, ipcMain } = require('electron')
+const path = require('path')
+const fs = require('fs')
+const http = require('http')
+const { SteamScreenshotWatcher } = require('./steam-watcher')
 
-let mainWindow;
+const isDev = !app.isPackaged
+const API_BASE = 'http://localhost:8000'
+
+// Marathon Steam App ID
+const MARATHON_APP_ID = '3065800'
+
+let mainWindow = null
+let tray = null
+let steamWatcher = null
+
+// ── Screenshot capture ──────────────────────────────────────────────
+
+async function captureScreen() {
+  try {
+    const screenshot = require('screenshot-desktop')
+    const imgBuffer = await screenshot({ format: 'png' })
+    return imgBuffer
+  } catch (err) {
+    console.error('Screenshot failed:', err)
+    return null
+  }
+}
+
+function uploadScreenshot(buffer, endpoint) {
+  return new Promise((resolve, reject) => {
+    const boundary = '----RunLog' + Date.now()
+    const filename = `capture_${Date.now()}.png`
+
+    const fieldName = endpoint === '/api/screenshot/parse' ? 'files' : 'file'
+    const header = `--${boundary}\r\nContent-Disposition: form-data; name="${fieldName}"; filename="${filename}"\r\nContent-Type: image/png\r\n\r\n`
+    const footer = `\r\n--${boundary}--\r\n`
+
+    const bodyParts = [Buffer.from(header), buffer, Buffer.from(footer)]
+    const body = Buffer.concat(bodyParts)
+
+    const url = new URL(API_BASE + endpoint)
+    const options = {
+      hostname: url.hostname,
+      port: url.port,
+      path: url.pathname,
+      method: 'POST',
+      headers: {
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        'Content-Length': body.length,
+      },
+    }
+
+    const req = http.request(options, (res) => {
+      let data = ''
+      res.on('data', (chunk) => { data += chunk })
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(data))
+        } catch {
+          reject(new Error(`Bad response: ${data.slice(0, 200)}`))
+        }
+      })
+    })
+
+    req.on('error', reject)
+    req.write(body)
+    req.end()
+  })
+}
+
+function uploadFile(filePath, endpoint) {
+  return new Promise((resolve, reject) => {
+    const buffer = fs.readFileSync(filePath)
+    const ext = path.extname(filePath).toLowerCase().slice(1) || 'png'
+    const mimeType = `image/${ext === 'jpg' ? 'jpeg' : ext}`
+    const filename = path.basename(filePath)
+
+    const boundary = '----RunLog' + Date.now()
+    const fieldName = endpoint === '/api/screenshot/parse' ? 'files' : 'file'
+    const header = `--${boundary}\r\nContent-Disposition: form-data; name="${fieldName}"; filename="${filename}"\r\nContent-Type: ${mimeType}\r\n\r\n`
+    const footer = `\r\n--${boundary}--\r\n`
+
+    const body = Buffer.concat([Buffer.from(header), buffer, Buffer.from(footer)])
+
+    const url = new URL(API_BASE + endpoint)
+    const options = {
+      hostname: url.hostname,
+      port: url.port,
+      path: url.pathname,
+      method: 'POST',
+      headers: {
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        'Content-Length': body.length,
+      },
+    }
+
+    const req = http.request(options, (res) => {
+      let data = ''
+      res.on('data', (chunk) => { data += chunk })
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(data))
+        } catch {
+          reject(new Error(`Bad response: ${data.slice(0, 200)}`))
+        }
+      })
+    })
+
+    req.on('error', reject)
+    req.write(body)
+    req.end()
+  })
+}
+
+function showNotification(title, body) {
+  if (Notification.isSupported()) {
+    new Notification({ title, body, silent: true }).show()
+  }
+}
+
+function sendToRenderer(channel, data) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(channel, data)
+  }
+}
+
+// ── Hotkey handlers ─────────────────────────────────────────────────
+
+async function handleRunScreenshot() {
+  showNotification('RunLog', 'Capturing results screenshot...')
+
+  const buffer = await captureScreen()
+  if (!buffer) {
+    showNotification('RunLog', 'Screenshot capture failed')
+    return
+  }
+
+  try {
+    const parsed = await uploadScreenshot(buffer, '/api/screenshot/parse')
+    const status = parsed.survived ? 'EXTRACTED' : 'KIA'
+    const kills = (parsed.combatant_eliminations || 0) + (parsed.runner_eliminations || 0)
+    showNotification('RunLog - Run Captured', `${status} | ${kills} kills | ${parsed.loot_value_total || 0} loot`)
+    sendToRenderer('screenshot-parsed', { type: 'run', data: parsed, timestamp: Date.now() })
+  } catch (err) {
+    console.error('Upload failed:', err)
+    showNotification('RunLog', `Parse failed: ${err.message}`)
+  }
+}
+
+async function handleSpawnScreenshot() {
+  showNotification('RunLog', 'Capturing spawn screenshot...')
+
+  const buffer = await captureScreen()
+  if (!buffer) {
+    showNotification('RunLog', 'Screenshot capture failed')
+    return
+  }
+
+  try {
+    const parsed = await uploadScreenshot(buffer, '/api/spawns/parse')
+    const loc = parsed.spawn_location || parsed.spawn_region || 'Unknown'
+    const map = parsed.map_name || 'Unknown map'
+    showNotification('RunLog - Spawn Logged', `${map} - ${loc}`)
+    sendToRenderer('screenshot-parsed', { type: 'spawn', data: parsed, timestamp: Date.now() })
+  } catch (err) {
+    console.error('Upload failed:', err)
+    showNotification('RunLog', `Parse failed: ${err.message}`)
+  }
+}
+
+// ── Steam screenshot auto-detection ─────────────────────────────────
+
+function startSteamWatcher() {
+  steamWatcher = new SteamScreenshotWatcher(async (filePath, appId) => {
+    console.log(`Steam screenshot detected: ${filePath} (app: ${appId})`)
+    showNotification('RunLog', `Steam screenshot detected — parsing...`)
+
+    try {
+      // Try parsing as run results first (most common use case)
+      const parsed = await uploadFile(filePath, '/api/screenshot/parse')
+
+      // If it looks like a results screen (has kills or survived data), treat as run
+      if (parsed.survived !== null || parsed.kills > 0 || parsed.loot_value_total > 0) {
+        const status = parsed.survived ? 'EXTRACTED' : 'KIA'
+        const kills = (parsed.combatant_eliminations || 0) + (parsed.runner_eliminations || 0)
+        showNotification('RunLog - Steam Capture', `${status} | ${kills} kills | ${parsed.loot_value_total || 0} loot`)
+        sendToRenderer('screenshot-parsed', { type: 'run', data: parsed, timestamp: Date.now() })
+      } else {
+        // Might be a spawn/map screenshot — try spawn parser
+        try {
+          const spawnParsed = await uploadFile(filePath, '/api/spawns/parse')
+          const loc = spawnParsed.spawn_location || spawnParsed.spawn_region || 'Unknown'
+          showNotification('RunLog - Steam Capture', `Spawn: ${spawnParsed.map_name || 'Unknown'} - ${loc}`)
+          sendToRenderer('screenshot-parsed', { type: 'spawn', data: spawnParsed, timestamp: Date.now() })
+        } catch {
+          showNotification('RunLog', 'Screenshot captured but could not parse content')
+          sendToRenderer('screenshot-parsed', { type: 'run', data: parsed, timestamp: Date.now() })
+        }
+      }
+    } catch (err) {
+      console.error('Steam screenshot parse failed:', err)
+      showNotification('RunLog', `Parse failed: ${err.message}`)
+    }
+  })
+
+  const started = steamWatcher.start()
+  if (started) {
+    const paths = steamWatcher.getPaths()
+    const marathonPath = paths.find(p => p.appId === MARATHON_APP_ID)
+    if (marathonPath) {
+      console.log(`Steam watcher: Watching Marathon screenshots at ${marathonPath.path}`)
+      showNotification('RunLog', `Watching Steam screenshots for Marathon`)
+    } else {
+      console.log(`Steam watcher: Watching ${paths.length} screenshot folder(s) — Marathon folder not found yet`)
+    }
+  } else {
+    console.log('Steam watcher: Could not find any Steam screenshot folders')
+  }
+}
+
+// ── Window ──────────────────────────────────────────────────────────
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1600,
-    height: 1000,
-    minWidth: 1200,
-    minHeight: 700,
-    backgroundColor: '#0F0F0F',
+    width: 1400,
+    height: 900,
+    minWidth: 900,
+    minHeight: 600,
+    backgroundColor: '#0a0a0f',
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: '#12121a',
+      symbolColor: '#8888aa',
+      height: 36,
+    },
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js')
+      preload: path.join(__dirname, 'preload.js'),
     },
-    titleBarStyle: 'hiddenInset',
-    frame: true,
-  });
+  })
 
-  // Load app
-  const isDev = !app.isPackaged;
   if (isDev) {
-    mainWindow.loadURL('http://localhost:5173');
-    mainWindow.webContents.openDevTools();
+    mainWindow.loadURL('http://localhost:5173')
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
   }
 
-  mainWindow.on('closed', () => {
-    mainWindow = null;
-  });
+  // Minimize to tray instead of closing
+  mainWindow.on('close', (e) => {
+    if (!app.isQuitting) {
+      e.preventDefault()
+      mainWindow.hide()
+    }
+  })
 }
 
-app.whenReady().then(createWindow);
+// ── Tray ────────────────────────────────────────────────────────────
+
+function createTray() {
+  const icon = nativeImage.createFromBuffer(
+    Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAARklEQVQ4T2P8z8Dwn4EIwMjAwMBEjAYGBgYGFmI0MDAwMBAyACRANBBrAMkuINoAkl1AtAEku4BoA0h2AcZoYCBkOzYAAFraEBGVSXgEAAAAAElFTkSuQmCC',
+      'base64'
+    )
+  )
+
+  tray = new Tray(icon)
+  tray.setToolTip('Marathon RunLog — watching for screenshots')
+
+  const contextMenu = Menu.buildFromTemplate([
+    { label: 'Show RunLog', click: () => mainWindow.show() },
+    { type: 'separator' },
+    {
+      label: 'Capture Run (Ctrl+Shift+F5)',
+      click: handleRunScreenshot,
+    },
+    {
+      label: 'Capture Spawn (Ctrl+Shift+F6)',
+      click: handleSpawnScreenshot,
+    },
+    { type: 'separator' },
+    { label: 'Steam F12 auto-detect: ON', enabled: false },
+    { type: 'separator' },
+    {
+      label: 'Quit',
+      click: () => {
+        app.isQuitting = true
+        if (steamWatcher) steamWatcher.stop()
+        app.quit()
+      },
+    },
+  ])
+
+  tray.setContextMenu(contextMenu)
+  tray.on('double-click', () => mainWindow.show())
+}
+
+// ── App lifecycle ───────────────────────────────────────────────────
+
+app.whenReady().then(() => {
+  createWindow()
+  createTray()
+
+  // Register global hotkeys (work even when game is focused)
+  globalShortcut.register('Ctrl+Shift+F5', handleRunScreenshot)
+  globalShortcut.register('Ctrl+Shift+F6', handleSpawnScreenshot)
+
+  // Start watching Steam screenshot folder
+  startSteamWatcher()
+
+  console.log('=== Marathon RunLog ===')
+  console.log('Hotkeys:')
+  console.log('  Ctrl+Shift+F5 → Capture run results')
+  console.log('  Ctrl+Shift+F6 → Capture spawn location')
+  console.log('  F12 (Steam)   → Auto-detected and parsed')
+})
+
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll()
+  if (steamWatcher) steamWatcher.stop()
+})
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-});
+  // Don't quit — stay in tray
+})
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
-  }
-});
+  if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  else mainWindow.show()
+})
 
-console.log('🎨 Scian - Starting...');
+// IPC: let renderer request a screenshot manually
+ipcMain.handle('capture-run', handleRunScreenshot)
+ipcMain.handle('capture-spawn', handleSpawnScreenshot)

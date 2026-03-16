@@ -1,0 +1,77 @@
+import { useStore } from '../lib/store'
+import type { View } from '../lib/types'
+
+const navItems: { view: View; label: string; tag: string }[] = [
+  { view: 'dashboard', label: 'OVERVIEW', tag: '01' },
+  { view: 'history', label: 'HISTORY', tag: '02' },
+  { view: 'map-perimeter', label: 'PERIMETER', tag: '03' },
+  { view: 'map-dire-marsh', label: 'DIRE MARSH', tag: '04' },
+  { view: 'map-outpost', label: 'OUTPOST', tag: '05' },
+  { view: 'map-cryo-archive', label: 'CRYO ARCHIVE', tag: '06' },
+]
+
+export default function Sidebar() {
+  const { view, setView, stats } = useStore()
+
+  return (
+    <aside className="w-52 bg-m-black border-r border-1 border-m-border flex flex-col">
+      {/* Header */}
+      <div className="px-4 py-5 border-b border-1 border-m-border">
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 bg-m-green rounded-full animate-pulse-slow" />
+          <span className="label-tag text-m-green">SYSTEM ONLINE</span>
+        </div>
+        <h1 className="text-base font-display font-black tracking-[0.2em] text-m-text mt-3">
+          RUNLOG
+        </h1>
+        <p className="label-tag text-m-text-muted mt-1">MARATHON TRACKER v1.0</p>
+      </div>
+
+      {/* Nav */}
+      <nav className="flex-1 py-2">
+        {navItems.map((item) => (
+          <button
+            key={item.view}
+            onClick={() => setView(item.view)}
+            className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-all border-l-2 ${
+              view === item.view
+                ? 'border-m-green bg-m-green-glow text-m-green'
+                : 'border-transparent text-m-text-dim hover:text-m-text hover:bg-m-surface'
+            }`}
+          >
+            <span className={`label-tag ${
+              view === item.view ? 'text-m-green' : 'text-m-text-muted'
+            }`}>
+              {item.tag}
+            </span>
+            <span className="text-xs tracking-[0.1em] font-medium">
+              {item.label}
+            </span>
+          </button>
+        ))}
+      </nav>
+
+      {/* Status */}
+      {stats && (
+        <div className="px-4 py-3 border-t border-1 border-m-border space-y-2">
+          <div className="flex justify-between">
+            <span className="label-tag text-m-text-muted">RUNS</span>
+            <span className="text-2xs font-mono text-m-text">{stats.total_runs}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="label-tag text-m-text-muted">SURV%</span>
+            <span className={`text-2xs font-mono ${
+              stats.survival_rate >= 50 ? 'text-m-green' : 'text-m-red'
+            }`}>{stats.survival_rate}%</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="label-tag text-m-text-muted">K/D</span>
+            <span className={`text-2xs font-mono ${
+              stats.kd_ratio >= 1 ? 'text-m-green' : 'text-m-red'
+            }`}>{stats.kd_ratio.toFixed(2)}</span>
+          </div>
+        </div>
+      )}
+    </aside>
+  )
+}

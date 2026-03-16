@@ -1,0 +1,80 @@
+import { create } from 'zustand'
+import type { View, Run, OverviewStats, Runner, Loadout, ParsedScreenshot } from './types'
+
+export interface Toast {
+  id: string
+  title: string
+  body: string
+  type: 'success' | 'error' | 'info'
+  timestamp: number
+}
+
+export interface PendingCapture {
+  type: 'run' | 'spawn'
+  data: any
+  timestamp: number
+}
+
+interface AppState {
+  view: View
+  setView: (view: View) => void
+
+  runs: Run[]
+  setRuns: (runs: Run[]) => void
+  addRun: (run: Run) => void
+
+  stats: OverviewStats | null
+  setStats: (stats: OverviewStats) => void
+
+  runners: Runner[]
+  setRunners: (runners: Runner[]) => void
+
+  loadouts: Loadout[]
+  setLoadouts: (loadouts: Loadout[]) => void
+
+  isLoading: boolean
+  setLoading: (loading: boolean) => void
+
+  // Toasts
+  toasts: Toast[]
+  addToast: (toast: Omit<Toast, 'id' | 'timestamp'>) => void
+  removeToast: (id: string) => void
+
+  // Pending captures from hotkeys
+  pendingCapture: PendingCapture | null
+  setPendingCapture: (capture: PendingCapture | null) => void
+}
+
+export const useStore = create<AppState>((set) => ({
+  view: 'dashboard',
+  setView: (view) => set({ view }),
+
+  runs: [],
+  setRuns: (runs) => set({ runs }),
+  addRun: (run) => set((s) => ({ runs: [run, ...s.runs] })),
+
+  stats: null,
+  setStats: (stats) => set({ stats }),
+
+  runners: [],
+  setRunners: (runners) => set({ runners }),
+
+  loadouts: [],
+  setLoadouts: (loadouts) => set({ loadouts }),
+
+  isLoading: false,
+  setLoading: (isLoading) => set({ isLoading }),
+
+  toasts: [],
+  addToast: (toast) =>
+    set((s) => ({
+      toasts: [
+        ...s.toasts,
+        { ...toast, id: `${Date.now()}-${Math.random()}`, timestamp: Date.now() },
+      ],
+    })),
+  removeToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+
+  pendingCapture: null,
+  setPendingCapture: (pendingCapture) => set({ pendingCapture }),
+}))

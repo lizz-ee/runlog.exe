@@ -1,14 +1,15 @@
 @echo off
-echo ====================================
-echo    Scian - Social Media Manager
-echo    Turn creative chaos into clarity
-echo ====================================
+echo === Marathon RunLog ===
 echo.
-echo Starting Scian frontend...
-echo Backend is running at http://localhost:8000
+echo Starting backend...
+start "RunLog Backend" cmd /k "cd backend && python run.py"
 echo.
-
+echo Starting frontend...
 cd frontend
-npm run dev
-
+start "RunLog Frontend" cmd /k "npm run dev"
+echo.
+echo Backend: http://localhost:8000
+echo Frontend: http://localhost:5173
+echo API Docs: http://localhost:8000/docs
+echo.
 pause

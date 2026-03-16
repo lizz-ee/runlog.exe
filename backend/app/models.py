@@ -1,303 +1,107 @@
-"""
-Database models for Scian Production Tracking
-"""
-
 from datetime import datetime
-from typing import Optional, List
 from sqlalchemy import (
-    Column, Integer, String, Text, DateTime, ForeignKey,
-    Boolean, Enum as SQLEnum, Float, JSON
+    Column, Integer, String, Boolean, Float, Text, DateTime, ForeignKey, JSON
 )
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
-import enum
 
-Base = declarative_base()
-
-
-class TaskStatus(str, enum.Enum):
-    """Task/Shot status options"""
-    WTG = "wtg"  # Waiting to Start
-    RDY = "rdy"  # Ready to Start
-    IP = "ip"    # In Progress
-    REV = "rev"  # Pending Review
-    APP = "app"  # Approved
-    HLD = "hld"  # On Hold / Changes Requested
-    FIN = "fin"  # Final
-    OMT = "omt"  # Omitted
+from .database import Base
 
 
-class Priority(str, enum.Enum):
-    """Priority levels"""
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    CRITICAL = "critical"
+class Runner(Base):
+    __tablename__ = "runners"
 
-
-class Department(str, enum.Enum):
-    """Production departments"""
-    MODELING = "modeling"
-    RIGGING = "rigging"
-    SURFACING = "surfacing"
-    ANIMATION = "animation"
-    FX = "fx"
-    LIGHTING = "lighting"
-    RENDERING = "rendering"
-    COMPOSITING = "compositing"
-    EDITORIAL = "editorial"
-    CONCEPT = "concept"
-    PRODUCTION = "production"
-
-
-class User(Base):
-    """Team member"""
-    __tablename__ = "users"
-
-    id = Column(Integer, primary_key=True)
-    email = Column(String(255), unique=True, nullable=False, index=True)
-    name = Column(String(255), nullable=False)
-    avatar_url = Column(String(500))
-    department = Column(SQLEnum(Department))
-    role = Column(String(100))  # Artist, Supervisor, Producer, etc.
-    is_active = Column(Boolean, default=True)
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)
+    icon = Column(String(255), nullable=True)
+    notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    # Relationships
-    assigned_tasks = relationship("Task", back_populates="assignee")
-    comments = relationship("Comment", back_populates="author")
+    loadouts = relationship("Loadout", back_populates="runner")
+    runs = relationship("Run", back_populates="runner")
 
 
-class Project(Base):
-    """Production/Show"""
-    __tablename__ = "projects"
+class Weapon(Base):
+    __tablename__ = "weapons"
 
-    id = Column(Integer, primary_key=True)
-    name = Column(String(255), nullable=False)
-    code = Column(String(50), unique=True, nullable=False, index=True)  # e.g., "PROJ"
-    description = Column(Text)
-    thumbnail_url = Column(String(500))
-    status = Column(SQLEnum(TaskStatus), default=TaskStatus.IP)
-    start_date = Column(DateTime)
-    end_date = Column(DateTime)
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)
+    weapon_type = Column(String(50), nullable=True)  # primary, secondary, heavy
+    notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    # Relationships
-    sequences = relationship("Sequence", back_populates="project", cascade="all, delete-orphan")
-    assets = relationship("Asset", back_populates="project", cascade="all, delete-orphan")
 
 
-class Sequence(Base):
-    """Sequence of shots"""
-    __tablename__ = "sequences"
+class Loadout(Base):
+    __tablename__ = "loadouts"
 
-    id = Column(Integer, primary_key=True)
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
-    name = Column(String(255), nullable=False)
-    code = Column(String(50), nullable=False, index=True)  # e.g., "SEQ010"
-    description = Column(Text)
-    status = Column(SQLEnum(TaskStatus), default=TaskStatus.WTG)
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)
+    runner_id = Column(Integer, ForeignKey("runners.id"), nullable=True)
+    primary_weapon = Column(String(100), nullable=True)
+    secondary_weapon = Column(String(100), nullable=True)
+    heavy_weapon = Column(String(100), nullable=True)
+    mods = Column(JSON, nullable=True)
+    gear = Column(JSON, nullable=True)
+    notes = Column(Text, nullable=True)
+    screenshot_path = Column(String(500), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    # Relationships
-    project = relationship("Project", back_populates="sequences")
-    shots = relationship("Shot", back_populates="sequence", cascade="all, delete-orphan")
+    runner = relationship("Runner", back_populates="loadouts")
+    runs = relationship("Run", back_populates="loadout")
 
 
-class Shot(Base):
-    """Individual shot"""
-    __tablename__ = "shots"
+class Run(Base):
+    __tablename__ = "runs"
 
-    id = Column(Integer, primary_key=True)
-    sequence_id = Column(Integer, ForeignKey("sequences.id"), nullable=False)
-    name = Column(String(255), nullable=False)
-    code = Column(String(50), nullable=False, unique=True, index=True)  # e.g., "SEQ010_SH0010"
-    description = Column(Text)
-    thumbnail_url = Column(String(500))
-    status = Column(SQLEnum(TaskStatus), default=TaskStatus.WTG)
-    priority = Column(SQLEnum(Priority), default=Priority.MEDIUM)
-
-    # Frame range
-    frame_start = Column(Integer)
-    frame_end = Column(Integer)
-    frame_duration = Column(Integer)
-    fps = Column(Float, default=24.0)
-
-    # Custom metadata
-    custom_metadata = Column(JSON)  # Additional custom fields
-
+    id = Column(Integer, primary_key=True, index=True)
+    runner_id = Column(Integer, ForeignKey("runners.id"), nullable=True)
+    loadout_id = Column(Integer, ForeignKey("loadouts.id"), nullable=True)
+    map_name = Column(String(100), nullable=True)
+    date = Column(DateTime, default=datetime.utcnow)
+    survived = Column(Boolean, nullable=True)
+    kills = Column(Integer, default=0)
+    combatant_eliminations = Column(Integer, default=0)
+    runner_eliminations = Column(Integer, default=0)
+    deaths = Column(Integer, default=0)
+    assists = Column(Integer, default=0)
+    loot_extracted = Column(JSON, nullable=True)
+    loot_value_total = Column(Float, default=0.0)
+    duration_seconds = Column(Integer, nullable=True)
+    squad_size = Column(Integer, nullable=True)
+    squad_members = Column(JSON, nullable=True)
+    screenshot_path = Column(String(500), nullable=True)
+    notes = Column(Text, nullable=True)
+    session_id = Column(Integer, ForeignKey("sessions.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    # Relationships
-    sequence = relationship("Sequence", back_populates="shots")
-    tasks = relationship("Task", back_populates="shot", cascade="all, delete-orphan")
-    versions = relationship("Version", back_populates="shot", cascade="all, delete-orphan")
-
-
-class AssetType(str, enum.Enum):
-    """Asset categories"""
-    CHARACTER = "character"
-    PROP = "prop"
-    ENVIRONMENT = "environment"
-    FX = "fx"
-    VEHICLE = "vehicle"
-    MATTE_PAINTING = "matte_painting"
+    runner = relationship("Runner", back_populates="runs")
+    loadout = relationship("Loadout", back_populates="runs")
+    session = relationship("Session", back_populates="runs")
+    spawn_point = relationship("SpawnPoint", back_populates="run", uselist=False)
 
 
-class Asset(Base):
-    """Reusable asset (character, prop, environment, etc.)"""
-    __tablename__ = "assets"
+class SpawnPoint(Base):
+    __tablename__ = "spawn_points"
 
-    id = Column(Integer, primary_key=True)
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
-    name = Column(String(255), nullable=False)
-    code = Column(String(50), nullable=False, unique=True, index=True)
-    asset_type = Column(SQLEnum(AssetType), nullable=False)
-    description = Column(Text)
-    thumbnail_url = Column(String(500))
-    status = Column(SQLEnum(TaskStatus), default=TaskStatus.WTG)
-    priority = Column(SQLEnum(Priority), default=Priority.MEDIUM)
-
-    # Custom metadata
-    custom_metadata = Column(JSON)
-
+    id = Column(Integer, primary_key=True, index=True)
+    run_id = Column(Integer, ForeignKey("runs.id"), nullable=True)
+    map_name = Column(String(100), nullable=False)
+    spawn_location = Column(String(200), nullable=True)
+    spawn_region = Column(String(100), nullable=True)
+    x = Column(Float, nullable=True)  # % position on map image (0-100)
+    y = Column(Float, nullable=True)  # % position on map image (0-100)
+    screenshot_path = Column(String(500), nullable=True)
+    notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    # Relationships
-    project = relationship("Project", back_populates="assets")
-    tasks = relationship("Task", back_populates="asset", cascade="all, delete-orphan")
-    versions = relationship("Version", back_populates="asset", cascade="all, delete-orphan")
+    run = relationship("Run", back_populates="spawn_point")
 
 
-class Task(Base):
-    """Work assignment"""
-    __tablename__ = "tasks"
+class Session(Base):
+    __tablename__ = "sessions"
 
-    id = Column(Integer, primary_key=True)
-    name = Column(String(255), nullable=False)
-    description = Column(Text)
-    department = Column(SQLEnum(Department), nullable=False)
-    status = Column(SQLEnum(TaskStatus), default=TaskStatus.WTG)
-    priority = Column(SQLEnum(Priority), default=Priority.MEDIUM)
+    id = Column(Integer, primary_key=True, index=True)
+    started_at = Column(DateTime, default=datetime.utcnow)
+    ended_at = Column(DateTime, nullable=True)
+    notes = Column(Text, nullable=True)
 
-    # Assignment
-    assignee_id = Column(Integer, ForeignKey("users.id"))
-
-    # Linked to either a shot or asset
-    shot_id = Column(Integer, ForeignKey("shots.id"))
-    asset_id = Column(Integer, ForeignKey("assets.id"))
-
-    # Scheduling
-    start_date = Column(DateTime)
-    due_date = Column(DateTime)
-    completed_date = Column(DateTime)
-
-    # Time tracking
-    estimated_hours = Column(Float)
-    actual_hours = Column(Float)
-
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    # Relationships
-    assignee = relationship("User", back_populates="assigned_tasks")
-    shot = relationship("Shot", back_populates="tasks")
-    asset = relationship("Asset", back_populates="tasks")
-
-
-class Version(Base):
-    """Media version (uploaded media file)"""
-    __tablename__ = "versions"
-
-    id = Column(Integer, primary_key=True)
-    name = Column(String(255), nullable=False)
-    version_number = Column(Integer, nullable=False)
-    description = Column(Text)
-
-    # Media file
-    file_url = Column(String(500), nullable=False)
-    file_name = Column(String(255), nullable=False)
-    file_size = Column(Integer)  # bytes
-    mime_type = Column(String(100))
-    thumbnail_url = Column(String(500))
-
-    # Video metadata
-    duration = Column(Float)  # seconds
-    fps = Column(Float)
-    resolution_width = Column(Integer)
-    resolution_height = Column(Integer)
-    codec = Column(String(50))
-
-    # Linked to either a shot or asset
-    shot_id = Column(Integer, ForeignKey("shots.id"))
-    asset_id = Column(Integer, ForeignKey("assets.id"))
-
-    # Upload info
-    uploaded_by_id = Column(Integer, ForeignKey("users.id"))
-    uploaded_at = Column(DateTime, default=datetime.utcnow)
-
-    # Review status
-    review_status = Column(SQLEnum(TaskStatus), default=TaskStatus.REV)
-
-    # Relationships
-    shot = relationship("Shot", back_populates="versions")
-    asset = relationship("Asset", back_populates="versions")
-    uploaded_by = relationship("User")
-    comments = relationship("Comment", back_populates="version", cascade="all, delete-orphan")
-
-
-class CommentType(str, enum.Enum):
-    """Comment types"""
-    NOTE = "note"
-    APPROVAL = "approval"
-    REVISION = "revision"
-
-
-class Comment(Base):
-    """Review comment/annotation"""
-    __tablename__ = "comments"
-
-    id = Column(Integer, primary_key=True)
-    version_id = Column(Integer, ForeignKey("versions.id"), nullable=False)
-    author_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-
-    text = Column(Text, nullable=False)
-    comment_type = Column(SQLEnum(CommentType), default=CommentType.NOTE)
-
-    # Frame-accurate timestamp
-    frame_number = Column(Integer)  # Specific frame
-    timecode = Column(String(20))   # HH:MM:SS:FF
-
-    # Drawing/annotation data (JSON)
-    annotation_data = Column(JSON)  # Coordinates, shapes, etc.
-
-    # Threading
-    parent_comment_id = Column(Integer, ForeignKey("comments.id"))
-
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    # Relationships
-    version = relationship("Version", back_populates="comments")
-    author = relationship("User", back_populates="comments")
-    replies = relationship("Comment", remote_side=[parent_comment_id])
-
-
-class Activity(Base):
-    """Activity feed / audit log"""
-    __tablename__ = "activities"
-
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
-    action = Column(String(100), nullable=False)  # created, updated, commented, approved, etc.
-    entity_type = Column(String(50), nullable=False)  # shot, asset, task, version, etc.
-    entity_id = Column(Integer, nullable=False)
-    details = Column(JSON)  # Additional context
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
-
-    # Relationships
-    user = relationship("User")
+    runs = relationship("Run", back_populates="session")

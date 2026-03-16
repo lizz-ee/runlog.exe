@@ -1,40 +1,21 @@
-"""
-Database connection and session management
-"""
-
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.pool import StaticPool
-from app.config import settings
-from app.models import Base
-from typing import Generator
+from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
-# Database URL
-DATABASE_URL = settings.database_url
+from .config import settings
 
-# Create engine
-if DATABASE_URL.startswith("sqlite"):
-    # SQLite specific configuration
-    engine = create_engine(
-        DATABASE_URL,
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-else:
-    # PostgreSQL configuration
-    engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+connect_args = {}
+if settings.database_url.startswith("sqlite"):
+    connect_args["check_same_thread"] = False
 
-# Session factory
+engine = create_engine(settings.database_url, connect_args=connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
-def init_db():
-    """Initialize database - create all tables"""
-    Base.metadata.create_all(bind=engine)
+class Base(DeclarativeBase):
+    pass
 
 
-def get_db() -> Generator[Session, None, None]:
-    """Dependency for getting database session"""
+def get_db():
     db = SessionLocal()
     try:
         yield db

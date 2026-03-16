@@ -1,30 +1,21 @@
-"""
-API router configuration - Production Tracking System
-"""
-
 from fastapi import APIRouter
 
-from app.api import (
-    projects,
-    sequences,
-    shots,
-    assets,
-    tasks,
-    versions,
-    comments,
-    users,
-    activity
-)
+from .screenshot import router as screenshot_router
+from .runs import router as runs_router
+from .runners import router as runners_router
+from .loadouts import router as loadouts_router
+from .weapons import router as weapons_router
+from .stats import router as stats_router
+from .sessions import router as sessions_router
+from .spawns import router as spawns_router
 
-router = APIRouter()
+api_router = APIRouter(prefix="/api")
 
-# Include all sub-routers
-router.include_router(projects.router, prefix="/projects", tags=["projects"])
-router.include_router(sequences.router, prefix="/sequences", tags=["sequences"])
-router.include_router(shots.router, prefix="/shots", tags=["shots"])
-router.include_router(assets.router, prefix="/assets", tags=["assets"])
-router.include_router(tasks.router, prefix="/tasks", tags=["tasks"])
-router.include_router(versions.router, prefix="/versions", tags=["versions"])
-router.include_router(comments.router, prefix="/comments", tags=["comments"])
-router.include_router(users.router, prefix="/users", tags=["users"])
-router.include_router(activity.router, prefix="/activity", tags=["activity"])
+api_router.include_router(screenshot_router, prefix="/screenshot", tags=["screenshot"])
+api_router.include_router(runs_router, prefix="/runs", tags=["runs"])
+api_router.include_router(runners_router, prefix="/runners", tags=["runners"])
+api_router.include_router(loadouts_router, prefix="/loadouts", tags=["loadouts"])
+api_router.include_router(weapons_router, prefix="/weapons", tags=["weapons"])
+api_router.include_router(stats_router, prefix="/stats", tags=["stats"])
+api_router.include_router(sessions_router, prefix="/sessions", tags=["sessions"])
+api_router.include_router(spawns_router, prefix="/spawns", tags=["spawns"])

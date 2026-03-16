@@ -1,251 +1,152 @@
-/**
- * TypeScript types matching backend models
- */
-
-export type TaskStatus = 'wtg' | 'rdy' | 'ip' | 'rev' | 'app' | 'hld' | 'fin' | 'omt';
-export type Priority = 'low' | 'medium' | 'high' | 'critical';
-export type Department = 'modeling' | 'rigging' | 'surfacing' | 'animation' | 'fx' | 'lighting' | 'rendering' | 'compositing' | 'editorial' | 'concept' | 'production';
-export type AssetType = 'character' | 'prop' | 'environment' | 'fx' | 'vehicle' | 'matte_painting';
-export type CommentType = 'note' | 'approval' | 'revision';
-
-export interface User {
-  id: number;
-  email: string;
-  name: string;
-  avatar_url?: string | null;
-  department?: Department | null;
-  role?: string | null;
-  is_active: boolean;
-  created_at: string;
+export interface Runner {
+  id: number
+  name: string
+  icon: string | null
+  notes: string | null
+  created_at: string
 }
 
-export interface Project {
-  id: number;
-  name: string;
-  code: string;
-  description?: string | null;
-  thumbnail_url?: string | null;
-  status: TaskStatus;
-  start_date?: string | null;
-  end_date?: string | null;
-  created_at: string;
-  updated_at: string;
+export interface Weapon {
+  id: number
+  name: string
+  weapon_type: string | null
+  notes: string | null
+  created_at: string
 }
 
-export interface Sequence {
-  id: number;
-  project_id: number;
-  name: string;
-  code: string;
-  description?: string | null;
-  status: TaskStatus;
-  created_at: string;
-  updated_at: string;
+export interface Loadout {
+  id: number
+  name: string
+  runner_id: number | null
+  primary_weapon: string | null
+  secondary_weapon: string | null
+  heavy_weapon: string | null
+  mods: string[] | null
+  gear: string[] | null
+  notes: string | null
+  screenshot_path: string | null
+  created_at: string
 }
 
-export interface Shot {
-  id: number;
-  sequence_id: number;
-  name: string;
-  code: string;
-  description?: string | null;
-  thumbnail_url?: string | null;
-  status: TaskStatus;
-  priority: Priority;
-  frame_start?: number | null;
-  frame_end?: number | null;
-  frame_duration?: number | null;
-  fps: number;
-  custom_metadata?: Record<string, any> | null;
-  created_at: string;
-  updated_at: string;
+export interface Run {
+  id: number
+  runner_id: number | null
+  loadout_id: number | null
+  map_name: string | null
+  date: string
+  survived: boolean | null
+  kills: number
+  combatant_eliminations: number
+  runner_eliminations: number
+  deaths: number
+  assists: number
+  loot_extracted: LootItem[] | null
+  loot_value_total: number
+  duration_seconds: number | null
+  squad_size: number | null
+  squad_members: string[] | null
+  screenshot_path: string | null
+  notes: string | null
+  session_id: number | null
+  created_at: string
 }
 
-export interface Asset {
-  id: number;
-  project_id: number;
-  name: string;
-  code: string;
-  asset_type: AssetType;
-  description?: string | null;
-  thumbnail_url?: string | null;
-  status: TaskStatus;
-  priority: Priority;
-  custom_metadata?: Record<string, any> | null;
-  created_at: string;
-  updated_at: string;
+export interface LootItem {
+  name: string
+  value: number
 }
 
-export interface Task {
-  id: number;
-  name: string;
-  description?: string | null;
-  department: Department;
-  status: TaskStatus;
-  priority: Priority;
-  assignee_id?: number | null;
-  shot_id?: number | null;
-  asset_id?: number | null;
-  start_date?: string | null;
-  due_date?: string | null;
-  completed_date?: string | null;
-  estimated_hours?: number | null;
-  actual_hours?: number | null;
-  created_at: string;
-  updated_at: string;
+export interface Session {
+  id: number
+  started_at: string
+  ended_at: string | null
+  notes: string | null
+  runs: Run[]
 }
 
-export interface Version {
-  id: number;
-  name: string;
-  version_number: number;
-  description?: string | null;
-  file_path: string;
-  file_name: string;
-  file_size?: number | null;
-  mime_type?: string | null;
-  thumbnail_url?: string | null;
-  duration?: number | null;
-  fps?: number | null;
-  resolution_width?: number | null;
-  resolution_height?: number | null;
-  codec?: string | null;
-  shot_id?: number | null;
-  asset_id?: number | null;
-  uploaded_by_id: number;
-  uploaded_at: string;
-  review_status: TaskStatus;
+export interface ParsedScreenshot {
+  survived: boolean | null
+  kills: number
+  combatant_eliminations: number
+  runner_eliminations: number
+  deaths: number
+  assists: number
+  map_name: string | null
+  duration_seconds: number | null
+  loot_extracted: LootItem[] | null
+  loot_value_total: number
+  runner_name: string | null
+  primary_weapon: string | null
+  secondary_weapon: string | null
+  heavy_weapon: string | null
+  items_collected: number | null
+  items_auto_vaulted: number | null
+  bullet_balance: number | null
+  raw_text: string | null
+  confidence: string | null
 }
 
-export interface Comment {
-  id: number;
-  version_id: number;
-  author_id: number;
-  text: string;
-  comment_type: CommentType;
-  frame_number?: number | null;
-  timecode?: string | null;
-  annotation_data?: AnnotationData | null;
-  parent_comment_id?: number | null;
-  created_at: string;
-  updated_at: string;
+export interface OverviewStats {
+  total_runs: number
+  total_survived: number
+  survival_rate: number
+  total_kills: number
+  total_deaths: number
+  total_assists: number
+  kd_ratio: number
+  total_loot_value: number
+  avg_kills_per_run: number
+  avg_loot_per_run: number
+  favorite_map: string | null
+  favorite_runner: string | null
 }
 
-export interface CommentWithAuthor extends Comment {
-  author: User;
-  replies?: CommentWithAuthor[];
+export interface MapStats {
+  map: string
+  runs: number
+  survived: number
+  kills: number
+  deaths: number
+  loot: number
+  survival_rate: number
+  kd: number
 }
 
-export interface AnnotationData {
-  shapes: AnnotationShape[];
+export interface TrendData {
+  date: string
+  runs: number
+  survived: number
+  kills: number
+  deaths: number
+  loot: number
 }
 
-export interface AnnotationShape {
-  type: 'circle' | 'arrow' | 'box' | 'text' | 'freehand';
-  color: string;
-  // Circle
-  x?: number;
-  y?: number;
-  radius?: number;
-  // Arrow
-  x1?: number;
-  y1?: number;
-  x2?: number;
-  y2?: number;
-  // Box
-  width?: number;
-  height?: number;
-  // Text
-  text?: string;
-  fontSize?: number;
-  // Freehand
-  points?: {x: number; y: number}[];
+export interface SpawnPoint {
+  id: number
+  run_id: number | null
+  map_name: string
+  spawn_location: string | null
+  spawn_region: string | null
+  screenshot_path: string | null
+  notes: string | null
+  created_at: string
 }
 
-export interface Activity {
-  id: number;
-  user_id?: number | null;
-  action: string;
-  entity_type: string;
-  entity_id: number;
-  details?: Record<string, any> | null;
-  created_at: string;
+export interface SpawnHeatmapEntry {
+  location: string
+  region: string | null
+  x: number | null
+  y: number | null
+  count: number
+  runs_survived: number
+  runs_died: number
+  survival_rate: number | null
 }
 
-// Create types
-export interface CreateProject {
-  name: string;
-  code: string;
-  description?: string;
-  status?: TaskStatus;
+export interface SpawnHeatmap {
+  map: string
+  total_spawns: number
+  locations: SpawnHeatmapEntry[]
 }
 
-export interface CreateShot {
-  sequence_id: number;
-  name: string;
-  code: string;
-  description?: string;
-  status?: TaskStatus;
-  priority?: Priority;
-  frame_start?: number;
-  frame_end?: number;
-  fps?: number;
-}
-
-export interface CreateVersion {
-  name: string;
-  version_number: number;
-  description?: string;
-  file_path: string;
-  file_name: string;
-  file_size?: number;
-  mime_type?: string;
-  duration?: number;
-  fps?: number;
-  resolution_width?: number;
-  resolution_height?: number;
-  shot_id?: number;
-  asset_id?: number;
-  uploaded_by_id: number;
-}
-
-export interface CreateComment {
-  version_id: number;
-  author_id: number;
-  text: string;
-  comment_type?: CommentType;
-  frame_number?: number;
-  timecode?: string;
-  annotation_data?: AnnotationData;
-  parent_comment_id?: number;
-}
-
-// Status helpers
-export const STATUS_LABELS: Record<TaskStatus, string> = {
-  wtg: 'Waiting',
-  rdy: 'Ready',
-  ip: 'In Progress',
-  rev: 'Review',
-  app: 'Approved',
-  hld: 'On Hold',
-  fin: 'Final',
-  omt: 'Omitted'
-};
-
-export const STATUS_COLORS: Record<TaskStatus, string> = {
-  wtg: '#6B7280',  // gray
-  rdy: '#3B82F6',  // blue
-  ip: '#8B5CF6',   // purple
-  rev: '#F59E0B',  // orange
-  app: '#10B981',  // green
-  hld: '#EF4444',  // red
-  fin: '#059669',  // emerald
-  omt: '#374151'   // dark gray
-};
-
-export const PRIORITY_COLORS: Record<Priority, string> = {
-  low: '#10B981',
-  medium: '#F59E0B',
-  high: '#EF4444',
-  critical: '#DC2626'
-};
+export type View = 'dashboard' | 'history' | 'map-perimeter' | 'map-dire-marsh' | 'map-outpost' | 'map-cryo-archive'
