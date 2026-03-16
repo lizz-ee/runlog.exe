@@ -10,7 +10,7 @@
 const http = require('http')
 const { exec } = require('child_process')
 
-const API_BASE = 'http://localhost:8000'
+const API_BASE = 'http://127.0.0.1:8000'
 
 // Capture regions as % of screen (will be scaled to actual resolution)
 const REGIONS = {

@@ -7,7 +7,7 @@ const { ScreenWatcher } = require('./screen-watcher')
 const { BackendManager } = require('./backend-manager')
 
 const isDev = !app.isPackaged
-const API_BASE = 'http://localhost:8000'
+const API_BASE = 'http://127.0.0.1:8000'
 
 let backendManager = null
 
@@ -506,5 +506,5 @@ ipcMain.handle('capture-spawn', handleSpawnScreenshot)
 
 // IPC: API base URL for renderer
 ipcMain.on('get-api-base-url', (event) => {
-  event.returnValue = isDev ? '' : 'http://localhost:8000'
+  event.returnValue = isDev ? '' : 'http://127.0.0.1:8000'
 })
