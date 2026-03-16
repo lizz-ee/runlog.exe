@@ -1,10 +1,14 @@
 import axios from 'axios'
+import { getApiBaseUrl } from './electron'
 import type {
   Run, Runner, Loadout, Weapon, ParsedScreenshot,
   OverviewStats, MapStats, TrendData, Session, SpawnHeatmap,
 } from './types'
 
-const api = axios.create({ baseURL: '/api' })
+const apiBase = getApiBaseUrl()
+const api = axios.create({ baseURL: `${apiBase}/api` })
+
+export { apiBase }
 
 // Screenshot
 export async function parseScreenshots(files: File[]): Promise<ParsedScreenshot> {

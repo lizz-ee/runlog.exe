@@ -257,7 +257,7 @@ function StatBlock({
     red: 'text-m-red',
     yellow: 'text-m-yellow',
     cyan: 'text-m-cyan',
-  }[color ?? ''] ?? 'text-m-text'
+  }[color as string] ?? 'text-m-text'
 
   return (
     <div className={`bg-m-card ${small ? 'p-3' : 'p-5'} ${accent ? 'border-t-2 border-m-green' : ''}`}>

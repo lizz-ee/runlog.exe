@@ -6,6 +6,7 @@ import { MAPS, MAP_LIST } from '../lib/map-data'
 import type { SpawnRef } from '../lib/map-data'
 import type { MapStats, SpawnHeatmap } from '../lib/types'
 import axios from 'axios'
+import { apiBase } from '../lib/api'
 
 import mapDireMarsh from '../assets/map-dire-marsh.png'
 import mapPerimeter from '../assets/map-perimeter.png'
@@ -54,7 +55,7 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
     const md = MAPS[selectedMap]
     const fallback = md ? md.spawns.map(s => ({ ...s })) : []
 
-    axios.get('/api/spawns', { params: { map_name: selectedMap } })
+    axios.get(`${apiBase}/api/spawns`, { params: { map_name: selectedMap } })
       .then(({ data }) => {
         if (data.length > 0) {
           // Build SpawnRef objects from DB records
@@ -120,7 +121,7 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
       for (const spawn of spawns) {
         if (!dirty.has(spawn.id)) continue
         // Update DB via API
-        await axios.put(`/api/spawns/update-coords`, {
+        await axios.put(`${apiBase}/api/spawns/update-coords`, {
           map_name: selectedMap,
           spawn_location: spawn.zone,
           x: spawn.x,
@@ -474,7 +475,7 @@ function StatRow({ label, value, color }: { label: string; value: string; color?
 }
 
 function StatBlock({ label, value, color, accent }: { label: string; value: string; color?: 'green' | 'red' | 'yellow' | 'cyan'; accent?: boolean }) {
-  const c = { green: 'text-m-green', red: 'text-m-red', yellow: 'text-m-yellow', cyan: 'text-m-cyan' }[color ?? ''] ?? 'text-m-text'
+  const c = { green: 'text-m-green', red: 'text-m-red', yellow: 'text-m-yellow', cyan: 'text-m-cyan' }[color as string] ?? 'text-m-text'
   return (
     <div className={`bg-m-card p-5 ${accent ? 'border-t-2 border-m-green' : ''}`}>
       <p className="label-tag text-m-text-muted">{label}</p>

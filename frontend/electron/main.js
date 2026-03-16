@@ -4,9 +4,12 @@ const fs = require('fs')
 const http = require('http')
 const { SteamScreenshotWatcher } = require('./steam-watcher')
 const { ScreenWatcher } = require('./screen-watcher')
+const { BackendManager } = require('./backend-manager')
 
 const isDev = !app.isPackaged
 const API_BASE = 'http://localhost:8000'
+
+let backendManager = null
 
 // Marathon Steam App ID
 const MARATHON_APP_ID = '3065800'
@@ -413,9 +416,55 @@ function createTray() {
 
 // ── App lifecycle ───────────────────────────────────────────────────
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   createWindow()
   createTray()
+
+  // Start backend (production only — dev runs it manually)
+  backendManager = new BackendManager((status, message) => {
+    console.log(`[backend-manager] ${status}: ${message}`)
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('backend-status', { status, message })
+    }
+  })
+
+  if (!isDev) {
+    // Show loading screen while backend starts
+    mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
+      <!DOCTYPE html>
+      <html><head><style>
+        body { margin: 0; background: #050508; color: #c8ff00; font-family: monospace;
+               display: flex; align-items: center; justify-content: center; height: 100vh;
+               flex-direction: column; }
+        h1 { font-size: 24px; letter-spacing: 0.2em; margin-bottom: 8px; }
+        p { color: #555; font-size: 12px; letter-spacing: 0.1em; }
+        .dot { display: inline-block; animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0%,100% { opacity: 0.3; } 50% { opacity: 1; } }
+      </style></head><body>
+        <h1>RUNLOG</h1>
+        <p>STARTING BACKEND<span class="dot">...</span></p>
+      </body></html>
+    `)}`)
+
+    const started = await backendManager.start()
+    if (started) {
+      mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
+    } else {
+      mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
+        <!DOCTYPE html>
+        <html><head><style>
+          body { margin: 0; background: #050508; color: #ff4444; font-family: monospace;
+                 display: flex; align-items: center; justify-content: center; height: 100vh;
+                 flex-direction: column; }
+          h1 { font-size: 20px; letter-spacing: 0.2em; margin-bottom: 12px; }
+          p { color: #888; font-size: 12px; max-width: 400px; text-align: center; line-height: 1.6; }
+        </style></head><body>
+          <h1>BACKEND ERROR</h1>
+          <p>Could not start the Python backend. Make sure Python 3.12+ is installed and all dependencies are available.</p>
+        </body></html>
+      `)}`)
+    }
+  }
 
   // Register global hotkeys (work even when game is focused)
   globalShortcut.register('Ctrl+Shift+F5', handleRunScreenshot)
@@ -438,6 +487,8 @@ app.whenReady().then(() => {
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
   if (steamWatcher) steamWatcher.stop()
+  if (screenWatcher) screenWatcher.stop()
+  if (backendManager) backendManager.stop()
 })
 
 app.on('window-all-closed', () => {
@@ -452,3 +503,8 @@ app.on('activate', () => {
 // IPC: let renderer request a screenshot manually
 ipcMain.handle('capture-run', handleRunScreenshot)
 ipcMain.handle('capture-spawn', handleSpawnScreenshot)
+
+// IPC: API base URL for renderer
+ipcMain.on('get-api-base-url', (event) => {
+  event.returnValue = isDev ? '' : 'http://localhost:8000'
+})

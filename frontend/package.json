@@ -5,11 +5,13 @@
   "description": "Marathon run tracker - screenshot powered stats",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "RUNLOG_DEV=1 vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "electron": "electron .",
-    "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\""
+    "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "dist": "npm run build && electron-builder --win",
+    "dist:dir": "npm run build && electron-builder --win --dir"
   },
   "dependencies": {
     "axios": "^1.6.0",
@@ -36,5 +38,39 @@
     "vite": "^5.0.0",
     "wait-on": "^7.2.0"
   },
-  "main": "electron/main.js"
+  "main": "electron/main.js",
+  "build": {
+    "appId": "com.runlog.marathon",
+    "productName": "Marathon RunLog",
+    "directories": {
+      "output": "../release"
+    },
+    "files": [
+      "electron/**/*",
+      "dist/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../backend",
+        "to": "backend",
+        "filter": [
+          "**/*",
+          "!__pycache__/**",
+          "!**/__pycache__/**",
+          "!*.pyc",
+          "!media_uploads/**",
+          "!runlog.db",
+          "!.env"
+        ]
+      }
+    ],
+    "win": {
+      "target": ["dir"],
+      "sign": false
+    },
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/screenshot-desktop/**"
+    ]
+  }
 }
