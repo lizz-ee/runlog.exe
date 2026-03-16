@@ -41,11 +41,11 @@ REGIONS = {
     # Stats area — full results data
     'stats': (0.30, 0.58, 0.65, 0.92),
 
-    # HUD zone name — top center during gameplay
-    'zone': (0.35, 0.02, 0.65, 0.06),
+    # HUD zone name — green text below compass bar (~9-11.5% from top)
+    'zone': (0.35, 0.085, 0.65, 0.115),
 
-    # HUD compass — bearing text
-    'compass': (0.42, 0.02, 0.58, 0.05),
+    # HUD compass — white brackets + bearing (~5.5-8% from top)
+    'compass': (0.40, 0.055, 0.60, 0.08),
 
     # Map name — on ready-up screen
     'map_name': (0.25, 0.72, 0.50, 0.78),
@@ -74,10 +74,13 @@ def crop_region(image: Image.Image, region_name: str) -> Image.Image:
     return image.crop((int(w*x1), int(h*y1), int(w*x2), int(h*y2)))
 
 
-def read_region(image: Image.Image, region_name: str, min_confidence: float = 0.3) -> list[str]:
+def read_region(image: Image.Image, region_name: str, min_confidence: float = 0.3, enhance: bool = False) -> list[str]:
     """OCR a specific region and return text lines."""
+    from PIL import ImageEnhance
     crop = crop_region(image, region_name)
-    # Convert to numpy for easyocr
+    if enhance:
+        crop = ImageEnhance.Contrast(crop).enhance(2.5)
+        crop = ImageEnhance.Brightness(crop).enhance(1.3)
     img_array = np.array(crop)
     reader = get_reader()
     results = reader.readtext(img_array)
@@ -275,17 +278,21 @@ def _parse_gameplay_hud(img: Image.Image, result: dict):
     """Parse the gameplay HUD for zone name and compass bearing."""
     data = result['data']
 
-    zone_text = read_region(img, 'zone', min_confidence=0.3)
+    zone_text = read_region(img, 'zone', min_confidence=0.3, enhance=True)
     if zone_text:
-        # Zone name is usually the most prominent text
-        data['zone_name'] = zone_text[0].strip()
+        # Join multi-word zone names (e.g. "SOUTH" + "RELAY")
+        data['zone_name'] = ' '.join(zone_text).strip().upper()
 
-    compass_text = read_region(img, 'compass', min_confidence=0.3)
+    compass_text = read_region(img, 'compass', min_confidence=0.3, enhance=True)
     for t in compass_text:
-        # Look for compass pattern like "S 195", "NE 039"
-        match = re.match(r'([NESW]{1,2})\s*(\d{3})', t)
+        # Look for compass pattern like "S 195", "NE 039", "N 007"
+        match = re.search(r'([NESW]{1,2})\s*(\d{2,3})', t)
         if match:
-            data['compass_bearing'] = f"{match.group(1)} {match.group(2)}"
+            bearing = match.group(2)
+            # Pad to 3 digits
+            if len(bearing) == 2:
+                bearing = '0' + bearing
+            data['compass_bearing'] = f"{match.group(1)} {bearing}"
             break
 
 
