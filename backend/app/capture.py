@@ -1,282 +1,142 @@
 """
-CaptureEngine — ShadowPlay-like screen recording via FFmpeg GPU pipeline.
+AutoCapture -- Automatic screen recording triggered by Marathon game state.
 
 Architecture:
-  FFmpeg (subprocess): ddagrab → h264_nvenc → mpegts → pipe:stdout
-    ↑ All on GPU. 60fps at 4K. Zero game performance impact.
+  Detection (3fps):  ddagrab -> hwdownload -> JPEG pipe -> OCR button text
+  Recording (60fps): ddagrab -> h264_nvenc -> MP4 file (GPU-only, zero game impact)
 
-  Python (thread): reads mpegts pipe via PyAV → deque ring buffer
-    ↑ Just reading small encoded packets. ~5MB/s. Negligible CPU.
+State machine:
+  IDLE  --[READY_UP/RUN/DEPLOYING detected]--->  RECORDING
+  RECORDING  --[PREPARE detected]--->  IDLE
+     - if recording < 90s: delete (user backed out of lobby)
+     - if recording >= 90s: queue for processing
 
-  Clip save: mux packets from deque to MP4 (instant, no re-encoding)
-  Frame extraction: separate low-fps FFmpeg process for OCR detection
-
-Proven: 59.9fps at 3840x2160, 87.6MB per 10 seconds, zero frame drops.
+Debounce: require 2 consecutive identical readings before acting.
 """
 
-import av
-import io
 import os
-import time
+import queue
 import subprocess
 import threading
-from collections import deque
-from fractions import Fraction
+import time
 from datetime import datetime
 
-from PIL import Image
+from .detection.ocr import detect_button_text
+
+# Minimum recording duration to keep (seconds).
+# Shorter recordings mean the player backed out before the run started.
+MIN_RECORDING_SECONDS = 90
+
+# How many consecutive identical OCR readings before triggering a state change.
+DEBOUNCE_COUNT = 2
 
 
-class CaptureEngine:
-    """GPU-accelerated screen capture with in-memory ring buffer."""
+class AutoCapture:
+    """Automatic screen recorder driven by OCR game state detection."""
 
-    def __init__(
-        self,
-        fps: int = 60,
-        buffer_seconds: int = 300,
-        clips_dir: str | None = None,
-        detection_fps: int = 2,
-    ):
-        self.fps = fps
-        self.buffer_seconds = buffer_seconds
-        self.detection_fps = detection_fps
-
-        if clips_dir is None:
-            clips_dir = os.path.join(os.getcwd(), "clips")
+    def __init__(self, recordings_dir: str, clips_dir: str):
+        self.recordings_dir = os.path.abspath(recordings_dir)
         self.clips_dir = os.path.abspath(clips_dir)
+        os.makedirs(self.recordings_dir, exist_ok=True)
         os.makedirs(self.clips_dir, exist_ok=True)
 
-        # Ring buffer for encoded H.264 packets
-        self._ring: deque = deque(maxlen=fps * buffer_seconds)
-        self._lock = threading.Lock()
-        self._extradata: bytes | None = None
-        self._stream_time_base = None
-
-        # Capture state
+        # State
         self._running = False
-        self._capture_thread: threading.Thread | None = None
-        self._detection_thread: threading.Thread | None = None
-        self._ffmpeg_proc: subprocess.Popen | None = None
-        self._detection_proc: subprocess.Popen | None = None
+        self._recording = False
+        self._recording_start: float = 0
+        self._recording_path: str | None = None
 
-        # Frame for OCR detection
-        self._latest_frame: bytes | None = None  # JPEG bytes
-        self._latest_frame_time: float = 0
+        # Threads
+        self._detection_thread: threading.Thread | None = None
+        self._processor_thread: threading.Thread | None = None
+
+        # FFmpeg processes
+        self._detection_proc: subprocess.Popen | None = None
+        self._recording_proc: subprocess.Popen | None = None
+
+        # Latest detection frame (JPEG bytes) for the /frame endpoint
+        self._latest_frame: bytes | None = None
         self._frame_lock = threading.Lock()
 
-        # Stats
-        self._packet_count = 0
-        self._start_time = 0
-        self.capture_width = 0
-        self.capture_height = 0
+        # Debounce state
+        self._last_detection: str | None = None
+        self._consecutive_count: int = 0
+
+        # Processing queue for completed recordings
+        self._process_queue: queue.Queue = queue.Queue()
+
+    # -- Public API ----------------------------------------------------
 
     def start(self) -> dict:
-        """Start the capture engine. Returns status dict."""
+        """Start the detection loop and processing thread."""
         if self._running:
             return self.get_status()
 
         self._running = True
-        self._packet_count = 0
-        self._start_time = time.time()
+        print("[capture] Starting AutoCapture...")
 
-        # Start recording thread (60fps GPU capture → ring buffer)
-        self._capture_thread = threading.Thread(target=self._capture_loop, daemon=True)
-        self._capture_thread.start()
-
-        # Start detection frame thread (1fps, separate ddagrab, hwdownload for OCR)
-        self._detection_thread = threading.Thread(target=self._detection_loop, daemon=True)
+        # Detection loop: 3fps screen capture -> OCR
+        self._detection_thread = threading.Thread(
+            target=self._detection_loop, daemon=True, name="detection"
+        )
         self._detection_thread.start()
+
+        # Processor loop: handles completed recordings in background
+        self._processor_thread = threading.Thread(
+            target=self._processor_loop, daemon=True, name="processor"
+        )
+        self._processor_thread.start()
 
         return self.get_status()
 
     def stop(self) -> dict:
-        """Stop the capture engine. Returns status dict."""
+        """Stop everything: detection, recording, processing."""
         self._running = False
 
-        # Kill FFmpeg processes
-        for proc in [self._ffmpeg_proc, self._detection_proc]:
-            if proc and proc.poll() is None:
-                try:
-                    proc.terminate()
-                    proc.wait(timeout=3)
-                except:
-                    try: proc.kill()
-                    except: pass
-        self._ffmpeg_proc = None
+        # Stop any active recording
+        if self._recording:
+            self._stop_recording()
+
+        # Kill detection FFmpeg process
+        self._kill_proc(self._detection_proc)
         self._detection_proc = None
 
-        # Wait for threads
-        for thread in [self._capture_thread, self._detection_thread]:
+        # Wait for threads to finish
+        for thread in [self._detection_thread, self._processor_thread]:
             if thread and thread.is_alive():
                 thread.join(timeout=5)
 
+        print("[capture] AutoCapture stopped.")
         return self.get_status()
 
     def get_status(self) -> dict:
-        """Return current capture status."""
-        elapsed = time.time() - self._start_time if self._start_time else 0
-        fps = self._packet_count / elapsed if elapsed > 0 else 0
-
-        with self._lock:
-            buf_packets = len(self._ring)
-            buf_mb = sum(p['size'] for p in self._ring) / 1024 / 1024 if self._ring else 0
+        """Return current state as a dict (for the REST API)."""
+        recording_seconds = 0
+        if self._recording and self._recording_start:
+            recording_seconds = time.time() - self._recording_start
 
         return {
             "active": self._running,
-            "fps": round(fps, 1),
-            "buffer_seconds": self.buffer_seconds,
-            "buffer_packets": buf_packets,
-            "buffer_mb": round(buf_mb, 2),
-            "width": self.capture_width,
-            "height": self.capture_height,
+            "recording": self._recording,
+            "recording_seconds": round(recording_seconds, 1),
+            "recording_path": self._recording_path,
+            "queue_size": self._process_queue.qsize(),
         }
 
     def get_latest_frame_jpeg(self) -> bytes | None:
-        """Return latest detection frame as JPEG from the 1fps detection process."""
+        """Return the latest detection frame as JPEG bytes."""
         with self._frame_lock:
             return self._latest_frame
 
-    def save_clip(
-        self,
-        seconds_before: float = 20,
-        seconds_after: float = 5,
-        metadata: dict | None = None,
-    ) -> dict:
-        """Save a clip from the ring buffer. Returns clip info."""
-        metadata = metadata or {}
-
-        # Wait for seconds_after
-        if seconds_after > 0:
-            time.sleep(seconds_after)
-
-        now = time.time()
-        clip_start = now - seconds_before - seconds_after
-
-        # Snapshot relevant packets
-        with self._lock:
-            packets = [p for p in self._ring if p['wall_time'] >= clip_start]
-            extradata = self._extradata
-            time_base = self._stream_time_base
-
-        if not packets or not extradata:
-            raise RuntimeError("No packets available for clip")
-
-        # Find first keyframe
-        first_kf = None
-        for i, p in enumerate(packets):
-            if p['kf']:
-                first_kf = i
-                break
-
-        if first_kf is None:
-            first_kf = 0  # no keyframe found, use all packets
-
-        packets = packets[first_kf:]
-
-        # Generate filename
-        event = metadata.get('event', 'clip')
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f"clip_{timestamp}_{event}.mp4"
-        filepath = os.path.join(self.clips_dir, filename)
-
-        # Mux to MP4
-        output = av.open(filepath, mode='w')
-        out_stream = output.add_stream('h264', rate=self.fps)
-        out_stream.width = self.capture_width
-        out_stream.height = self.capture_height
-        out_stream.codec_context.extradata = extradata
-
-        for i, pkt_data in enumerate(packets):
-            pkt = av.Packet(pkt_data['data'])
-            pkt.pts = i
-            pkt.dts = i
-            pkt.stream = out_stream
-            pkt.is_keyframe = pkt_data['kf']
-            pkt.time_base = Fraction(1, self.fps)
-            output.mux(pkt)
-
-        output.close()
-
-        file_size = os.path.getsize(filepath)
-        duration = len(packets) / self.fps
-
-        return {
-            "path": filepath,
-            "filename": filename,
-            "duration": round(duration, 1),
-            "size_mb": round(file_size / 1024 / 1024, 1),
-        }
-
-    # ── Recording thread (60fps GPU capture) ──────────────────────────
-
-    def _capture_loop(self):
-        """Main recording: FFmpeg ddagrab → h264_nvenc → mpegts pipe → ring buffer."""
-        try:
-            cmd = [
-                'ffmpeg', '-y', '-hide_banner', '-loglevel', 'warning',
-                '-f', 'lavfi', '-i', f'ddagrab=framerate={self.fps}:output_idx=0',
-                '-c:v', 'h264_nvenc',
-                '-preset', 'p4', '-tune', 'll',
-                '-rc', 'vbr', '-cq', '23',
-                '-g', str(self.fps),  # keyframe every second
-                '-f', 'mpegts', 'pipe:1',
-            ]
-
-            self._ffmpeg_proc = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            )
-
-            # Read mpegts via PyAV for proper packet parsing
-            container = av.open(self._ffmpeg_proc.stdout, format='mpegts', mode='r')
-            stream = container.streams.video[0]
-
-            self.capture_width = stream.width
-            self.capture_height = stream.height
-            self._stream_time_base = stream.time_base
-
-            # Get extradata from first packet
-            print(f"[capture] Recording: {stream.width}x{stream.height} @ {self.fps}fps")
-
-            for packet in container.demux(stream):
-                if not self._running:
-                    break
-                if packet.size == 0:
-                    continue
-
-                # Capture extradata from codec
-                if self._extradata is None:
-                    codec_ctx = stream.codec_context
-                    if codec_ctx and codec_ctx.extradata:
-                        self._extradata = bytes(codec_ctx.extradata)
-                        print(f"[capture] Got extradata: {len(self._extradata)} bytes")
-
-                pkt_bytes = bytes(packet)
-                is_kf = packet.is_keyframe
-                now = time.time()
-
-                with self._lock:
-                    self._ring.append({
-                        'data': pkt_bytes,
-                        'pts': packet.pts,
-                        'dts': packet.dts,
-                        'kf': is_kf,
-                        'size': packet.size,
-                        'wall_time': now,
-                    })
-
-                self._packet_count += 1
-
-        except Exception as e:
-            print(f"[capture] Recording error: {e}")
-        finally:
-            print(f"[capture] Recording stopped ({self._packet_count} packets)")
-
-    # ── Detection frame capture (1fps, separate process) ────────────
+    # -- Detection loop ------------------------------------------------
 
     def _detection_loop(self):
-        """Capture 1 clean frame per second for OCR detection.
-        Separate ddagrab+hwdownload at 1fps — negligible CPU impact (33MB/sec).
-        This produces CLEAN frames unlike the ring buffer decode approach."""
+        """Run 3fps screen capture via FFmpeg, pipe JPEGs, OCR each frame.
+
+        Uses a separate ddagrab at low fps so detection never touches the
+        recording pipeline. The hwdownload filter pulls frames from GPU to
+        CPU for OCR processing.
+        """
         try:
             cmd = [
                 'ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
@@ -290,9 +150,9 @@ class CaptureEngine:
             self._detection_proc = subprocess.Popen(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             )
+            print("[capture] Detection started: 3fps (ddagrab -> JPEG pipe)")
 
-            print("[capture] Detection frames: 3fps (separate ddagrab)")
-
+            # Read JPEG stream: find SOI (ff d8) and EOI (ff d9) markers
             buf = b''
             while self._running:
                 chunk = self._detection_proc.stdout.read(65536)
@@ -300,6 +160,7 @@ class CaptureEngine:
                     break
                 buf += chunk
 
+                # Extract complete JPEG frames from the stream
                 while True:
                     soi = buf.find(b'\xff\xd8')
                     if soi == -1:
@@ -307,17 +168,156 @@ class CaptureEngine:
                         break
                     eoi = buf.find(b'\xff\xd9', soi + 2)
                     if eoi == -1:
+                        # Incomplete frame, keep buffer from SOI onward
                         buf = buf[soi:]
                         break
 
                     jpeg = buf[soi:eoi + 2]
                     buf = buf[eoi + 2:]
 
+                    # Store frame for the /frame endpoint
                     with self._frame_lock:
                         self._latest_frame = jpeg
-                        self._latest_frame_time = time.time()
+
+                    # Run OCR on the button region
+                    self._handle_detection(detect_button_text(jpeg))
 
         except Exception as e:
             print(f"[capture] Detection error: {e}")
         finally:
-            print("[capture] Detection frames stopped")
+            print("[capture] Detection loop stopped.")
+
+    def _handle_detection(self, button_text: str | None):
+        """Process an OCR result with debounce logic.
+
+        Requires DEBOUNCE_COUNT consecutive identical readings before
+        triggering a state change. This prevents flickering from OCR noise.
+        """
+        # Update debounce counter
+        if button_text == self._last_detection:
+            self._consecutive_count += 1
+        else:
+            self._last_detection = button_text
+            self._consecutive_count = 1
+
+        # Not enough consecutive readings yet
+        if self._consecutive_count < DEBOUNCE_COUNT:
+            return
+
+        # Start recording when we see READY_UP, RUN, or DEPLOYING
+        if not self._recording and button_text in ('READY_UP', 'RUN', 'DEPLOYING'):
+            print(f"[capture] Detected '{button_text}' -- starting recording")
+            self._start_recording()
+
+        # Stop recording when we see PREPARE
+        elif self._recording and button_text == 'PREPARE':
+            print("[capture] Detected 'PREPARE' -- stopping recording")
+            self._stop_recording()
+
+    # -- Recording management ------------------------------------------
+
+    def _start_recording(self):
+        """Launch FFmpeg to record the screen to an MP4 file.
+
+        Uses GPU-only pipeline: ddagrab captures the screen on GPU,
+        h264_nvenc encodes on GPU. Zero game performance impact.
+        """
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"run_{timestamp}.mp4"
+        filepath = os.path.join(self.recordings_dir, filename)
+
+        cmd = [
+            'ffmpeg', '-y', '-hide_banner', '-loglevel', 'warning',
+            '-f', 'lavfi', '-i', 'ddagrab=framerate=60:output_idx=0',
+            '-c:v', 'h264_nvenc',
+            '-preset', 'p4', '-tune', 'll',
+            '-rc', 'vbr', '-cq', '23',
+            '-g', '60',  # Keyframe every second
+            filepath,
+        ]
+
+        self._recording_proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        self._recording = True
+        self._recording_start = time.time()
+        self._recording_path = filepath
+        print(f"[capture] Recording to: {filepath}")
+
+    def _stop_recording(self):
+        """Stop the recording FFmpeg process and handle the output file.
+
+        Short recordings (< MIN_RECORDING_SECONDS) are deleted because they
+        mean the player backed out of the lobby before the run started.
+        Longer recordings are queued for processing.
+        """
+        self._kill_proc(self._recording_proc)
+        self._recording_proc = None
+        self._recording = False
+
+        duration = time.time() - self._recording_start
+        filepath = self._recording_path
+        self._recording_start = 0
+        self._recording_path = None
+
+        if not filepath or not os.path.exists(filepath):
+            print("[capture] Recording file not found, skipping.")
+            return
+
+        if duration < MIN_RECORDING_SECONDS:
+            # Too short -- player backed out of lobby
+            print(f"[capture] Recording too short ({duration:.0f}s < {MIN_RECORDING_SECONDS}s), deleting.")
+            try:
+                os.remove(filepath)
+            except OSError:
+                pass
+        else:
+            # Real run -- queue for processing
+            print(f"[capture] Recording complete: {duration:.0f}s -> queued for processing")
+            self._process_queue.put(filepath)
+
+    # -- Processing loop -----------------------------------------------
+
+    def _processor_loop(self):
+        """Background thread that processes completed recordings.
+
+        Pulls filepaths from the queue and processes them. Currently a
+        placeholder -- will call Claude Sonnet for video analysis in the
+        next step.
+        """
+        while self._running:
+            try:
+                filepath = self._process_queue.get(timeout=1.0)
+            except queue.Empty:
+                continue
+
+            print(f"[processor] Processing: {filepath}")
+            # TODO: Send to Claude Sonnet for run analysis
+            self._process_queue.task_done()
+
+        # Drain remaining items on shutdown
+        while not self._process_queue.empty():
+            try:
+                filepath = self._process_queue.get_nowait()
+                print(f"[processor] Processing (shutdown): {filepath}")
+                self._process_queue.task_done()
+            except queue.Empty:
+                break
+
+        print("[processor] Processor loop stopped.")
+
+    # -- Helpers -------------------------------------------------------
+
+    @staticmethod
+    def _kill_proc(proc: subprocess.Popen | None):
+        """Gracefully terminate an FFmpeg subprocess."""
+        if proc is None or proc.poll() is not None:
+            return
+        try:
+            proc.terminate()
+            proc.wait(timeout=3)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass

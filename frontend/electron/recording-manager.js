@@ -1,72 +1,37 @@
 /**
- * Recording Manager — Controls the PyAV capture engine via REST API.
+ * Recording Manager — Monitors for Marathon and controls the auto-capture system.
  *
- * The actual recording runs inside the Python backend as a thread.
- * This module just starts/stops it and requests clips via HTTP.
- * No FFmpeg subprocess, no file management, no cleanup timers.
+ * Simple responsibilities:
+ * - Detect Marathon.exe running → POST /api/capture/start
+ * - Detect Marathon.exe closed → POST /api/capture/stop
+ * - Poll capture status and emit to renderer
  */
 
 const http = require('http')
-const { app } = require('electron')
-
-const API_BASE = 'http://127.0.0.1:8000'
 
 class RecordingManager {
-  constructor(config, onStatus) {
-    this.config = config || {}
+  constructor(onStatus) {
     this.onStatus = onStatus || (() => {})
-    this.isRecording = false
+    this.isCapturing = false
     this.marathonTimer = null
-    this._stopTimeout = null
+    this.statusTimer = null
   }
 
-  async start() {
+  start() {
     this._startMarathonMonitor()
     this.onStatus('monitoring', 'Waiting for Marathon...')
-    return true
   }
 
   stop() {
-    if (this.marathonTimer) {
-      clearInterval(this.marathonTimer)
-      this.marathonTimer = null
-    }
-    if (this._stopTimeout) {
-      clearTimeout(this._stopTimeout)
-      this._stopTimeout = null
-    }
+    if (this.marathonTimer) clearInterval(this.marathonTimer)
+    if (this.statusTimer) clearInterval(this.statusTimer)
+    this.marathonTimer = null
+    this.statusTimer = null
     this._stopCapture()
   }
 
   isActive() {
-    return this.isRecording
-  }
-
-  async getStatus() {
-    try {
-      const data = await this._apiGet('/api/capture/status')
-      return data
-    } catch {
-      return { active: false }
-    }
-  }
-
-  async saveClip(beforeSec = 20, afterSec = 5, metadata = {}) {
-    try {
-      const data = await this._apiPost('/api/capture/clip', {
-        seconds_before: beforeSec,
-        seconds_after: afterSec,
-        event: metadata.event || 'event',
-      })
-      if (data.filename) {
-        console.log(`[recording] Clip saved: ${data.filename} (${data.size_mb}MB)`)
-        this.onStatus('clip_saved', `Clip: ${data.filename}`)
-      }
-      return data
-    } catch (err) {
-      console.error('[recording] Clip save failed:', err.message)
-      return null
-    }
+    return this.isCapturing
   }
 
   // ── Marathon monitoring ────────────────────────────────────────────
@@ -75,43 +40,43 @@ class RecordingManager {
     this.marathonTimer = setInterval(async () => {
       const running = await this._isMarathonRunning()
 
-      if (running && !this.isRecording) {
-        if (this._stopTimeout) {
-          clearTimeout(this._stopTimeout)
-          this._stopTimeout = null
-        }
+      if (running && !this.isCapturing) {
         console.log('[recording] Marathon detected — starting capture')
         await this._startCapture()
-      } else if (!running && this.isRecording) {
-        if (!this._stopTimeout) {
-          console.log('[recording] Marathon closed — stopping in 30s...')
-          this._stopTimeout = setTimeout(() => {
-            this._stopCapture()
-            this._stopTimeout = null
-            this.onStatus('monitoring', 'Waiting for Marathon...')
-          }, 30000)
-        }
+      } else if (!running && this.isCapturing) {
+        console.log('[recording] Marathon closed — stopping capture')
+        this._stopCapture()
       }
     }, 5000)
   }
 
   async _startCapture() {
     try {
-      const data = await this._apiPost('/api/capture/start', {})
-      this.isRecording = true
-      this.onStatus('recording', 'Capture active')
-      console.log('[recording] Capture started:', JSON.stringify(data))
+      await this._apiPost('/api/capture/start')
+      this.isCapturing = true
+      this.onStatus('active', 'Auto-capture running')
+
+      // Start polling status
+      this.statusTimer = setInterval(async () => {
+        try {
+          const status = await this._apiGet('/api/capture/status')
+          this.onStatus('status', JSON.stringify(status))
+        } catch {}
+      }, 10000)
     } catch (err) {
       console.error('[recording] Start failed:', err.message)
-      this.onStatus('error', `Start failed: ${err.message}`)
     }
   }
 
   async _stopCapture() {
+    if (this.statusTimer) {
+      clearInterval(this.statusTimer)
+      this.statusTimer = null
+    }
     try {
-      await this._apiPost('/api/capture/stop', {})
+      await this._apiPost('/api/capture/stop')
     } catch {}
-    this.isRecording = false
+    this.isCapturing = false
     this.onStatus('stopped', 'Capture stopped')
   }
 
@@ -129,7 +94,7 @@ class RecordingManager {
 
   _apiGet(path) {
     return new Promise((resolve, reject) => {
-      http.get(`${API_BASE}${path}`, { timeout: 5000 }, (res) => {
+      http.get(`http://127.0.0.1:8000${path}`, { timeout: 5000 }, (res) => {
         let data = ''
         res.on('data', chunk => data += chunk)
         res.on('end', () => {
@@ -140,18 +105,11 @@ class RecordingManager {
     })
   }
 
-  _apiPost(path, body) {
+  _apiPost(path) {
     return new Promise((resolve, reject) => {
-      const bodyStr = JSON.stringify(body)
       const req = http.request({
-        hostname: '127.0.0.1',
-        port: 8000,
-        path: path,
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(bodyStr),
-        },
+        hostname: '127.0.0.1', port: 8000, path, method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': 2 },
         timeout: 10000,
       }, (res) => {
         let data = ''
@@ -162,7 +120,7 @@ class RecordingManager {
         })
       })
       req.on('error', reject)
-      req.write(bodyStr)
+      req.write('{}')
       req.end()
     })
   }
