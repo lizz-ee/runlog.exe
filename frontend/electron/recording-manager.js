@@ -13,6 +13,7 @@ class RecordingManager {
   constructor(onStatus) {
     this.onStatus = onStatus || (() => {})
     this.isCapturing = false
+    this.wasRecording = false
     this.marathonTimer = null
     this.statusTimer = null
   }
@@ -56,13 +57,22 @@ class RecordingManager {
       this.isCapturing = true
       this.onStatus('active', 'Auto-capture running')
 
-      // Start polling status
+      // Poll status every 3 seconds — detect recording start/stop
       this.statusTimer = setInterval(async () => {
         try {
           const status = await this._apiGet('/api/capture/status')
+
+          // Detect recording state changes
+          if (status.recording && !this.wasRecording) {
+            this.onStatus('recording_started', 'Recording run...')
+          } else if (!status.recording && this.wasRecording) {
+            this.onStatus('recording_stopped', 'Run recording saved')
+          }
+          this.wasRecording = status.recording
+
           this.onStatus('status', JSON.stringify(status))
         } catch {}
-      }, 10000)
+      }, 3000)
     } catch (err) {
       console.error('[recording] Start failed:', err.message)
     }

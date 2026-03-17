@@ -133,6 +133,15 @@ app.whenReady().then(async () => {
   recordingManager = new RecordingManager((status, message) => {
     console.log(`[recording] ${status}: ${message}`)
     sendToRenderer('recording-status', { status, message })
+
+    // Show notifications for key events
+    if (status === 'recording_started') {
+      showNotification('RunLog', 'Recording started — READY UP detected')
+    } else if (status === 'recording_stopped') {
+      showNotification('RunLog', 'Recording stopped — processing run...')
+    } else if (status === 'active') {
+      showNotification('RunLog', 'Marathon detected — watching for READY UP')
+    }
   })
   recordingManager.start()
 
