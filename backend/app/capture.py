@@ -79,9 +79,13 @@ class CaptureEngine:
         self._packet_count = 0
         self._start_time = time.time()
 
-        # Start recording thread (60fps GPU capture → ring buffer + detection frames)
+        # Start recording thread (60fps GPU capture → ring buffer)
         self._capture_thread = threading.Thread(target=self._capture_loop, daemon=True)
         self._capture_thread.start()
+
+        # Start detection frame thread (1fps, separate ddagrab, hwdownload for OCR)
+        self._detection_thread = threading.Thread(target=self._detection_loop, daemon=True)
+        self._detection_thread.start()
 
         return self.get_status()
 
@@ -89,21 +93,22 @@ class CaptureEngine:
         """Stop the capture engine. Returns status dict."""
         self._running = False
 
-        # Kill FFmpeg process
-        if self._ffmpeg_proc and self._ffmpeg_proc.poll() is None:
-            try:
-                self._ffmpeg_proc.terminate()
-                self._ffmpeg_proc.wait(timeout=5)
-            except:
+        # Kill FFmpeg processes
+        for proc in [self._ffmpeg_proc, self._detection_proc]:
+            if proc and proc.poll() is None:
                 try:
-                    self._ffmpeg_proc.kill()
+                    proc.terminate()
+                    proc.wait(timeout=3)
                 except:
-                    pass
+                    try: proc.kill()
+                    except: pass
         self._ffmpeg_proc = None
+        self._detection_proc = None
 
-        # Wait for capture thread
-        if self._capture_thread and self._capture_thread.is_alive():
-            self._capture_thread.join(timeout=5)
+        # Wait for threads
+        for thread in [self._capture_thread, self._detection_thread]:
+            if thread and thread.is_alive():
+                thread.join(timeout=5)
 
         return self.get_status()
 
@@ -127,68 +132,9 @@ class CaptureEngine:
         }
 
     def get_latest_frame_jpeg(self) -> bytes | None:
-        """Return latest frame as JPEG. Extracts from ring buffer via temp clip."""
-        # First try the cached frame from background decode
+        """Return latest detection frame as JPEG from the 1fps detection process."""
         with self._frame_lock:
-            if self._latest_frame and time.time() - self._latest_frame_time < 2:
-                return self._latest_frame
-
-        # Fallback: extract frame from ring buffer directly
-        try:
-            import tempfile
-            with self._lock:
-                if not self._ring or not self._extradata:
-                    return None
-                # Get last 10 packets including a keyframe
-                packets = []
-                for p in reversed(list(self._ring)):
-                    packets.insert(0, p)
-                    if p['kf'] and len(packets) > 1:
-                        break
-                    if len(packets) > 10:
-                        break
-                extradata = self._extradata
-
-            tmp_mp4 = os.path.join(tempfile.gettempdir(), 'runlog_frame.mp4')
-            tmp_jpg = os.path.join(tempfile.gettempdir(), 'runlog_frame.jpg')
-
-            output = av.open(tmp_mp4, mode='w')
-            out_stream = output.add_stream('h264', rate=self.fps)
-            out_stream.width = self.capture_width
-            out_stream.height = self.capture_height
-            out_stream.codec_context.extradata = extradata
-            for i, p in enumerate(packets):
-                pkt = av.Packet(p['data'])
-                pkt.pts = i
-                pkt.dts = i
-                pkt.stream = out_stream
-                pkt.is_keyframe = p['kf']
-                pkt.time_base = Fraction(1, self.fps)
-                output.mux(pkt)
-            output.close()
-
-            subprocess.run(
-                ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
-                 '-sseof', '-0.1', '-i', tmp_mp4,
-                 '-frames:v', '1', '-q:v', '5', tmp_jpg],
-                timeout=5,
-            )
-
-            jpeg = None
-            if os.path.exists(tmp_jpg) and os.path.getsize(tmp_jpg) > 1000:
-                with open(tmp_jpg, 'rb') as f:
-                    jpeg = f.read()
-                with self._frame_lock:
-                    self._latest_frame = jpeg
-                    self._latest_frame_time = time.time()
-
-            for f in [tmp_mp4, tmp_jpg]:
-                try: os.unlink(f)
-                except: pass
-
-            return jpeg
-        except Exception:
-            return None
+            return self._latest_frame
 
     def save_clip(
         self,
@@ -320,84 +266,58 @@ class CaptureEngine:
 
                 self._packet_count += 1
 
-                # Every keyframe (~1/sec): queue for background detection decode
-                if is_kf and now - self._latest_frame_time > 0.8:
-                    self._latest_frame_time = now  # prevent re-queuing
-                    threading.Thread(
-                        target=self._decode_keyframe_background,
-                        args=(pkt_bytes,),
-                        daemon=True
-                    ).start()
-
         except Exception as e:
             print(f"[capture] Recording error: {e}")
         finally:
             print(f"[capture] Recording stopped ({self._packet_count} packets)")
 
-    # ── Detection frame from ring buffer ─────────────────────────────
+    # ── Detection frame capture (1fps, separate process) ────────────
 
-    def _decode_keyframe_background(self, pkt_bytes):
-        """Decode a frame from the ring buffer to JPEG in a background thread.
-        Saves 1 second of buffer to a temp MP4, extracts one frame via ffmpeg.
-        Runs ~100ms, happens once per second, never blocks capture."""
+    def _detection_loop(self):
+        """Capture 1 clean frame per second for OCR detection.
+        Separate ddagrab+hwdownload at 1fps — negligible CPU impact (33MB/sec).
+        This produces CLEAN frames unlike the ring buffer decode approach."""
         try:
-            import tempfile
+            cmd = [
+                'ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
+                '-f', 'lavfi', '-i',
+                'ddagrab=framerate=2:output_idx=0,hwdownload,format=bgra',
+                '-vf', 'fps=1',
+                '-f', 'image2pipe', '-c:v', 'mjpeg', '-q:v', '5',
+                'pipe:1',
+            ]
 
-            # Snapshot recent packets (1 second from last keyframe)
-            with self._lock:
-                packets = []
-                for p in reversed(list(self._ring)):
-                    packets.insert(0, p)
-                    if p['kf'] and len(packets) > 1:
-                        break
-                    if len(packets) > self.fps:
-                        break
-                extradata = self._extradata
-
-            if not packets or not extradata:
-                return
-
-            # Write mini MP4
-            tmp_mp4 = os.path.join(tempfile.gettempdir(), 'runlog_detect.mp4')
-            tmp_jpg = os.path.join(tempfile.gettempdir(), 'runlog_detect.jpg')
-
-            output = av.open(tmp_mp4, mode='w')
-            out_stream = output.add_stream('h264', rate=self.fps)
-            out_stream.width = self.capture_width
-            out_stream.height = self.capture_height
-            out_stream.codec_context.extradata = extradata
-
-            for i, p in enumerate(packets[-10:]):  # last 10 packets
-                pkt = av.Packet(p['data'])
-                pkt.pts = i
-                pkt.dts = i
-                pkt.stream = out_stream
-                pkt.is_keyframe = p['kf']
-                pkt.time_base = Fraction(1, self.fps)
-                output.mux(pkt)
-            output.close()
-
-            # Extract last frame as JPEG
-            proc = subprocess.Popen(
-                ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
-                 '-sseof', '-0.1', '-i', tmp_mp4,
-                 '-frames:v', '1', '-q:v', '5', tmp_jpg],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            self._detection_proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             )
-            proc.wait(timeout=5)
 
-            if os.path.exists(tmp_jpg) and os.path.getsize(tmp_jpg) > 1000:
-                with open(tmp_jpg, 'rb') as f:
-                    jpeg = f.read()
-                with self._frame_lock:
-                    self._latest_frame = jpeg
+            print("[capture] Detection frames: 1fps (separate ddagrab)")
 
-            # Cleanup
-            for f in [tmp_mp4, tmp_jpg]:
-                try:
-                    os.unlink(f)
-                except:
-                    pass
+            buf = b''
+            while self._running:
+                chunk = self._detection_proc.stdout.read(65536)
+                if not chunk:
+                    break
+                buf += chunk
+
+                while True:
+                    soi = buf.find(b'\xff\xd8')
+                    if soi == -1:
+                        buf = b''
+                        break
+                    eoi = buf.find(b'\xff\xd9', soi + 2)
+                    if eoi == -1:
+                        buf = buf[soi:]
+                        break
+
+                    jpeg = buf[soi:eoi + 2]
+                    buf = buf[eoi + 2:]
+
+                    with self._frame_lock:
+                        self._latest_frame = jpeg
+                        self._latest_frame_time = time.time()
 
         except Exception as e:
-            pass
+            print(f"[capture] Detection error: {e}")
+        finally:
+            print("[capture] Detection frames stopped")
