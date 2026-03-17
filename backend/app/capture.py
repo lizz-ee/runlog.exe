@@ -281,8 +281,8 @@ class CaptureEngine:
             cmd = [
                 'ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
                 '-f', 'lavfi', '-i',
-                'ddagrab=framerate=2:output_idx=0,hwdownload,format=bgra',
-                '-vf', 'fps=1',
+                'ddagrab=framerate=4:output_idx=0,hwdownload,format=bgra',
+                '-vf', 'fps=3',
                 '-f', 'image2pipe', '-c:v', 'mjpeg', '-q:v', '5',
                 'pipe:1',
             ]
@@ -291,7 +291,7 @@ class CaptureEngine:
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             )
 
-            print("[capture] Detection frames: 1fps (separate ddagrab)")
+            print("[capture] Detection frames: 3fps (separate ddagrab)")
 
             buf = b''
             while self._running:
