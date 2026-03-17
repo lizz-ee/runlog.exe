@@ -31,23 +31,31 @@ def _compute_frame_hash(image: np.ndarray) -> str:
 
 
 def _check_banner_colors(image: np.ndarray) -> dict:
-    """Fast color-based detection for EXFILTRATED/ELIMINATED banners.
-    These are the most reliable local detections since nothing else
-    in the game looks like a big green/red banner center-screen."""
+    """Detect EXFILTRATED/ELIMINATED banners via color analysis.
+
+    The banners appear at y=55-66% of screen. To avoid false positives
+    from red/green game objects, we also check that the area ABOVE the
+    banner (y=45-55%) is dark (the character model on dark background).
+    """
     h, w = image.shape[:2]
 
-    # Check center-screen region where banners appear (y=55-66%)
+    # Banner region (y=55-66%, center)
     center = image[int(h*0.55):int(h*0.66), int(w*0.28):int(w*0.72)]
     center_strip = center[int(center.shape[0]*0.2):int(center.shape[0]*0.8),
                           int(center.shape[1]*0.2):int(center.shape[1]*0.8)]
     colors = analyze_color(center_strip)
 
-    # EXFILTRATED: bright green/yellow banner
-    if colors["avg_g"] > 100 and colors["avg_g"] > colors["avg_b"] * 2:
+    # Area above banner should be dark (character on dark bg, not gameplay)
+    above = image[int(h*0.45):int(h*0.55), int(w*0.35):int(w*0.65)]
+    above_colors = analyze_color(above)
+    is_dark_above = above_colors["avg_r"] < 100 and above_colors["avg_g"] < 100 and above_colors["avg_b"] < 100
+
+    # EXFILTRATED: bright green/yellow banner + dark above
+    if colors["avg_g"] > 100 and colors["avg_g"] > colors["avg_b"] * 2 and is_dark_above:
         return {"detected": "exfiltrated", "confidence": min(1.0, colors["avg_g"] / 200), "method": "color"}
 
-    # ELIMINATED: red banner
-    if colors["avg_r"] > 80 and colors["avg_r"] > colors["avg_g"] * 1.5:
+    # ELIMINATED: red banner + dark above
+    if colors["avg_r"] > 80 and colors["avg_r"] > colors["avg_g"] * 1.5 and is_dark_above:
         return {"detected": "eliminated", "confidence": min(1.0, colors["avg_r"] / 200), "method": "color"}
 
     return {"detected": "none", "confidence": 0}
@@ -98,7 +106,7 @@ async def check_screen(
 
     # ALWAYS check banners first — they're the most important detection (<5ms)
     result = _check_banner_colors(image)
-    if result["detected"] != "none":
+    if result["detected"] != "none" and result.get("confidence", 0) >= 0.6:
         return result
 
     # Check loading screen
