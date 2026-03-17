@@ -4,7 +4,7 @@ export default function TitleBar() {
   const close = () => (window as any).runlog?.windowClose?.()
 
   return (
-    <div className="h-3 bg-transparent flex items-center shrink-0 relative" style={{ WebkitAppRegion: 'drag' } as any}>
+    <div className="h-6 bg-transparent flex items-center shrink-0 relative" style={{ WebkitAppRegion: 'drag' } as any}>
       {/* Window controls — floating top-right */}
       <div className="absolute right-0 top-0 flex" style={{ WebkitAppRegion: 'no-drag' } as any}>
         <button

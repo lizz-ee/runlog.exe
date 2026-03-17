@@ -323,13 +323,54 @@ class ScreenWatcher {
 
     if (this.state !== STATES.RESULTS && this.state !== STATES.RUN_ENDED) return
 
-    const screenshotCount = this.runContext.screenshots.length
-    console.log(`[watcher] Finishing results capture (${screenshotCount} screenshots)`)
+    // Merge all OCR data from results screens into one run record
+    const run = {
+      survived: this.runContext.survived,
+      map_name: this.runContext.mapName || null,
+      spawn_location: this.runContext.spawnZone || null,
+      compass_bearing: this.runContext.compassBearing || null,
+      combatant_eliminations: 0,
+      runner_eliminations: 0,
+      crew_revives: 0,
+      deaths: this.runContext.survived === false ? 1 : 0,
+      kills: 0,
+      assists: 0,
+      loot_value_total: 0,
+      duration_seconds: null,
+      primary_weapon: null,
+      secondary_weapon: null,
+      killed_by: this.runContext.killedBy || null,
+      killed_by_damage: null,
+      squad_size: 1,
+      notes: null,
+    }
 
-    this._emitEvent('results_ready', {
-      context: this.runContext,
-      screenshotCount,
-    })
+    // Merge data from each captured screen
+    for (const ss of this.runContext.screenshots) {
+      const d = ss.data || {}
+      if (d.survived !== undefined) run.survived = d.survived
+      if (d.combatant_eliminations) run.combatant_eliminations = d.combatant_eliminations
+      if (d.runner_eliminations) run.runner_eliminations = d.runner_eliminations
+      if (d.crew_revives) run.crew_revives = d.crew_revives
+      if (d.inventory_value !== undefined) run.loot_value_total = d.inventory_value
+      if (d.duration_seconds) run.duration_seconds = d.duration_seconds
+      if (d.run_time) run.notes = `Run time: ${d.run_time}`
+      if (d.primary_weapon) run.primary_weapon = d.primary_weapon
+      if (d.secondary_weapon) run.secondary_weapon = d.secondary_weapon
+      if (d.killed_by && d.killed_by !== 'NEURAL LINK SEVERED') run.killed_by = d.killed_by
+      if (d.killed_by_damage) run.killed_by_damage = d.killed_by_damage
+      if (d.map_name) run.map_name = d.map_name
+      if (d.zone_name) run.spawn_location = d.zone_name
+      if (d.compass_bearing) run.compass_bearing = d.compass_bearing
+    }
+
+    run.kills = run.combatant_eliminations + run.runner_eliminations
+    run.deaths = run.survived === false ? 1 : 0
+
+    const screenshotCount = this.runContext.screenshots.length
+    console.log(`[watcher] Run data: ${JSON.stringify(run)}`)
+
+    this._emitEvent('run_auto_logged', { run, screenshotCount })
 
     // Enter cooldown
     this.state = STATES.COOLDOWN

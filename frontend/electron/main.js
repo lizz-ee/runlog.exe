@@ -53,11 +53,83 @@ function startScreenWatcher() {
       case 'loading_screen':
         showNotification('RunLog', 'Loading into match...')
         break
+
+      case 'run_auto_logged':
+        handleAutoLog(event)
+        break
     }
   })
 
   screenWatcher.start()
   console.log('[auto-capture] Screen watcher started')
+}
+
+// ── Auto-log run to database ──────────────────────────────────────
+
+async function handleAutoLog(event) {
+  const { run } = event
+  if (!run) return
+
+  console.log('[auto-log] Logging run:', JSON.stringify(run).slice(0, 200))
+
+  try {
+    const body = JSON.stringify({
+      runner_id: 5, // Triage (default shell)
+      map_name: run.map_name,
+      survived: run.survived,
+      kills: run.kills || 0,
+      combatant_eliminations: run.combatant_eliminations || 0,
+      runner_eliminations: run.runner_eliminations || 0,
+      deaths: run.deaths || 0,
+      assists: run.assists || 0,
+      crew_revives: run.crew_revives || 0,
+      loot_value_total: run.loot_value_total || 0,
+      duration_seconds: run.duration_seconds || null,
+      primary_weapon: run.primary_weapon || null,
+      secondary_weapon: run.secondary_weapon || null,
+      killed_by: run.killed_by || null,
+      killed_by_damage: run.killed_by_damage || null,
+      squad_size: run.squad_size || 1,
+      notes: run.notes || null,
+    })
+
+    const http = require('http')
+    const req = http.request({
+      hostname: '127.0.0.1',
+      port: 8000,
+      path: '/api/runs/',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+      },
+    }, (res) => {
+      let data = ''
+      res.on('data', chunk => data += chunk)
+      res.on('end', () => {
+        try {
+          const result = JSON.parse(data)
+          const outcome = run.survived ? 'EXFILTRATED' : 'ELIMINATED'
+          const kills = (run.combatant_eliminations || 0) + (run.runner_eliminations || 0)
+          showNotification('RunLog', `Run logged: ${outcome} | ${kills} kills | $${run.loot_value_total || 0}`)
+          console.log(`[auto-log] Run saved: id=${result.id}`)
+          sendToRenderer('run-auto-logged', result)
+        } catch (e) {
+          console.error('[auto-log] Parse response error:', e.message)
+        }
+      })
+    })
+
+    req.on('error', (err) => {
+      console.error('[auto-log] POST failed:', err.message)
+      showNotification('RunLog', `Failed to log run: ${err.message}`)
+    })
+
+    req.write(body)
+    req.end()
+  } catch (err) {
+    console.error('[auto-log] Error:', err.message)
+  }
 }
 
 // ── Window ──────────────────────────────────────────────────────────
