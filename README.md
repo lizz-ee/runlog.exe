@@ -289,7 +289,7 @@ A map location where you deployed.
 
 ### Automatic (Video Capture)
 runlog.exe records your entire run as video. Key frames are extracted from:
-- **Start of run (first 120s at 1fps):** Map name, shell, squad members, spawn coordinates from deployment loading screen
+- **Start of run (first 90s at 0.5fps):** Map name, spawn coordinates from deployment loading screen
 - **End of run (last 30s at 5fps):** Stats tab (kills, deaths, loot), survival status, weapons used, killed-by info
 
 ---

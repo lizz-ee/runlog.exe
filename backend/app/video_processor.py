@@ -28,7 +28,8 @@ from .config import settings
 
 # -- Frame extraction settings (easy to tune) -------------------------------
 FRAME_RESOLUTION = 2560       # long edge px — 2K for legible UI text
-FRAME_FPS_START = 1           # lobby/loading screen — static, 1fps is fine
+FRAME_DURATION_START = 90     # seconds from start (loading screen can be 0-90s depending on session spawn wait)
+FRAME_FPS_START = 0.5         # deployment loading screen — static, 0.5fps is plenty (~45 frames)
 FRAME_FPS_END = 5             # post-match tabs — flip fast, need higher fps
 
 
@@ -285,16 +286,16 @@ def _get_video_duration(video_path: str) -> float | None:
 def extract_key_frames(video_path: str, frames_dir: str, video_duration: float) -> str:
     """Extract key frames from start and end of video for Phase 1 analysis.
 
-    Start window: first 120s at FRAME_FPS_START -- lobby, loading screen, contract
+    Start window: first FRAME_DURATION_START seconds at FRAME_FPS_START -- deployment loading screen
     End window: last 30s at FRAME_FPS_END -- STATS, PROGRESS, LOADOUT tabs
     Resolution: FRAME_RESOLUTION px long edge (2K for legible UI text)
     """
     os.makedirs(frames_dir, exist_ok=True)
 
-    # Start frames: first 120s
+    # Start frames: first 60s at 0.5fps (~30 frames, just need the loading screen)
     start_cmd = [
         'ffmpeg', '-y', '-hide_banner', '-loglevel', 'warning',
-        '-ss', '0', '-t', '120',
+        '-ss', '0', '-t', str(FRAME_DURATION_START),
         '-i', video_path,
         '-vf', f'scale={FRAME_RESOLUTION}:-2,fps={FRAME_FPS_START}',
         '-q:v', '3',
@@ -450,13 +451,13 @@ def _maybe_expand_and_retry(
 
     expanded = False
 
-    if not loading_found and video_duration > 120:
-        print("[processor] Loading screen not found, expanding start window to 2-4 min...")
+    if not loading_found and video_duration > 90:
+        print("[processor] Loading screen not found, expanding start window to 90-180s...")
         for f in glob_mod.glob(os.path.join(frames_dir, 'start_*.jpg')):
             os.remove(f)
         cmd = [
             'ffmpeg', '-y', '-hide_banner', '-loglevel', 'warning',
-            '-ss', '120', '-t', '120',
+            '-ss', '90', '-t', '90',
             '-i', video_path,
             '-vf', f'scale={FRAME_RESOLUTION}:-2,fps={FRAME_FPS_START}',
             '-q:v', '3',
