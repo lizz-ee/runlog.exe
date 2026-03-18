@@ -52,6 +52,8 @@
 - [x] Shells page (per-shell stats with combat, economy, and info breakdowns)
 - [x] System tray integration
 - [x] Auto-backup (7 rolling SQLite snapshots)
+- [x] Settings page (API key config with test/save, setup guide)
+- [x] Cyberpunk splash screen with boot sequence
 
 ---
 
@@ -65,12 +67,11 @@
 - [ ] Trends/charts on dashboard (survival rate over time, loot over time)
 - [ ] Weapon stats page (K/D per weapon, win rate per weapon)
 - [ ] Per-map trends (performance on each map over time)
+- [ ] Squad stats page (performance with specific squad mates)
 
 ### UI Enhancements
 - [ ] Run detail view as dedicated page (currently inline expand only)
 - [ ] Export data (CSV/JSON) for runs, stats, spawn data
-- [ ] Loadout management UI (save/name loadouts, link to runs)
-- [ ] Session view page (group runs by play session, session-level stats)
 
 ### Capture Improvements
 - [ ] Detect "READY UP" pre-match screen to log loadout going IN to a run
@@ -79,11 +80,4 @@
 
 ### Data
 - [ ] Weapon database seeding (auto-populate from Marathon_Complete_Database.xlsx)
-- [ ] Item/loot image recognition (currently text-only extraction)
-- [ ] Death heatmap (where on the map you die, not just where you spawn)
-
-### Quality of Life
-- [ ] Settings page (API key config, capture preferences, data directory)
-- [ ] Onboarding flow for first-time setup
-- [ ] Squad stats page (performance with specific squad mates)
-- [ ] LAUNCH.bat script for easy startup without Electron build
+- [ ] Death heatmap (map game coordinates to map image, mark death locations)
