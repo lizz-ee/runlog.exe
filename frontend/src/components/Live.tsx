@@ -169,7 +169,7 @@ export default function Live() {
       <div>
         <p className="label-tag text-m-green">CAPTURE // LIVE</p>
         <h2 className="text-xl font-display font-black tracking-wider text-m-text mt-1">
-          AUTO-CAPTURE
+          AUTO CAPTURE
         </h2>
       </div>
 

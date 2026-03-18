@@ -35,7 +35,7 @@ const sections: NavSection[] = [
     title: 'CAPTURE',
     items: [
       { view: 'live' as View, label: 'LIVE', tag: '08' },
-      { view: 'highlights' as View, label: 'RUN REPORTS', tag: '09' },
+      { view: 'highlights' as View, label: 'DEBRIEF', tag: '09' },
     ],
   },
 ]

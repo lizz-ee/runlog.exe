@@ -267,14 +267,32 @@ app.whenReady().then(async () => {
 
           <div class="line-wrap"><div class="line-scan"></div></div>
 
-          <div class="boot">
-            <p class="boot-line">> SYS.INIT <span class="ok">[OK]</span></p>
-            <p class="boot-line">> LOADING MODULES <span class="ok">[OK]</span></p>
-            <p class="boot-line">> SPAWNING BACKEND PROCESS</p>
-            <p class="boot-line">> CONNECTING TO FASTAPI</p>
-            <p class="boot-line">> INITIALIZING CAPTURE ENGINE</p>
-            <p class="boot-line active">> STANDING BY<span class="blink">_</span></p>
-          </div>
+          <div class="boot" id="boot"></div>
+          <script>
+            const lines = [
+              { text: 'SYS.INIT', delay: 100, okDelay: 300 },
+              { text: 'LOADING MODULES', delay: 500, okDelay: 400 },
+              { text: 'SPAWNING BACKEND PROCESS', delay: 1000, okDelay: 600 },
+              { text: 'CONNECTING TO FASTAPI', delay: 1700, okDelay: 500 },
+              { text: 'INITIALIZING CAPTURE ENGINE', delay: 2300, okDelay: 700 },
+            ];
+            const boot = document.getElementById('boot');
+            lines.forEach((l) => {
+              const p = document.createElement('p');
+              p.className = 'boot-line';
+              p.style.animationDelay = l.delay + 'ms';
+              p.innerHTML = '> ' + l.text;
+              boot.appendChild(p);
+              setTimeout(() => {
+                p.innerHTML = '> ' + l.text + ' <span class="ok">[OK]</span>';
+              }, l.delay + l.okDelay);
+            });
+            const standby = document.createElement('p');
+            standby.className = 'boot-line active';
+            standby.style.animationDelay = '3100ms';
+            standby.innerHTML = '> STANDING BY<span class="blink">_</span>';
+            boot.appendChild(standby);
+          </script>
         </div>
         <p class="ver">v1.0.0 // LOCAL FIRST // NO TELEMETRY</p>
       </body></html>
