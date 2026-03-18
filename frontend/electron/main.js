@@ -1,9 +1,27 @@
-const { app, BrowserWindow, Tray, Menu, Notification, nativeImage, ipcMain } = require('electron')
+const { app, BrowserWindow, Tray, Menu, Notification, nativeImage, ipcMain, dialog } = require('electron')
 const path = require('path')
+const fs = require('fs')
+const http = require('http')
 const { BackendManager } = require('./backend-manager')
 const { RecordingManager } = require('./recording-manager')
 
 const isDev = !app.isPackaged
+
+// ── Window state persistence ─────────────────────────────────────────
+const stateFile = path.join(app.getPath('userData'), 'window-state.json')
+
+function loadWindowState() {
+  try {
+    return JSON.parse(fs.readFileSync(stateFile, 'utf-8'))
+  } catch { return null }
+}
+
+function saveWindowState() {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  const bounds = mainWindow.getBounds()
+  const isMaximized = mainWindow.isMaximized()
+  fs.writeFileSync(stateFile, JSON.stringify({ ...bounds, isMaximized }))
+}
 
 let mainWindow = null
 let tray = null
@@ -18,6 +36,44 @@ function showNotification(title, body) {
   }
 }
 
+function checkProcessingActive() {
+  return new Promise((resolve) => {
+    const req = http.get('http://127.0.0.1:8000/api/capture/status', (res) => {
+      let data = ''
+      res.on('data', (chunk) => { data += chunk })
+      res.on('end', () => {
+        try {
+          const status = JSON.parse(data)
+          const items = status.processing_items || []
+          const active = items.filter(i =>
+            !['done', 'error', 'queued'].includes(i.status)
+          )
+          resolve(active.length)
+        } catch { resolve(0) }
+      })
+    })
+    req.on('error', () => resolve(0))
+    req.setTimeout(2000, () => { req.destroy(); resolve(0) })
+  })
+}
+
+async function confirmQuitIfProcessing() {
+  const activeCount = await checkProcessingActive()
+  if (activeCount > 0 && mainWindow && !mainWindow.isDestroyed()) {
+    const { response } = await dialog.showMessageBox(mainWindow, {
+      type: 'warning',
+      buttons: ['Cancel', 'Close Anyway'],
+      defaultId: 0,
+      cancelId: 0,
+      title: 'Processing Active',
+      message: `${activeCount} video${activeCount > 1 ? 's are' : ' is'} still being processed by Sonnet.`,
+      detail: 'Closing now will cancel the analysis. The recording will be auto-resumed next time you open RunLog.',
+    })
+    return response === 1 // "Close Anyway"
+  }
+  return true // nothing processing, safe to quit
+}
+
 function sendToRenderer(channel, data) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(channel, data)
@@ -27,9 +83,12 @@ function sendToRenderer(channel, data) {
 // ── Window ──────────────────────────────────────────────────────────
 
 function createWindow() {
+  const saved = loadWindowState()
   mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
+    width: saved?.width || 1400,
+    height: saved?.height || 900,
+    x: saved?.x,
+    y: saved?.y,
     minWidth: 900,
     minHeight: 600,
     backgroundColor: '#0a0a0f',
@@ -38,9 +97,17 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      webSecurity: false,
       preload: path.join(__dirname, 'preload.js'),
     },
   })
+  if (saved?.isMaximized) mainWindow.maximize()
+
+  // Save position/size on move and resize
+  mainWindow.on('resize', saveWindowState)
+  mainWindow.on('move', saveWindowState)
+  mainWindow.on('maximize', saveWindowState)
+  mainWindow.on('unmaximize', saveWindowState)
 
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173')
@@ -67,7 +134,9 @@ function createTray() {
     { type: 'separator' },
     {
       label: 'Quit',
-      click: () => {
+      click: async () => {
+        const canQuit = await confirmQuitIfProcessing()
+        if (!canQuit) return
         app.isQuitting = true
         if (recordingManager) recordingManager.stop()
         if (backendManager) backendManager.stop()
@@ -78,6 +147,21 @@ function createTray() {
 
   tray.setContextMenu(contextMenu)
   tray.on('double-click', () => mainWindow.show())
+}
+
+// ── Single instance lock ─────────────────────────────────────────────
+
+const gotTheLock = app.requestSingleInstanceLock()
+if (!gotTheLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      mainWindow.show()
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
+    }
+  })
 }
 
 // ── App lifecycle ───────────────────────────────────────────────────
@@ -130,24 +214,41 @@ app.whenReady().then(async () => {
   }
 
   // Start recording manager (monitors Marathon, controls capture)
-  recordingManager = new RecordingManager((status, message) => {
-    console.log(`[recording] ${status}: ${message}`)
-    sendToRenderer('recording-status', { status, message })
+  // Delay startup so frontend finishes initial data load first —
+  // WGC + OCR model loading + resume queue all compete for resources on launch
+  const startRecordingManager = () => {
+    recordingManager = new RecordingManager((status, message) => {
+      console.log(`[recording] ${status}: ${message}`)
+      sendToRenderer('recording-status', { status, message })
 
-    // Show notifications for key events
-    if (status === 'recording_started') {
-      showNotification('RunLog', 'Recording started — READY UP detected')
-    } else if (status === 'recording_stopped') {
-      showNotification('RunLog', 'Recording stopped — processing run...')
-    } else if (status === 'active') {
-      showNotification('RunLog', 'Marathon detected — watching for READY UP')
+      // Show notifications for key events
+      if (status === 'recording_started') {
+        showNotification('RunLog', 'Recording started — READY UP detected')
+      } else if (status === 'recording_stopped') {
+        showNotification('RunLog', 'Recording stopped — sending to Sonnet...')
+      } else if (status === 'run_processed') {
+        showNotification('RunLog', `Run analyzed — ${message}`)
+      } else if (status === 'active') {
+        showNotification('RunLog', 'Marathon detected — watching for READY UP')
+      }
+    })
+    recordingManager.start()
+    console.log('=== RunLog ===')
+    console.log('  Auto-capture active')
+    console.log('  Recording starts when Marathon detected + READY UP screen')
+  }
+
+  if (!isDev) {
+    // Production: only start if backend is up, delay 5s for frontend to finish loading
+    if (backendManager && await backendManager._healthCheck()) {
+      setTimeout(startRecordingManager, 5000)
+    } else {
+      console.log('[recording] Backend not ready, skipping recording manager')
     }
-  })
-  recordingManager.start()
-
-  console.log('=== RunLog ===')
-  console.log('  Auto-capture active')
-  console.log('  Recording starts when Marathon detected + READY UP screen')
+  } else {
+    // Dev: start immediately (backend managed manually)
+    startRecordingManager()
+  }
 })
 
 app.on('will-quit', () => {
@@ -169,7 +270,30 @@ ipcMain.on('window-maximize', () => {
   if (mainWindow?.isMaximized()) mainWindow.unmaximize()
   else mainWindow?.maximize()
 })
-ipcMain.on('window-close', () => mainWindow?.hide())
+ipcMain.on('window-close', async () => {
+  const activeCount = await checkProcessingActive()
+  if (activeCount > 0 && mainWindow && !mainWindow.isDestroyed()) {
+    const { response } = await dialog.showMessageBox(mainWindow, {
+      type: 'question',
+      buttons: ['Minimize to Tray', 'Close Anyway'],
+      defaultId: 0,
+      cancelId: 0,
+      title: 'Processing Active',
+      message: `${activeCount} video${activeCount > 1 ? 's are' : ' is'} still being processed.`,
+      detail: 'Minimizing to tray will keep processing running in the background.',
+    })
+    if (response === 0) {
+      mainWindow.hide()
+    } else {
+      app.isQuitting = true
+      if (recordingManager) recordingManager.stop()
+      if (backendManager) backendManager.stop()
+      app.quit()
+    }
+  } else {
+    mainWindow?.hide()
+  }
+})
 ipcMain.on('get-api-base-url', (event) => {
   event.returnValue = isDev ? '' : 'http://127.0.0.1:8000'
 })

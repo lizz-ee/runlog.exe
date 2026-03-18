@@ -67,6 +67,9 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
             referenceImage: '',
             description: s.notes || '',
             dbId: s.id,
+            gameCoords: (s.game_coord_x != null && s.game_coord_y != null)
+              ? [s.game_coord_x, s.game_coord_y] as [number, number]
+              : undefined,
           }))
           setSpawns(dbSpawns)
         } else {
@@ -120,13 +123,21 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
     try {
       for (const spawn of spawns) {
         if (!dirty.has(spawn.id)) continue
-        // Update DB via API
-        await axios.put(`${apiBase}/api/spawns/update-coords`, {
-          map_name: selectedMap,
-          spawn_location: spawn.zone,
-          x: spawn.x,
-          y: spawn.y,
-        })
+        if (spawn.dbId) {
+          // Save by DB ID — exact match, no name ambiguity
+          await axios.put(`${apiBase}/api/spawns/update-coords-by-id`, {
+            id: spawn.dbId,
+            x: spawn.x,
+            y: spawn.y,
+          })
+        } else {
+          await axios.put(`${apiBase}/api/spawns/update-coords`, {
+            map_name: selectedMap,
+            spawn_location: spawn.zone,
+            x: spawn.x,
+            y: spawn.y,
+          })
+        }
       }
       setDirty(new Set())
     } catch (err) {
@@ -157,8 +168,8 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
         </div>
       )}
 
-      {/* Map + Spawn sidebar */}
-      <div className="grid grid-cols-[1fr_150px] gap-4">
+      {/* Map + Spawn sidebar — map defines height, sidebar is pinned alongside */}
+      <div className="relative" style={{ marginRight: 196 }}>
       <div
         ref={mapRef}
         className="relative w-full select-none"
@@ -219,6 +230,11 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
                 return (
                   <div className="absolute top-full left-1/2 -translate-x-1/2 mt-3 bg-m-black/95 border border-m-green/40 px-3 py-2 min-w-[140px] z-[100] pointer-events-none">
                     <p className="text-[10px] tracking-[0.15em] text-m-green font-bold uppercase">{spawn.zone}</p>
+                    {spawn.gameCoords && (
+                      <p className="text-[8px] font-mono text-m-text-muted/60 mt-0.5">
+                        {spawn.gameCoords[0].toFixed(2)}, {spawn.gameCoords[1].toFixed(2)}
+                      </p>
+                    )}
                     {isDragging && (
                       <p className="text-[10px] font-mono text-m-yellow mt-1">x: {spawn.x} &nbsp; y: {spawn.y}</p>
                     )}
@@ -280,9 +296,9 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
         )}
       </div>
 
-      {/* Spawn Points sidebar */}
-      <div className="bg-m-card flex flex-col max-h-full">
-        <div className="px-3 py-2 border-b border-m-border">
+      {/* Spawn Points sidebar — absolutely positioned, locked to map height, scrollable */}
+      <div className="absolute top-0 bottom-0 right-[-196px] w-[180px] bg-m-card flex flex-col overflow-hidden">
+        <div className="px-3 py-2 border-b border-m-border shrink-0">
           <p className="label-tag text-m-green mb-2">SPAWN POINTS</p>
           <div className="border-t border-m-border pt-2 mt-2 -mx-3" />
           <div className="flex gap-[1px]">
@@ -301,7 +317,7 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
             ))}
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto min-h-0">
           {currentHeatmap && currentHeatmap.locations.length > 0 ? (
             <div className="divide-y divide-m-border">
               {[...currentHeatmap.locations].sort((a, b) => {
@@ -398,9 +414,11 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
               <ColStat label="SQUAD MATE" value={(() => {
                 const mapRuns = runs.filter(r => r.map_name === selectedMap && r.squad_members?.length)
                 if (!mapRuns.length) return '—'
+                // Exclude the local player's gamertags (auto-detected from runs)
+                const selfTags = new Set(runs.map(r => r.player_gamertag?.toLowerCase()).filter(Boolean))
                 const counts: Record<string, number> = {}
                 mapRuns.forEach(r => r.squad_members?.forEach(m => {
-                  if (m.toLowerCase() !== 'kale#8064') counts[m] = (counts[m] || 0) + 1
+                  if (m && !selfTags.has(m.toLowerCase())) counts[m] = (counts[m] || 0) + 1
                 }))
                 const entries = Object.entries(counts)
                 return entries.length > 0 ? entries.sort((a, b) => b[1] - a[1])[0][0] : '—'
@@ -436,7 +454,7 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
               <ColStat label="PVE KILLS" value={String(currentStats.pve_kills)} color="green" />
               <ColStat label="RUNNER KILLS" value={String(currentStats.pvp_kills)} color="cyan" />
               <ColStat label="DEATHS" value={String(currentStats.deaths)} color={currentStats.deaths > 0 ? 'red' : undefined} />
-              <ColStat label="REVIVES" value="0" />
+              <ColStat label="REVIVES" value={String(runs.filter(r => r.map_name === selectedMap).reduce((sum, r) => sum + (r.crew_revives || 0), 0))} color="green" />
             </div>
           </div>
 
@@ -477,7 +495,7 @@ function StatRow({ label, value, color }: { label: string; value: string; color?
 function StatBlock({ label, value, color, accent }: { label: string; value: string; color?: 'green' | 'red' | 'yellow' | 'cyan'; accent?: boolean }) {
   const c = { green: 'text-m-green', red: 'text-m-red', yellow: 'text-m-yellow', cyan: 'text-m-cyan' }[color as string] ?? 'text-m-text'
   return (
-    <div className={`bg-m-card p-5 ${accent ? 'border-t-2 border-m-green' : ''}`}>
+    <div className="bg-m-card p-5">
       <p className="label-tag text-m-text-muted">{label}</p>
       <p className={`text-2xl font-mono font-bold mt-1 ${c}`}>{value}</p>
     </div>

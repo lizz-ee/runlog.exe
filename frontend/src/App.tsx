@@ -6,6 +6,8 @@ import Sidebar from './components/Sidebar'
 import Dashboard from './components/Dashboard'
 import RunHistory from './components/RunHistory'
 import Maps from './components/Maps'
+import Live from './components/Live'
+import RunReports from './components/RunReports'
 import Toasts from './components/Toasts'
 import TitleBar from './components/TitleBar'
 
@@ -67,29 +69,15 @@ export default function App() {
   return (
     <div className="flex flex-col h-screen bg-m-bg">
       <TitleBar />
-      <div className="fixed inset-0 scanlines z-50 pointer-events-none" />
+      {/* scanlines overlay removed — too distracting */}
       <div className="flex flex-1 overflow-hidden">
       <Sidebar />
-      <main className="flex-1 overflow-y-auto p-8">
+      <main className="flex-1 overflow-y-auto px-8 pt-5 pb-8">
         {view === 'dashboard' && <Dashboard />}
         {view === 'history' && <RunHistory />}
         {mapName && <Maps selectedMap={mapName} />}
-        {view === 'live' && (
-          <div className="max-w-7xl mx-auto space-y-6">
-            <div>
-              <p className="label-tag text-m-green">CAPTURE / LIVE</p>
-              <h2 className="text-xl font-display font-black tracking-wider text-m-text mt-1">
-                AUTO-CAPTURE
-              </h2>
-            </div>
-            <div className="border border-1 border-m-border bg-m-card p-10 text-center">
-              <p className="text-m-text-muted text-sm">AUTO-CAPTURE COMING SOON</p>
-              <p className="label-tag text-m-text-muted mt-2">
-                REQUIRES ELECTRON APP MODE
-              </p>
-            </div>
-          </div>
-        )}
+        {view === 'live' && <Live />}
+        {view === 'highlights' && <RunReports />}
       </main>
       <Toasts />
       </div>

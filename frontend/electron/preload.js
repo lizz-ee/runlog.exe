@@ -11,6 +11,11 @@ contextBridge.exposeInMainWorld('runlog', {
     ipcRenderer.on('auto-capture-event', (_event, data) => callback(data))
   },
 
+  // Listen for recording status changes (from recording-manager)
+  onRecordingStatus: (callback) => {
+    ipcRenderer.on('recording-status', (_event, data) => callback(data))
+  },
+
   // Get API base URL (empty in dev for Vite proxy, http://127.0.0.1:8000 in production)
   getApiBaseUrl: () => ipcRenderer.sendSync('get-api-base-url'),
 

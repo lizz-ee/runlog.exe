@@ -53,8 +53,11 @@ export interface Run {
   secondary_weapon: string | null
   killed_by: string | null
   killed_by_damage: number | null
+  grade: string | null
+  summary: string | null
   spawn_location: string | null
   shell_name: string | null
+  player_gamertag: string | null
   created_at: string
 }
 
@@ -178,4 +181,70 @@ export interface SpawnHeatmap {
   locations: SpawnHeatmapEntry[]
 }
 
-export type View = 'dashboard' | 'history' | 'map-perimeter' | 'map-dire-marsh' | 'map-outpost' | 'map-cryo-archive' | 'live'
+export interface CaptureStatus {
+  active: boolean
+  recording: boolean
+  recording_seconds: number
+  recording_path: string | null
+  queue_size: number
+  processing_phase: string | null
+  processing_items: ProcessingItem[]
+  status_counts: Record<string, number>
+  resumed_count: number
+  capture_mode: string | null
+  last_result: ProcessResult | null
+}
+
+export interface ProcessingItem {
+  file: string
+  status: string
+  run_id: number | null
+  duration_seconds: number | null
+  created_at: string | null
+  thumbnail: string | null
+}
+
+export interface ProcessResult {
+  status: string
+  recording: string
+  analysis: RunAnalysis | null
+  clips: string[]
+  run_id: number | null
+}
+
+export interface RunAnalysis {
+  map_name: string | null
+  survived: boolean | null
+  kills: number
+  combatant_eliminations: number
+  runner_eliminations: number
+  deaths: number
+  crew_revives: number
+  duration_seconds: number | null
+  loot_value_total: number
+  primary_weapon: string | null
+  secondary_weapon: string | null
+  killed_by: string | null
+  grade: string | null
+  highlights: Highlight[]
+  summary: string | null
+}
+
+export interface Highlight {
+  timestamp_seconds: number
+  duration_seconds: number
+  type: string
+  description: string
+}
+
+export interface Clip {
+  filename: string
+  path: string
+  size_mb: number
+  type: string
+  run_timestamp: string | null
+  created: number
+  thumbnail: string | null
+}
+
+export type View = 'dashboard' | 'history' | 'map-perimeter' | 'map-dire-marsh' | 'map-outpost' | 'map-cryo-archive' | 'live' | 'highlights'

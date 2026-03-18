@@ -65,8 +65,8 @@
     ],
     "win": {
       "target": ["dir"],
-      "sign": false,
-      "icon": "electron/icon.ico"
+      "icon": "electron/icon.ico",
+      "signAndEditExecutable": false
     },
     "asar": true,
     "asarUnpack": [

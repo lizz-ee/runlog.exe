@@ -1,11 +1,13 @@
 """
 Minimal OCR for Marathon game state detection.
 
-Only detects two button texts:
-  - READY UP  -> start recording (player is in lobby, run is about to begin)
-  - PREPARE   -> stop recording  (player returned to menu, run is over)
+Detects:
+  - SEARCHING  -> start recording (matchmaking screen, sits for 10s-3min)
+  - PREPARE    -> stop recording  (yellow button, back in lobby)
+  - READY UP   -> stop recording  (yellow button, back in lobby)
+  - DEPLOYING  -> stop recording  (yellow button, back in lobby)
+  - RUN        -> stop recording  (yellow button, back in lobby)
 
-Also detects DEPLOYING (countdown after READY UP) and RUN (rare variant).
 Uses easyocr with GPU acceleration. Model loads once, stays in memory.
 """
 
@@ -31,47 +33,67 @@ def get_reader():
     return _reader
 
 
-# -- Button region ----------------------------------------------------
-# Bottom center of screen where READY UP / PREPARE buttons appear.
-# Coordinates are percentages of screen dimensions (works at any resolution).
-BUTTON_REGION = (0.30, 0.82, 0.70, 0.92)
+# -- Scan regions (percentages of screen dimensions) -------------------
+
+# Bottom center: yellow button bar (PREPARE, READY UP, RUN, DEPLOYING)
+BUTTON_REGION = (0.30, 0.82, 0.70, 0.96)
+
+# Center: matchmaking text (SEARCHING...)
+SEARCH_REGION = (0.30, 0.50, 0.70, 0.65)
 
 
 def detect_button_text(jpeg_bytes: bytes) -> str | None:
-    """Check the button region for READY UP or PREPARE text.
+    """Check for game state text in known screen regions.
 
-    Args:
-        jpeg_bytes: Raw JPEG image bytes from the detection capture.
+    Scans two regions:
+    1. Bottom center — yellow button bar (lobby buttons)
+    2. Center — matchmaking "SEARCHING..." text
 
     Returns:
-        'READY_UP', 'DEPLOYING', 'PREPARE', 'RUN', or None.
+        'SEARCHING', 'READY_UP', 'DEPLOYING', 'PREPARE', 'RUN', or None.
     """
     try:
         img = Image.open(io.BytesIO(jpeg_bytes))
         w, h = img.size
+        reader = get_reader()
+
+        # --- Check button region first (lobby yellow buttons) ---
         x1, y1, x2, y2 = BUTTON_REGION
         crop = img.crop((int(w * x1), int(h * y1), int(w * x2), int(h * y2)))
-
-        # Boost contrast to make button text pop
         crop = ImageEnhance.Contrast(crop).enhance(2.0)
-
         arr = np.array(crop)
-        reader = get_reader()
         results = reader.readtext(arr)
 
-        # Join all detected text fragments with confidence > 0.4
         texts = [r[1] for r in results if r[2] > 0.4]
-        joined = ' '.join(texts).upper()
+        joined = ' '.join(texts).upper().strip()
 
-        # Match against known button labels
+        if joined:
+            print(f"[ocr] Button: \"{joined}\"")
+
         if 'READY UP' in joined or 'READYUP' in joined or 'READY_UP' in joined:
             return 'READY_UP'
         if 'DEPLOYING' in joined:
             return 'DEPLOYING'
-        if 'PREPARE' in joined:
+        if 'PREPARE' in joined and 'PREPARED' not in joined:
             return 'PREPARE'
-        if 'RUN' in joined and len(joined) < 15:
+        if joined == 'RUN' or ' RUN ' in f' {joined} ':
             return 'RUN'
+
+        # --- Check center region for SEARCHING (matchmaking) ---
+        x1, y1, x2, y2 = SEARCH_REGION
+        crop2 = img.crop((int(w * x1), int(h * y1), int(w * x2), int(h * y2)))
+        crop2 = ImageEnhance.Contrast(crop2).enhance(2.0)
+        arr2 = np.array(crop2)
+        results2 = reader.readtext(arr2)
+
+        texts2 = [r[1] for r in results2 if r[2] > 0.4]
+        joined2 = ' '.join(texts2).upper().strip()
+
+        if joined2:
+            print(f"[ocr] Center: \"{joined2}\"")
+
+        if 'SEARCHING' in joined2:
+            return 'SEARCHING'
 
         return None
     except Exception:

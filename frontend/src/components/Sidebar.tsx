@@ -34,6 +34,7 @@ const sections: NavSection[] = [
     title: 'CAPTURE',
     items: [
       { view: 'live' as View, label: 'LIVE', tag: '07' },
+      { view: 'highlights' as View, label: 'RUN REPORTS', tag: '08' },
     ],
   },
 ]
@@ -45,14 +46,13 @@ export default function Sidebar() {
     <aside className="w-52 bg-m-black border-r border-1 border-m-border flex flex-col">
       {/* Header */}
       <div className="px-4 py-5 border-b border-1 border-m-border">
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-2 bg-m-green rounded-full animate-pulse-slow" />
-          <span className="label-tag text-m-green">SYSTEM ONLINE</span>
-        </div>
-        <h1 className="text-base font-display font-black tracking-[0.2em] text-m-text mt-3">
+        <p className="label-tag text-m-green flex items-center gap-2">
+          <span className="w-1.5 h-1.5 bg-m-green rounded-full animate-pulse-slow" />
+          SYSTEM ONLINE
+        </p>
+        <h1 className="text-xl font-display font-black tracking-wider text-m-text mt-1">
           RUNLOG
         </h1>
-        <p className="label-tag text-m-text-muted mt-1">MARATHON TRACKER v1.0</p>
       </div>
 
       {/* Nav with sections */}

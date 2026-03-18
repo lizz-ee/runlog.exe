@@ -171,16 +171,16 @@ function RunRow({ run }: { run: Run }) {
           )}
         </span>
         <span className={`text-xs font-mono text-right ${run.combatant_eliminations ? 'text-m-green' : 'text-m-text-muted'}`}>
-          {run.combatant_eliminations || 0}<span className="text-m-text-muted text-2xs">PVE</span>
+          {run.combatant_eliminations || 0}<span className="text-m-text-muted text-2xs"> PVE</span>
         </span>
         <span className={`text-xs font-mono text-right ${run.runner_eliminations ? 'text-m-cyan' : 'text-m-text-muted'}`}>
-          {run.runner_eliminations || 0}<span className="text-m-text-muted text-2xs">RNR</span>
+          {run.runner_eliminations || 0}<span className="text-m-text-muted text-2xs"> RNR</span>
         </span>
         <span className={`text-xs font-mono text-right ${run.deaths ? 'text-m-red' : 'text-m-text-muted'}`}>
-          {run.deaths}<span className="text-m-text-muted text-2xs">D</span>
+          {run.deaths}<span className="text-m-text-muted text-2xs"> D</span>
         </span>
         <span className={`text-xs font-mono text-right ${run.crew_revives ? 'text-m-green' : 'text-m-text-muted'}`}>
-          {run.crew_revives || 0}<span className="text-m-text-muted text-2xs">R</span>
+          {run.crew_revives || 0}<span className="text-m-text-muted text-2xs"> R</span>
         </span>
         <span className={`text-xs font-mono text-right ${
           run.loot_value_total >= 0 ? 'text-m-yellow' : 'text-m-red'
@@ -260,7 +260,7 @@ function StatBlock({
   }[color as string] ?? 'text-m-text'
 
   return (
-    <div className={`bg-m-card ${small ? 'p-3' : 'p-5'} ${accent ? 'border-t-2 border-m-green' : ''}`}>
+    <div className={`bg-m-card ${small ? 'p-3' : 'p-5'}`}>
       <p className="label-tag text-m-text-muted">{label}</p>
       <p className={`${small ? 'text-lg' : 'text-2xl'} font-mono font-bold mt-1 ${colorClass}`}>
         {value}

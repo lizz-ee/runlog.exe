@@ -57,7 +57,8 @@ class RecordingManager {
       this.isCapturing = true
       this.onStatus('active', 'Auto-capture running')
 
-      // Poll status every 3 seconds — detect recording start/stop
+      // Poll status every 3 seconds — detect recording start/stop and processing
+      this.lastRunId = null
       this.statusTimer = setInterval(async () => {
         try {
           const status = await this._apiGet('/api/capture/status')
@@ -69,6 +70,17 @@ class RecordingManager {
             this.onStatus('recording_stopped', 'Run recording saved')
           }
           this.wasRecording = status.recording
+
+          // Detect when Sonnet finishes processing a run
+          if (status.last_result && status.last_result.run_id && status.last_result.run_id !== this.lastRunId) {
+            this.lastRunId = status.last_result.run_id
+            const a = status.last_result.analysis
+            if (a) {
+              const outcome = a.survived ? 'EXTRACTED' : 'KIA'
+              const clips = status.last_result.clips ? status.last_result.clips.length : 0
+              this.onStatus('run_processed', `${outcome} | ${a.kills || 0} kills | ${clips} clips | ${a.map_name || 'Unknown'}`)
+            }
+          }
 
           this.onStatus('status', JSON.stringify(status))
         } catch {}

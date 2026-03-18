@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { getRecentRuns, getOverviewStats } from './api'
 import type { View, Run, OverviewStats, Runner, Loadout, ParsedScreenshot } from './types'
 
 export interface Toast {
@@ -40,6 +41,9 @@ interface AppState {
   addToast: (toast: Omit<Toast, 'id' | 'timestamp'>) => void
   removeToast: (id: string) => void
 
+  // Refresh runs + stats from backend (after a new run is processed)
+  refreshData: () => Promise<void>
+
   // Pending captures from hotkeys
   pendingCapture: PendingCapture | null
   setPendingCapture: (capture: PendingCapture | null) => void
@@ -74,6 +78,18 @@ export const useStore = create<AppState>((set) => ({
       ],
     })),
   removeToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+
+  refreshData: async () => {
+    try {
+      const [runs, stats] = await Promise.all([
+        getRecentRuns(20),
+        getOverviewStats(),
+      ])
+      set({ runs, stats })
+    } catch (e) {
+      console.error('Failed to refresh data:', e)
+    }
+  },
 
   pendingCapture: null,
   setPendingCapture: (pendingCapture) => set({ pendingCapture }),

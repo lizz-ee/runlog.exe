@@ -54,12 +54,17 @@ def get_overview_stats(db: Session = Depends(get_db)):
     fav_weapon = max(weapon_counts, key=weapon_counts.get) if weapon_counts else None
 
     # Favorite squad mate — count how often each name appears in squad_members
+    # Exclude the local player's own gamertags (pulled live from DB, supports multiple profiles)
+    self_tags = {
+        tag.lower() for (tag,) in
+        db.query(Run.player_gamertag).filter(Run.player_gamertag.isnot(None)).distinct().all()
+    }
     mate_counts: dict[str, int] = {}
     for r in runs:
         if r.squad_members:
             members = r.squad_members if isinstance(r.squad_members, list) else []
             for name in members:
-                if name and name.lower() != "kale#8064":  # exclude self
+                if name and name.lower() not in self_tags:
                     mate_counts[name] = mate_counts.get(name, 0) + 1
     fav_mate = max(mate_counts, key=mate_counts.get) if mate_counts else None
     fav_mate_runs = mate_counts.get(fav_mate, 0) if fav_mate else 0

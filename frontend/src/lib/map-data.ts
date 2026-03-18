@@ -15,6 +15,8 @@ export interface SpawnRef {
   y: number           // precise % y on map image (0-100)
   referenceImage: string  // filename in assets/spawns/<map>/
   description?: string    // visual landmarks for human reference
+  dbId?: number
+  gameCoords?: [number, number]  // game coordinates from loading screen
 }
 
 export interface Zone {

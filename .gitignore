@@ -8,3 +8,10 @@ media_uploads/
 .vite/
 release/
 release2/
+_saved_videos/
+backend/recordings/
+backend/runlog.db.backup
+
+# AppData sync - exclude large files
+data/recordings/
+data/clips/

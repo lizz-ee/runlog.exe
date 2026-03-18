@@ -118,6 +118,24 @@ def update_spawn_coords(body: CoordsUpdate, db: DBSession = Depends(get_db)):
     return {"updated": len(spawns), "map": body.map_name, "location": body.spawn_location, "x": body.x, "y": body.y}
 
 
+class CoordsUpdateById(BaseModel):
+    id: int
+    x: float
+    y: float
+
+
+@router.put("/update-coords-by-id")
+def update_spawn_coords_by_id(body: CoordsUpdateById, db: DBSession = Depends(get_db)):
+    """Update x,y coordinates for a spawn point by its database ID."""
+    spawn = db.query(SpawnPoint).filter(SpawnPoint.id == body.id).first()
+    if not spawn:
+        raise HTTPException(status_code=404, detail=f"Spawn #{body.id} not found")
+    spawn.x = body.x
+    spawn.y = body.y
+    db.commit()
+    return {"updated": 1, "id": body.id, "x": body.x, "y": body.y}
+
+
 @router.get("/", response_model=list[SpawnPointOut])
 def list_spawns(map_name: str = None, db: DBSession = Depends(get_db)):
     q = db.query(SpawnPoint)
@@ -167,7 +185,7 @@ def spawn_heatmap(db: DBSession = Depends(get_db)):
             }
 
         entry = maps[map_key][loc_key]
-        entry["count"] = len(s.runs)  # count of runs from this spawn
+        entry["count"] += len(s.runs)  # count of runs from this spawn
         if s.x is not None:
             entry["x"] = s.x
             entry["y"] = s.y

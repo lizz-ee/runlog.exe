@@ -30,8 +30,12 @@ export default function RunHistory() {
   const maps = [...new Set(runs.map((r) => r.map_name).filter(Boolean))]
 
   async function handleDelete(id: number) {
-    await deleteRun(id)
-    setRuns(runs.filter((r) => r.id !== id))
+    try {
+      await deleteRun(id)
+      setRuns(runs.filter((r) => r.id !== id))
+    } catch (err) {
+      console.error('Failed to delete run:', err)
+    }
   }
 
   return (
@@ -148,16 +152,16 @@ function RunRow({ run, onDelete }: { run: Run; onDelete: () => void }) {
         </span>
 
         <span className={`text-xs font-mono text-right ${run.combatant_eliminations ? 'text-m-green' : 'text-m-text-muted'}`}>
-          {run.combatant_eliminations || 0}<span className="text-m-text-muted text-2xs">PVE</span>
+          {run.combatant_eliminations || 0}<span className="text-m-text-muted text-2xs"> PVE</span>
         </span>
         <span className={`text-xs font-mono text-right ${run.runner_eliminations ? 'text-m-cyan' : 'text-m-text-muted'}`}>
-          {run.runner_eliminations || 0}<span className="text-m-text-muted text-2xs">RNR</span>
+          {run.runner_eliminations || 0}<span className="text-m-text-muted text-2xs"> RNR</span>
         </span>
         <span className={`text-xs font-mono text-right ${run.deaths ? 'text-m-red' : 'text-m-text-muted'}`}>
-          {run.deaths}<span className="text-m-text-muted text-2xs">D</span>
+          {run.deaths}<span className="text-m-text-muted text-2xs"> D</span>
         </span>
         <span className={`text-xs font-mono text-right ${run.crew_revives ? 'text-m-green' : 'text-m-text-muted'}`}>
-          {run.crew_revives || 0}<span className="text-m-text-muted text-2xs">R</span>
+          {run.crew_revives || 0}<span className="text-m-text-muted text-2xs"> R</span>
         </span>
         <span className={`text-xs font-mono text-right ${
           run.loot_value_total >= 0 ? 'text-m-yellow' : 'text-m-red'

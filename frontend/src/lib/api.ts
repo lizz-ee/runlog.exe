@@ -3,6 +3,7 @@ import { getApiBaseUrl } from './electron'
 import type {
   Run, Runner, Loadout, Weapon, ParsedScreenshot,
   OverviewStats, MapStats, TrendData, Session, SpawnHeatmap,
+  CaptureStatus, Clip,
 } from './types'
 
 const apiBase = getApiBaseUrl()
@@ -104,4 +105,27 @@ export async function getSessions(): Promise<Session[]> {
 export async function createSession(notes?: string): Promise<Session> {
   const { data } = await api.post<Session>('/sessions', { notes })
   return data
+}
+
+// Capture
+export async function getCaptureStatus(): Promise<CaptureStatus> {
+  const { data } = await api.get<CaptureStatus>('/capture/status')
+  return data
+}
+
+export async function getClips(): Promise<Clip[]> {
+  const { data } = await api.get<{ clips: Clip[] }>('/capture/clips')
+  return data.clips
+}
+
+export function getClipUrl(filename: string): string {
+  return `${apiBase}/api/capture/clips/${filename}`
+}
+
+export function getFrameUrl(): string {
+  return `${apiBase}/api/capture/frame`
+}
+
+export function getThumbnailUrl(filename: string): string {
+  return `${apiBase}/api/capture/thumbnail/${filename}`
 }

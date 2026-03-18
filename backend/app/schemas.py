@@ -149,7 +149,10 @@ class RunOut(BaseModel):
     secondary_weapon: Optional[str] = None
     killed_by: Optional[str] = None
     killed_by_damage: Optional[int] = None
+    grade: Optional[str] = None
+    summary: Optional[str] = None
     shell_name: Optional[str] = None
+    player_gamertag: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -191,6 +194,8 @@ class SpawnPointOut(BaseModel):
     spawn_region: Optional[str]
     x: Optional[float]
     y: Optional[float]
+    game_coord_x: Optional[float] = None
+    game_coord_y: Optional[float] = None
     screenshot_path: Optional[str]
     notes: Optional[str]
     created_at: datetime

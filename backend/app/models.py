@@ -74,7 +74,10 @@ class Run(Base):
     secondary_weapon = Column(String(100), nullable=True)
     killed_by = Column(String(100), nullable=True)
     killed_by_damage = Column(Integer, nullable=True)
+    player_gamertag = Column(String(100), nullable=True)  # Local player's gamertag (center of squad UI)
     notes = Column(Text, nullable=True)
+    grade = Column(String(2), nullable=True)  # S, A, B, C, D, F
+    summary = Column(Text, nullable=True)  # Sonnet's narrative story of the run
     session_id = Column(Integer, ForeignKey("sessions.id"), nullable=True)
     spawn_point_id = Column(Integer, ForeignKey("spawn_points.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -106,6 +109,8 @@ class SpawnPoint(Base):
     x = Column(Float, nullable=True)  # % position on map image (0-100)
     y = Column(Float, nullable=True)  # % position on map image (0-100)
     compass_bearing = Column(String(20), nullable=True)  # e.g. "S 195" — direction facing on spawn
+    game_coord_x = Column(Float, nullable=True)  # Game coordinate from loading screen (e.g. 10.564070)
+    game_coord_y = Column(Float, nullable=True)  # Game coordinate from loading screen (e.g. 195.869476)
     screenshot_path = Column(String(500), nullable=True)
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
