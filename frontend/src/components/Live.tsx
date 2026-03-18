@@ -22,10 +22,14 @@ function formatTimestamp(isoStr: string | null): string {
 
 const PHASE_LABELS: Record<string, string> = {
   queued: 'QUEUED',
+  extracting_frames: 'EXTRACTING FRAMES',
+  analyzing_stats: 'ANALYZING STATS',
+  saving: 'SAVING TO DB',
+  phase1_done: 'STATS READY',
   compressing: 'COMPRESSING',
+  analyzing_gameplay: 'ANALYZING GAMEPLAY',
   analyzing: 'ANALYZING',
   cutting_clips: 'CUTTING CLIPS',
-  saving: 'SAVING TO DB',
   done: 'COMPLETE',
   error: 'FAILED',
 }
@@ -37,6 +41,7 @@ function phaseLabel(status: string): string {
 function phaseColor(status: string): string {
   switch (status) {
     case 'done': return 'text-m-green'
+    case 'phase1_done': return 'text-m-yellow'
     case 'error': return 'text-m-red'
     case 'queued': return 'text-m-text-muted'
     default: return 'text-m-yellow'
@@ -45,8 +50,10 @@ function phaseColor(status: string): string {
 
 function statusCardText(counts: Record<string, number>): string {
   const parts: string[] = []
-  const active = ['compressing', 'analyzing', 'cutting_clips', 'saving']
-  // Show the actual active phase instead of always "ANALYZING"
+  const active = [
+    'extracting_frames', 'analyzing_stats', 'saving', 'phase1_done',
+    'compressing', 'analyzing_gameplay', 'analyzing', 'cutting_clips',
+  ]
   for (const phase of active) {
     if (counts[phase]) {
       const label = PHASE_LABELS[phase] || phase.toUpperCase()
@@ -127,6 +134,15 @@ export default function Live() {
       })
     }
   }, [status?.last_result?.run_id])
+
+  // Refresh dashboard when Phase 1 stats are ready (before Phase 2 finishes)
+  useEffect(() => {
+    const items = status?.processing_items || []
+    const phase1Item = items.find(i => i.status === 'phase1_done' && i.run_id)
+    if (phase1Item?.run_id) {
+      refreshData()
+    }
+  }, [status?.processing_items?.find(i => i.status === 'phase1_done')?.run_id])
 
   // Show toast for auto-resumed recordings
   useEffect(() => {

@@ -475,27 +475,49 @@ class AutoCapture:
         print("[dispatcher] Stopped.")
 
     def _process_one(self, filepath: str):
-        from .video_processor import process_recording
+        from .video_processor import process_recording, process_recording_phase2
 
         def on_phase(phase):
             self._update_processing_item(filepath, phase)
 
         print(f"[processor] Processing: {filepath}")
         try:
+            # Phase 1: extract frames -> analyze stats -> save to DB (~1-2 min)
             result = process_recording(filepath, self.clips_dir, on_phase=on_phase)
             self._last_process_result = result
-            if result["status"] == "success":
-                self._update_processing_item(filepath, "done", run_id=result["run_id"])
-                # Mark as processed so _resume_unprocessed skips it on next startup
-                try:
-                    with open(filepath + ".done", "w") as f:
-                        f.write(str(result["run_id"]))
-                except Exception:
-                    pass
-                print(f"[processor] Done: run #{result['run_id']}, {len(result['clips'])} clips")
-            else:
+            if result["status"] != "success":
                 self._update_processing_item(filepath, "error")
                 print(f"[processor] Failed: {result}")
+                return
+
+            run_id = result["run_id"]
+
+            # Phase 1 done — show stats immediately
+            if result.get("phase1_only"):
+                self._update_processing_item(filepath, "phase1_done", run_id=run_id)
+                # Brief pause so frontend can pick up the phase1_done status
+                import time
+                time.sleep(2)
+
+                # Phase 2: compress -> narrative -> clips (~10 min)
+                print(f"[processor] Starting Phase 2 for run #{run_id}...")
+                p2_result = process_recording_phase2(
+                    filepath, self.clips_dir, run_id, on_phase=on_phase
+                )
+                if p2_result["status"] == "success":
+                    result["clips"] = p2_result["clips"]
+                else:
+                    print(f"[processor] Phase 2 failed, run #{run_id} keeps Phase 1 data")
+
+            # Mark complete
+            self._update_processing_item(filepath, "done", run_id=run_id)
+            self._last_process_result = result
+            try:
+                with open(filepath + ".done", "w") as f:
+                    f.write(str(run_id))
+            except Exception:
+                pass
+            print(f"[processor] Done: run #{run_id}, {len(result.get('clips', []))} clips")
         except Exception as e:
             self._update_processing_item(filepath, "error")
             print(f"[processor] Error: {e}")
