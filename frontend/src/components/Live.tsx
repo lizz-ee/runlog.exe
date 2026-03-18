@@ -167,7 +167,7 @@ export default function Live() {
     <div className="max-w-7xl mx-auto space-y-4">
       {/* Header */}
       <div>
-        <p className="label-tag text-m-green">CAPTURE / LIVE</p>
+        <p className="label-tag text-m-green">CAPTURE // LIVE</p>
         <h2 className="text-xl font-display font-black tracking-wider text-m-text mt-1">
           AUTO-CAPTURE
         </h2>

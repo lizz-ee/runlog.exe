@@ -85,7 +85,7 @@ export default function RunReports() {
     return (
       <div className="max-w-7xl mx-auto space-y-6">
         <div>
-          <p className="label-tag text-m-green">CAPTURE / RUN REPORTS</p>
+          <p className="label-tag text-m-green">CAPTURE // RUN REPORTS</p>
           <h2 className="text-xl font-display font-black tracking-wider text-m-text mt-1">
             RUN REPORTS
           </h2>
@@ -102,7 +102,7 @@ export default function RunReports() {
       {/* Header */}
       <div className="flex items-end justify-between">
         <div>
-          <p className="label-tag text-m-green">CAPTURE / RUN REPORTS</p>
+          <p className="label-tag text-m-green">CAPTURE // RUN REPORTS</p>
           <h2 className="text-xl font-display font-black tracking-wider text-m-text mt-1">
             RUN REPORTS
           </h2>

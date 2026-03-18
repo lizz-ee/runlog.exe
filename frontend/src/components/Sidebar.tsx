@@ -45,8 +45,8 @@ export default function Sidebar() {
 
   return (
     <aside className="w-52 bg-m-black border-r border-1 border-m-border flex flex-col">
-      {/* Header */}
-      <div className="px-4 py-5 border-b border-1 border-m-border">
+      {/* Header + Stats */}
+      <div className="px-4 py-5">
         <p className="label-tag text-m-green flex items-center gap-2">
           <span className="w-1.5 h-1.5 bg-m-green rounded-full animate-pulse-slow" />
           SYSTEM ONLINE
@@ -54,10 +54,30 @@ export default function Sidebar() {
         <h1 className="text-xl font-display font-black tracking-wider text-m-text mt-1">
           RUNLOG
         </h1>
+        {stats && (
+          <div className="mt-3 space-y-1">
+            <div className="flex justify-between">
+              <span className="label-tag text-m-text-muted">RUNS</span>
+              <span className="text-2xs font-mono text-m-text">{stats.total_runs}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="label-tag text-m-text-muted">SURV%</span>
+              <span className={`text-2xs font-mono ${
+                stats.survival_rate >= 50 ? 'text-m-green' : 'text-m-red'
+              }`}>{stats.survival_rate}%</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="label-tag text-m-text-muted">K/D</span>
+              <span className={`text-2xs font-mono ${
+                stats.kd_ratio >= 1 ? 'text-m-green' : 'text-m-red'
+              }`}>{stats.kd_ratio.toFixed(2)}</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Nav with sections */}
-      <nav className="flex-1 py-2">
+      <nav className="flex-1 py-2 border-t border-1 border-m-border">
         {sections.map((section) => (
           <div key={section.title}>
             {/* Section header */}
@@ -98,28 +118,6 @@ export default function Sidebar() {
           </div>
         ))}
       </nav>
-
-      {/* Status */}
-      {stats && (
-        <div className="px-4 py-3 border-t border-1 border-m-border space-y-2">
-          <div className="flex justify-between">
-            <span className="label-tag text-m-text-muted">RUNS</span>
-            <span className="text-2xs font-mono text-m-text">{stats.total_runs}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="label-tag text-m-text-muted">SURV%</span>
-            <span className={`text-2xs font-mono ${
-              stats.survival_rate >= 50 ? 'text-m-green' : 'text-m-red'
-            }`}>{stats.survival_rate}%</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="label-tag text-m-text-muted">K/D</span>
-            <span className={`text-2xs font-mono ${
-              stats.kd_ratio >= 1 ? 'text-m-green' : 'text-m-red'
-            }`}>{stats.kd_ratio.toFixed(2)}</span>
-          </div>
-        </div>
-      )}
 
       {/* Config */}
       <button
