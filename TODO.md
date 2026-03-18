@@ -49,8 +49,7 @@
 - [x] Run History with pagination, filters (outcome, map), expandable details
 - [x] Run Reports with grades, narratives, highlight galleries, inline video player
 - [x] Live Capture Monitor with engine status, detection feed, processing queue
-- [x] Loadout management (create, view, card layout)
-- [x] Manual run logging with screenshot drag-and-drop
+- [x] Shells page (per-shell stats with combat, economy, and info breakdowns)
 - [x] System tray integration
 - [x] Auto-backup (7 rolling SQLite snapshots)
 
@@ -70,7 +69,7 @@
 ### UI Enhancements
 - [ ] Run detail view as dedicated page (currently inline expand only)
 - [ ] Export data (CSV/JSON) for runs, stats, spawn data
-- [ ] Loadout linking to runs (before/after pairing)
+- [ ] Loadout management UI (save/name loadouts, link to runs)
 - [ ] Session view page (group runs by play session, session-level stats)
 
 ### Capture Improvements

@@ -19,22 +19,23 @@ const sections: NavSection[] = [
     items: [
       { view: 'dashboard', label: 'OVERVIEW', tag: '01' },
       { view: 'history', label: 'ARCHIVE', tag: '02' },
+      { view: 'shells', label: 'SHELLS', tag: '03' },
     ],
   },
   {
     title: 'MAPS',
     items: [
-      { view: 'map-perimeter', label: 'PERIMETER', tag: '03' },
-      { view: 'map-dire-marsh', label: 'DIRE MARSH', tag: '04' },
-      { view: 'map-outpost', label: 'OUTPOST', tag: '05' },
-      { view: 'map-cryo-archive', label: 'CRYO ARCHIVE', tag: '06', disabled: true },
+      { view: 'map-perimeter', label: 'PERIMETER', tag: '04' },
+      { view: 'map-dire-marsh', label: 'DIRE MARSH', tag: '05' },
+      { view: 'map-outpost', label: 'OUTPOST', tag: '06' },
+      { view: 'map-cryo-archive', label: 'CRYO ARCHIVE', tag: '07', disabled: true },
     ],
   },
   {
     title: 'CAPTURE',
     items: [
-      { view: 'live' as View, label: 'LIVE', tag: '07' },
-      { view: 'highlights' as View, label: 'RUN REPORTS', tag: '08' },
+      { view: 'live' as View, label: 'LIVE', tag: '08' },
+      { view: 'highlights' as View, label: 'RUN REPORTS', tag: '09' },
     ],
   },
 ]

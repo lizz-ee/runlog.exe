@@ -24,8 +24,6 @@ RunLog is a desktop companion app that **automatically records and analyzes** yo
 7. Dashboard, maps, and run history update automatically
 ```
 
-You can also **manually log runs** by dropping/pasting end-of-match screenshots if you prefer.
-
 ---
 
 ## Core Features
@@ -47,12 +45,6 @@ You can also **manually log runs** by dropping/pasting end-of-match screenshots 
 - **Types:** Kill, Death, Extraction, Loot, Close Call, Funny
 - **Stream copy** — instant cuts from original 4K footage, no re-encoding
 - **Keep or delete** from the Live monitor
-
-### Screenshot-Powered Run Logging
-- **Drag & drop** or **Ctrl+V paste** screenshots directly into the app
-- Claude Vision parses the end-of-match results screen
-- Pre-filled form lets you confirm or correct extracted data
-- Supports sending 1-3 screenshots (stats + loadout tabs) in one request
 
 ### Interactive Map Heatmaps
 - **4 maps:** Perimeter, Dire Marsh, Outpost, Cryo Archive
@@ -81,15 +73,13 @@ You can also **manually log runs** by dropping/pasting end-of-match screenshots 
 - **Time by map:** Breakdown of play time across all maps
 - **Recent runs:** Last 7 runs with expandable details
 
-### Runner / Shell Tracking
-- Track stats per Runner (shell/character class)
-- Auto-created from video analysis when new shells are detected
-- Per-runner stats: runs, survival rate, K/D, loot
-
-### Loadout Tracking
-- Save and name weapon loadouts (primary, secondary, heavy)
-- Card-based display with weapon breakdown
-- Create new loadouts manually
+### Shells Page
+- **Per-shell stat breakdowns** — select a shell to see its full performance profile
+- **Hero stats:** Runs, survival rate, K/D, avg loot, total time per shell
+- **Combat detail:** PVE kills, runner kills, deaths, revives
+- **Economy:** Total loot, avg loot per run, exfil vs KIA count
+- **Info:** Favorite weapon, avg run time
+- Shells auto-created from video analysis when new ones are detected
 
 ### Live Capture Monitor
 - **Engine status cards:** Engine state, recording state, duration, queue size
@@ -135,11 +125,6 @@ A Marathon character class.
 ### Weapon
 A weapon in Marathon.
 - `id`, `name`, `weapon_type` (primary/secondary/heavy), `notes`, `created_at`
-
-### Loadout
-A saved combination of weapons and gear.
-- `id`, `name`, `runner_id`, `primary_weapon`, `secondary_weapon`, `heavy_weapon`
-- `mods` (JSON), `gear` (JSON), `notes`, `screenshot_path`, `created_at`
 
 ### Run
 A single extraction run / match.
@@ -241,10 +226,6 @@ A map location where you deployed.
 - `POST /api/capture/recording/keep` — Save a recording
 - `POST /api/capture/recording/delete` — Delete a recording
 
-### Screenshot Parsing
-- `POST /api/screenshot/parse` — Upload 1+ screenshots, returns parsed match data via Claude Vision
-- `GET /api/screenshot/last-path` — Path of most recently uploaded screenshot
-
 ### Spawn Points
 - `POST /api/spawns/parse` — Upload spawn screenshot, get location via Claude Vision
 - `POST /api/spawns` — Create spawn point
@@ -260,13 +241,6 @@ A map location where you deployed.
 - `GET /api/runs/{id}` — Get run details
 - `PUT /api/runs/{id}` — Update a run
 - `DELETE /api/runs/{id}` — Delete a run
-
-### Loadouts
-- `GET /api/loadouts` — List saved loadouts
-- `POST /api/loadouts` — Save a new loadout
-- `GET /api/loadouts/{id}` — Get loadout details
-- `PUT /api/loadouts/{id}` — Update a loadout
-- `DELETE /api/loadouts/{id}` — Delete a loadout
 
 ### Runners
 - `GET /api/runners` — List runners
@@ -299,14 +273,6 @@ A map location where you deployed.
 RunLog records your entire run as video. Key frames are extracted from:
 - **Start of run (first 120s at 1fps):** Map name, shell, squad members, loadout value, spawn coordinates from blue loading screen
 - **End of run (last 30s at 4fps):** Stats tab (kills, deaths, loot), survival status, weapons used, killed-by info
-
-### Manual (Screenshot Upload)
-Drop 1-3 screenshots and Claude Vision extracts:
-- Kill count, death count, assists, crew revives
-- Survival / extraction status
-- Map name and match duration
-- Loot summary (items + values)
-- Weapons used (primary, secondary)
 
 ---
 

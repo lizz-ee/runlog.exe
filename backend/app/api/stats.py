@@ -140,16 +140,28 @@ def stats_by_runner(db: Session = Depends(get_db)):
                 "runner_id": r.runner_id,
                 "runner_name": runner.name if runner else "Unknown",
                 "runs": 0, "survived": 0, "kills": 0, "deaths": 0, "loot": 0,
+                "pve_kills": 0, "pvp_kills": 0, "revives": 0, "time": 0,
+                "weapon_counts": {},
             }
         s = runners[r.runner_id]
         s["runs"] += 1
         s["survived"] += 1 if r.survived else 0
         s["kills"] += r.kills or 0
+        s["pve_kills"] += r.combatant_eliminations or 0
+        s["pvp_kills"] += r.runner_eliminations or 0
         s["deaths"] += r.deaths or 0
+        s["revives"] += r.crew_revives or 0
         s["loot"] += r.loot_value_total or 0
+        s["time"] += r.duration_seconds or 0
+        if r.primary_weapon:
+            s["weapon_counts"][r.primary_weapon] = s["weapon_counts"].get(r.primary_weapon, 0) + 1
     for s in runners.values():
         s["survival_rate"] = round(s["survived"] / s["runs"] * 100, 1) if s["runs"] else 0
-        s["kd"] = round(s["kills"] / s["deaths"], 2) if s["deaths"] else float(s["kills"])
+        s["kd"] = round(s["pvp_kills"] / s["deaths"], 2) if s["deaths"] else float(s["pvp_kills"])
+        s["avg_loot"] = round(s["loot"] / s["runs"]) if s["runs"] else 0
+        s["avg_time"] = round(s["time"] / s["runs"]) if s["runs"] else 0
+        wc = s.pop("weapon_counts")
+        s["favorite_weapon"] = max(wc, key=wc.get) if wc else None
     return list(runners.values())
 
 

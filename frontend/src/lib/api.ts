@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { getApiBaseUrl } from './electron'
 import type {
-  Run, Runner, Loadout, Weapon, ParsedScreenshot,
+  Run, Runner, Loadout, Weapon, ShellStats,
   OverviewStats, MapStats, TrendData, Session, SpawnHeatmap,
   CaptureStatus, Clip,
 } from './types'
@@ -10,16 +10,6 @@ const apiBase = getApiBaseUrl()
 const api = axios.create({ baseURL: `${apiBase}/api` })
 
 export { apiBase }
-
-// Screenshot
-export async function parseScreenshots(files: File[]): Promise<ParsedScreenshot> {
-  const form = new FormData()
-  for (const file of files) {
-    form.append('files', file)
-  }
-  const { data } = await api.post<ParsedScreenshot>('/screenshot/parse', form)
-  return data
-}
 
 // Runs
 export async function getRuns(params?: Record<string, any>): Promise<Run[]> {
@@ -82,6 +72,11 @@ export async function getOverviewStats(): Promise<OverviewStats> {
 
 export async function getMapStats(): Promise<MapStats[]> {
   const { data } = await api.get<MapStats[]>('/stats/by-map')
+  return data
+}
+
+export async function getShellStats(): Promise<ShellStats[]> {
+  const { data } = await api.get<ShellStats[]>('/stats/by-runner')
   return data
 }
 

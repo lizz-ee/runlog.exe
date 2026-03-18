@@ -8,6 +8,7 @@ import RunHistory from './components/RunHistory'
 import Maps from './components/Maps'
 import Live from './components/Live'
 import RunReports from './components/RunReports'
+import Shells from './components/Shells'
 import Toasts from './components/Toasts'
 import TitleBar from './components/TitleBar'
 
@@ -75,6 +76,7 @@ export default function App() {
       <main className="flex-1 overflow-y-auto px-8 pt-5 pb-8">
         {view === 'dashboard' && <Dashboard />}
         {view === 'history' && <RunHistory />}
+        {view === 'shells' && <Shells />}
         {mapName && <Maps selectedMap={mapName} />}
         {view === 'live' && <Live />}
         {view === 'highlights' && <RunReports />}

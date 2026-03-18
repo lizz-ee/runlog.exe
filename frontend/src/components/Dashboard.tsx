@@ -126,7 +126,7 @@ export default function Dashboard() {
           <div className="border border-1 border-m-border bg-m-card p-10 text-center">
             <p className="text-m-text-muted text-sm">NO RUNS LOGGED</p>
             <p className="label-tag text-m-text-muted mt-2">
-              PRESS F12 IN-GAME TO START TRACKING
+              LAUNCH MARATHON TO START AUTO-TRACKING
             </p>
           </div>
         ) : (
@@ -148,7 +148,7 @@ function RunRow({ run }: { run: Run }) {
     <div>
       <div
         onClick={() => setExpanded(!expanded)}
-        className="grid grid-cols-[50px_6px_110px_1fr_40px_40px_30px_30px_75px_50px] items-center gap-x-3 px-4 py-3 bg-m-card hover:bg-m-surface transition-colors cursor-pointer"
+        className="grid grid-cols-[50px_6px_110px_auto_1fr_40px_40px_30px_30px_75px_50px] items-center gap-x-3 px-4 py-3 bg-m-card hover:bg-m-surface transition-colors cursor-pointer"
       >
         <span className={`label-tag px-2 py-0.5 border border-1 text-center ${
           run.survived
@@ -161,13 +161,13 @@ function RunRow({ run }: { run: Run }) {
         <span className="label-tag text-m-text-muted">
           {format(new Date(run.date), 'yyyy.MM.dd HH:mm')}
         </span>
+        <span className="text-xs text-m-cyan tracking-wider uppercase truncate">
+          {run.shell_name ?? '—'}
+        </span>
         <span className="text-xs text-m-text tracking-wider uppercase truncate">
           {run.map_name ?? 'UNKNOWN'}
           {run.spawn_location && (
             <span className="text-m-text-muted"> — {run.spawn_location}</span>
-          )}
-          {run.shell_name && (
-            <span className="text-m-text-muted text-2xs ml-2">[{run.shell_name}]</span>
           )}
         </span>
         <span className={`text-xs font-mono text-right ${run.combatant_eliminations ? 'text-m-green' : 'text-m-text-muted'}`}>

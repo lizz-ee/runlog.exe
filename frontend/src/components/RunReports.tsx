@@ -123,13 +123,13 @@ export default function RunReports() {
       ) : (
         <div className="space-y-0">
           {/* Column headers */}
-          <div className="grid grid-cols-[36px_6px_50px_110px_1fr_50px_75px_50px_20px] items-center gap-x-3 px-4 py-2 border-b border-m-border">
+          <div className="grid grid-cols-[36px_6px_50px_110px_auto_1fr_75px_50px_20px] items-center gap-x-3 px-4 py-2 border-b border-m-border">
             <span className="label-tag text-m-text-muted text-center">GRADE</span>
             <span />
             <span className="label-tag text-m-text-muted text-center">STATUS</span>
             <span className="label-tag text-m-text-muted">DATE</span>
+            <span className="label-tag text-m-text-muted">SHELL</span>
             <span className="label-tag text-m-text-muted">LOCATION</span>
-            <span className="label-tag text-m-text-muted text-right">KILLS</span>
             <span className="label-tag text-m-text-muted text-right">LOOT</span>
             <span className="label-tag text-m-text-muted text-right">TIME</span>
             <span />
@@ -163,7 +163,7 @@ export default function RunReports() {
                   {/* Compact row — matches Archive density */}
                   <div
                     onClick={toggleExpand}
-                    className={`grid grid-cols-[36px_6px_50px_110px_1fr_50px_75px_50px_20px] items-center gap-x-3 px-4 py-3 bg-m-card hover:bg-m-surface transition-colors cursor-pointer`}
+                    className={`grid grid-cols-[36px_6px_50px_110px_auto_1fr_75px_50px_20px] items-center gap-x-3 px-4 py-3 bg-m-card hover:bg-m-surface transition-colors cursor-pointer`}
                   >
                     {/* Grade badge */}
                     {run.grade ? (
@@ -191,6 +191,11 @@ export default function RunReports() {
                       {formatDate(run.date)}
                     </span>
 
+                    {/* Shell */}
+                    <span className="text-xs text-m-cyan tracking-wider uppercase truncate">
+                      {run.shell_name ?? '—'}
+                    </span>
+
                     {/* Map + Spawn */}
                     <span className="text-xs text-m-text tracking-wider uppercase truncate">
                       {run.map_name ?? 'UNKNOWN'}
@@ -200,11 +205,6 @@ export default function RunReports() {
                       {run.killed_by && (
                         <span className="text-m-red/60 ml-2 text-2xs">KILLED BY {run.killed_by}</span>
                       )}
-                    </span>
-
-                    {/* Kills */}
-                    <span className={`text-xs font-mono text-right ${run.kills ? 'text-m-text' : 'text-m-text-muted'}`}>
-                      {run.kills}
                     </span>
 
                     {/* Loot */}

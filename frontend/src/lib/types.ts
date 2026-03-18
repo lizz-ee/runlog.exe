@@ -247,4 +247,23 @@ export interface Clip {
   thumbnail: string | null
 }
 
-export type View = 'dashboard' | 'history' | 'map-perimeter' | 'map-dire-marsh' | 'map-outpost' | 'map-cryo-archive' | 'live' | 'highlights'
+export interface ShellStats {
+  runner_id: number
+  runner_name: string
+  runs: number
+  survived: number
+  kills: number
+  pve_kills: number
+  pvp_kills: number
+  deaths: number
+  revives: number
+  loot: number
+  time: number
+  survival_rate: number
+  kd: number
+  avg_loot: number
+  avg_time: number
+  favorite_weapon: string | null
+}
+
+export type View = 'dashboard' | 'history' | 'shells' | 'map-perimeter' | 'map-dire-marsh' | 'map-outpost' | 'map-cryo-archive' | 'live' | 'highlights'

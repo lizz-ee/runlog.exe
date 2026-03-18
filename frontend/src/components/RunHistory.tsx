@@ -85,10 +85,11 @@ export default function RunHistory() {
       </div>
 
       {/* Column headers */}
-      <div className="grid grid-cols-[50px_6px_110px_1fr_40px_40px_30px_30px_75px_50px] items-center gap-x-3 px-4 py-2 border-b border-m-border">
+      <div className="grid grid-cols-[50px_6px_110px_auto_1fr_40px_40px_30px_30px_75px_50px] items-center gap-x-3 px-4 py-2 border-b border-m-border">
         <span className="label-tag text-m-text-muted text-center">STATUS</span>
         <span />
         <span className="label-tag text-m-text-muted">DATE</span>
+        <span className="label-tag text-m-text-muted">SHELL</span>
         <span className="label-tag text-m-text-muted">LOCATION</span>
         <span className="label-tag text-m-text-muted text-right">PVE</span>
         <span className="label-tag text-m-text-muted text-right">RNR</span>
@@ -121,7 +122,7 @@ function RunRow({ run, onDelete }: { run: Run; onDelete: () => void }) {
     <div>
       <div
         onClick={() => setExpanded(!expanded)}
-        className="grid grid-cols-[50px_6px_110px_1fr_40px_40px_30px_30px_75px_50px] items-center gap-x-3 px-4 py-3 bg-m-card hover:bg-m-surface transition-colors cursor-pointer"
+        className="grid grid-cols-[50px_6px_110px_auto_1fr_40px_40px_30px_30px_75px_50px] items-center gap-x-3 px-4 py-3 bg-m-card hover:bg-m-surface transition-colors cursor-pointer"
       >
         {/* Status badge */}
         <span className={`label-tag px-2 py-0.5 border border-1 text-center ${
@@ -140,14 +141,16 @@ function RunRow({ run, onDelete }: { run: Run; onDelete: () => void }) {
           {format(new Date(run.date), 'yyyy.MM.dd HH:mm')}
         </span>
 
+        {/* Shell */}
+        <span className="text-xs text-m-cyan tracking-wider uppercase truncate">
+          {run.shell_name ?? '—'}
+        </span>
+
         {/* Map + Spawn */}
         <span className="text-xs text-m-text tracking-wider uppercase truncate">
           {run.map_name ?? 'UNKNOWN'}
           {run.spawn_location && (
             <span className="text-m-text-muted"> — {run.spawn_location}</span>
-          )}
-          {run.shell_name && (
-            <span className="text-m-text-muted text-2xs ml-2">[{run.shell_name}]</span>
           )}
         </span>
 

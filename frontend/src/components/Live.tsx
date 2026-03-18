@@ -164,7 +164,7 @@ export default function Live() {
   const displayItems = [...processingItems].reverse()
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
+    <div className="max-w-7xl mx-auto space-y-4">
       {/* Header */}
       <div>
         <p className="label-tag text-m-green">CAPTURE / LIVE</p>
@@ -174,32 +174,32 @@ export default function Live() {
       </div>
 
       {/* Status Cards */}
-      <div className="grid grid-cols-4 gap-4">
-        <div className="bg-m-card border border-m-border p-5">
+      <div className="grid grid-cols-4 gap-[1px] bg-m-border">
+        <div className="bg-m-card p-5">
           <p className="label-tag text-m-text-muted">ENGINE</p>
-          <p className={`text-lg font-mono font-bold mt-1 ${
+          <p className={`text-2xl font-mono font-bold mt-1 ${
             status?.active ? 'text-m-green' : error ? 'text-m-red' : 'text-m-yellow'
           }`}>
             {status?.active ? 'ACTIVE' : error ? 'OFFLINE' : 'WAITING'}
           </p>
         </div>
-        <div className="bg-m-card border border-m-border p-5">
+        <div className="bg-m-card p-5">
           <p className="label-tag text-m-text-muted">RECORDING</p>
-          <p className={`text-lg font-mono font-bold mt-1 ${
+          <p className={`text-2xl font-mono font-bold mt-1 ${
             status?.recording ? 'text-m-red' : 'text-m-text-muted'
           }`}>
             {status?.recording ? 'RECORDING' : 'IDLE'}
           </p>
         </div>
-        <div className="bg-m-card border border-m-border p-5">
+        <div className="bg-m-card p-5">
           <p className="label-tag text-m-text-muted">DURATION</p>
-          <p className="text-lg font-mono font-bold mt-1 text-m-text">
+          <p className="text-2xl font-mono font-bold mt-1 text-m-text">
             {status?.recording ? formatTime(status.recording_seconds) : '--:--'}
           </p>
         </div>
-        <div className="bg-m-card border border-m-border p-5">
+        <div className="bg-m-card p-5">
           <p className="label-tag text-m-text-muted">QUEUE</p>
-          <p className={`text-lg font-mono font-bold mt-1 ${
+          <p className={`text-2xl font-mono font-bold mt-1 ${
             hasActive ? 'text-m-yellow' : 'text-m-text-muted'
           }`}>
             {statusCardText(counts)}

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Windows Graphics Capture + NVENC — captures a specific game window.
 
