@@ -57,7 +57,7 @@ export default function Shells() {
       } else {
         setSelected('triage')
       }
-    })
+    }).catch(console.error)
   }, [])
 
   // Build shell map and sort: shells with data sorted by runs (best first), then shells with no data
