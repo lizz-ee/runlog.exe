@@ -17,10 +17,10 @@ RunLog is a desktop companion app that **automatically records and analyzes** yo
 ```
 1. Launch RunLog — it sits in your system tray
 2. Launch Marathon — RunLog detects it and starts watching
-3. Play normally — when you hit READY UP, recording begins automatically
+3. Play normally — recording begins automatically when matchmaking starts
 4. Finish your run — recording stops when you return to the lobby
-5. Stats extracted in ~1-2 min (kills, deaths, loot, map, spawn, loadout)
-6. Narrative report + highlight clips generated in ~10 min (async)
+5. Stats extracted automatically (kills, deaths, loot, map, spawn, loadout)
+6. Narrative report + highlight clips generated asynchronously
 7. Dashboard, maps, and run history update automatically
 ```
 
@@ -29,15 +29,15 @@ RunLog is a desktop companion app that **automatically records and analyzes** yo
 ## Core Features
 
 ### Automatic Game Capture
-- **Zero-interaction recording** — detects Marathon window, records from READY UP to lobby
+- **Zero-interaction recording** — detects Marathon window, records from matchmaking to lobby
 - **Windows Graphics Capture (WGC)** — captures only the game window (privacy-safe, never records desktop)
 - **NVENC GPU encoding** — 60fps H.264 recording with minimal performance impact
 - **OCR-based state detection** — reads on-screen button text (SEARCHING, READY UP, PREPARE, DEPLOYING) to trigger recording start/stop
 - **Fallback capture** — ddagrab (DXGI Desktop Duplication) if WGC unavailable
 
 ### Two-Phase AI Analysis
-- **Phase 1 (Fast, ~1-2 min):** Extracts key frames from start and end of recording, sends to Claude Sonnet for stat extraction — kills, deaths, loot, map, weapons, spawn coordinates, survival status
-- **Phase 2 (Async, ~10 min):** Compresses full video, sends to Claude for narrative analysis — letter grade (S through F), 2-4 paragraph run report written in second person, and timestamped highlight moments
+- **Phase 1 (Fast):** Extracts key frames from start and end of recording, sends to Claude Sonnet for stat extraction — kills, deaths, loot, map, weapons, spawn coordinates, survival status
+- **Phase 2 (Async):** Compresses full video, sends to Claude for narrative analysis — letter grade (S through F), 2-4 paragraph run report written in second person, and timestamped highlight moments
 - **Auto-resume:** Unprocessed recordings from previous sessions are automatically queued on startup
 
 ### Highlight Clips
@@ -192,12 +192,12 @@ A map location where you deployed.
 │  │  │                                                 │  │   │
 │  │  │  Phase 1: Key frames ──► Claude Sonnet          │  │   │
 │  │  │    → Stats, spawn coords, weapons, survival     │  │   │
-│  │  │    → Saved to DB (~1-2 min)                     │  │   │
+│  │  │    → Saved to DB                                 │  │   │
 │  │  │                                                 │  │   │
 │  │  │  Phase 2: Compressed video ──► Claude Sonnet    │  │   │
 │  │  │    → Grade, narrative summary, highlights       │  │   │
 │  │  │    → Clip cutting (stream copy, no re-encode)   │  │   │
-│  │  │    → Updated in DB (~10 min)                    │  │   │
+│  │  │    → Updated in DB                               │  │   │
 │  │  └─────────────────────────────────────────────────┘  │   │
 │  │                                                       │   │
 │  │  /api/runs       (CRUD)        /api/capture (engine)  │   │
