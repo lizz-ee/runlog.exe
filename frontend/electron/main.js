@@ -127,10 +127,10 @@ function createTray() {
   const icon = nativeImage.createFromPath(path.join(__dirname, 'icon.png'))
 
   tray = new Tray(icon)
-  tray.setToolTip('RunLog')
+  tray.setToolTip('runlog.exe')
 
   const contextMenu = Menu.buildFromTemplate([
-    { label: 'Show RunLog', click: () => mainWindow.show() },
+    { label: 'Show runlog.exe', click: () => mainWindow.show() },
     { type: 'separator' },
     {
       label: 'Quit',
@@ -180,16 +180,103 @@ app.whenReady().then(async () => {
     mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
       <!DOCTYPE html>
       <html><head><style>
-        body { margin: 0; background: #050508; color: #c8ff00; font-family: monospace;
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #050508; color: #c8ff00; font-family: 'Consolas', 'Courier New', monospace;
                display: flex; align-items: center; justify-content: center; height: 100vh;
-               flex-direction: column; }
-        h1 { font-size: 24px; letter-spacing: 0.2em; margin-bottom: 8px; }
-        p { color: #555; font-size: 12px; letter-spacing: 0.1em; }
-        .dot { display: inline-block; animation: pulse 1.5s infinite; }
-        @keyframes pulse { 0%,100% { opacity: 0.3; } 50% { opacity: 1; } }
+               flex-direction: column; -webkit-app-region: drag; overflow: hidden; position: relative; }
+
+        /* Scanline overlay */
+        body::before { content: ''; position: fixed; inset: 0; z-index: 10; pointer-events: none;
+          background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.08) 2px, rgba(0,0,0,0.08) 4px); }
+
+        /* Animated grid background */
+        body::after { content: ''; position: fixed; inset: -50%; z-index: 0; pointer-events: none; opacity: 0.04;
+          background-image: linear-gradient(#c8ff00 1px, transparent 1px), linear-gradient(90deg, #c8ff00 1px, transparent 1px);
+          background-size: 40px 40px; animation: gridDrift 20s linear infinite; }
+        @keyframes gridDrift { 0% { transform: translate(0,0) rotate(0deg); } 100% { transform: translate(40px,40px) rotate(0.5deg); } }
+
+        .content { position: relative; z-index: 5; display: flex; flex-direction: column; align-items: center; }
+
+        /* Glitch title */
+        .title { font-size: 32px; font-weight: 900; letter-spacing: 0.3em; margin: 0; position: relative;
+          text-shadow: 0 0 20px rgba(200,255,0,0.4), 0 0 60px rgba(200,255,0,0.15), 0 0 100px rgba(200,255,0,0.05);
+          animation: glitch 4s infinite; }
+        @keyframes glitch {
+          0%, 94%, 100% { transform: translate(0); filter: none; }
+          95% { transform: translate(-2px, 1px); filter: hue-rotate(90deg); }
+          96% { transform: translate(2px, -1px); filter: hue-rotate(-90deg); }
+          97% { transform: translate(0); filter: none; }
+        }
+
+        .sub { color: #c8ff0035; font-size: 9px; letter-spacing: 0.4em; margin-top: 4px; }
+
+        /* Corner brackets */
+        .corner { position: fixed; width: 30px; height: 30px; border-color: #c8ff0015; border-style: solid; z-index: 5; }
+        .tl { top: 20px; left: 20px; border-width: 1px 0 0 1px; }
+        .tr { top: 20px; right: 20px; border-width: 1px 1px 0 0; }
+        .bl { bottom: 20px; left: 20px; border-width: 0 0 1px 1px; }
+        .br { bottom: 20px; right: 20px; border-width: 0 1px 1px 0; }
+
+        /* Hex decoration */
+        .hex { position: fixed; font-size: 8px; color: #111; letter-spacing: 0.1em; z-index: 1; }
+        .hex-tl { top: 24px; left: 56px; }
+        .hex-br { bottom: 24px; right: 56px; }
+
+        /* Animated scan line */
+        .line-wrap { width: 240px; height: 1px; margin-top: 28px; position: relative; background: #c8ff0008; overflow: hidden; }
+        .line-scan { position: absolute; top: 0; left: -50%; width: 50%; height: 100%;
+          background: linear-gradient(90deg, transparent, #c8ff00, transparent);
+          animation: scan 1.8s ease-in-out infinite; }
+        @keyframes scan { 0% { left: -50%; } 100% { left: 100%; } }
+
+        /* Vertical scan bar */
+        .vscan { position: fixed; top: 0; left: 0; width: 100%; height: 2px; z-index: 8; pointer-events: none;
+          background: linear-gradient(180deg, rgba(200,255,0,0.06), transparent);
+          box-shadow: 0 0 20px rgba(200,255,0,0.03);
+          animation: vscan 3s linear infinite; }
+        @keyframes vscan { 0% { top: -2px; } 100% { top: 100%; } }
+
+        /* Boot log */
+        .boot { margin-top: 24px; text-align: left; width: 320px; }
+        .boot-line { color: #282828; font-size: 10px; letter-spacing: 0.1em; line-height: 2;
+          opacity: 0; animation: fadeSlide 0.4s forwards; }
+        .boot-line .ok { color: #c8ff0050; }
+        .boot-line.active { color: #c8ff0080; }
+        .boot-line:nth-child(1) { animation-delay: 0.1s; }
+        .boot-line:nth-child(2) { animation-delay: 0.4s; }
+        .boot-line:nth-child(3) { animation-delay: 0.8s; }
+        .boot-line:nth-child(4) { animation-delay: 1.2s; }
+        .boot-line:nth-child(5) { animation-delay: 1.6s; }
+        .boot-line:nth-child(6) { animation-delay: 2.0s; }
+        @keyframes fadeSlide { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+        .blink { animation: blink 0.7s step-end infinite; }
+        @keyframes blink { 50% { opacity: 0; } }
+
+        .ver { color: #151515; font-size: 8px; letter-spacing: 0.3em; position: fixed; bottom: 16px; }
       </style></head><body>
-        <h1>RUNLOG</h1>
-        <p>STARTING BACKEND<span class="dot">...</span></p>
+        <div class="corner tl"></div><div class="corner tr"></div>
+        <div class="corner bl"></div><div class="corner br"></div>
+        <div class="hex hex-tl">0x4D415241</div>
+        <div class="hex hex-br">0x54484F4E</div>
+        <div class="vscan"></div>
+
+        <div class="content">
+          <p class="title">RUNLOG.EXE</p>
+          <p class="sub">MARATHON // EXTRACTION TRACKER</p>
+
+          <div class="line-wrap"><div class="line-scan"></div></div>
+
+          <div class="boot">
+            <p class="boot-line">> SYS.INIT <span class="ok">[OK]</span></p>
+            <p class="boot-line">> LOADING MODULES <span class="ok">[OK]</span></p>
+            <p class="boot-line">> SPAWNING BACKEND PROCESS</p>
+            <p class="boot-line">> CONNECTING TO FASTAPI</p>
+            <p class="boot-line">> INITIALIZING CAPTURE ENGINE</p>
+            <p class="boot-line active">> STANDING BY<span class="blink">_</span></p>
+          </div>
+        </div>
+        <p class="ver">v1.0.0 // LOCAL FIRST // NO TELEMETRY</p>
       </body></html>
     `)}`)
 
@@ -200,14 +287,16 @@ app.whenReady().then(async () => {
       mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
         <!DOCTYPE html>
         <html><head><style>
-          body { margin: 0; background: #050508; color: #ff4444; font-family: monospace;
+          body { margin: 0; background: #050508; color: #ff4444; font-family: 'Consolas', 'Courier New', monospace;
                  display: flex; align-items: center; justify-content: center; height: 100vh;
-                 flex-direction: column; }
-          h1 { font-size: 20px; letter-spacing: 0.2em; margin-bottom: 12px; }
-          p { color: #888; font-size: 12px; max-width: 400px; text-align: center; line-height: 1.6; }
+                 flex-direction: column; -webkit-app-region: drag; }
+          .title { font-size: 22px; font-weight: 900; letter-spacing: 0.25em; margin: 0; }
+          .err { color: #ff4444; font-size: 11px; letter-spacing: 0.15em; margin-top: 16px; }
+          p { color: #555; font-size: 11px; max-width: 400px; text-align: center; line-height: 1.8; letter-spacing: 0.05em; margin-top: 8px; }
         </style></head><body>
-          <h1>BACKEND ERROR</h1>
-          <p>Could not start the Python backend. Make sure Python 3.12+ is installed.</p>
+          <p class="title">RUNLOG.EXE</p>
+          <p class="err">// BACKEND.ERROR</p>
+          <p>Could not start the Python backend.<br>Make sure Python 3.12+ is installed and on PATH.</p>
         </body></html>
       `)}`)
     }
@@ -223,17 +312,17 @@ app.whenReady().then(async () => {
 
       // Show notifications for key events
       if (status === 'recording_started') {
-        showNotification('RunLog', 'Recording started — READY UP detected')
+        showNotification('runlog.exe', 'Recording started — READY UP detected')
       } else if (status === 'recording_stopped') {
-        showNotification('RunLog', 'Recording stopped — sending to Sonnet...')
+        showNotification('runlog.exe', 'Recording stopped — sending to Sonnet...')
       } else if (status === 'run_processed') {
-        showNotification('RunLog', `Run analyzed — ${message}`)
+        showNotification('runlog.exe', `Run analyzed — ${message}`)
       } else if (status === 'active') {
-        showNotification('RunLog', 'Marathon detected — watching for READY UP')
+        showNotification('runlog.exe', 'Marathon detected — watching for READY UP')
       }
     })
     recordingManager.start()
-    console.log('=== RunLog ===')
+    console.log('=== runlog.exe ===')
     console.log('  Auto-capture active')
     console.log('  Recording starts when Marathon detected + READY UP screen')
   }

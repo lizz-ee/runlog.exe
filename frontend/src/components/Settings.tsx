@@ -97,9 +97,9 @@ export default function Settings() {
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       <div>
-        <p className="label-tag text-m-green">SYSTEM // CONFIG</p>
+        <p className="label-tag text-m-green">SYSTEM // SYS.CONFIG</p>
         <h2 className="text-xl font-display font-black tracking-wider text-m-text mt-1">
-          SYS.CONFIG
+          CONFIG
         </h2>
       </div>
 

@@ -45,43 +45,45 @@ export default function Sidebar() {
 
   return (
     <aside className="w-52 bg-m-black border-r border-1 border-m-border flex flex-col">
-      {/* Header + Stats */}
-      <div className="px-4 py-5">
+      {/* Header */}
+      <div className="px-4 pt-5 pb-3">
         <p className="label-tag text-m-green flex items-center gap-2">
           <span className="w-1.5 h-1.5 bg-m-green rounded-full animate-pulse-slow" />
           SYSTEM ONLINE
         </p>
         <h1 className="text-xl font-display font-black tracking-wider text-m-text mt-1">
-          RUNLOG
+          RUNLOG.EXE
         </h1>
-        {stats && (
-          <div className="mt-3 space-y-1">
-            <div className="flex justify-between">
-              <span className="label-tag text-m-text-muted">RUNS</span>
-              <span className="text-2xs font-mono text-m-text">{stats.total_runs}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="label-tag text-m-text-muted">SURV%</span>
-              <span className={`text-2xs font-mono ${
-                stats.survival_rate >= 50 ? 'text-m-green' : 'text-m-red'
-              }`}>{stats.survival_rate}%</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="label-tag text-m-text-muted">K/D</span>
-              <span className={`text-2xs font-mono ${
-                stats.kd_ratio >= 1 ? 'text-m-green' : 'text-m-red'
-              }`}>{stats.kd_ratio.toFixed(2)}</span>
-            </div>
-          </div>
-        )}
       </div>
 
+      {/* Stats */}
+      {stats && (
+        <div className="px-4 pt-[22px] pb-3 space-y-1">
+          <div className="flex justify-between">
+            <span className="label-tag text-m-text-muted">RUNS</span>
+            <span className="text-2xs font-mono text-m-text">{stats.total_runs}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="label-tag text-m-text-muted">SURV%</span>
+            <span className={`text-2xs font-mono ${
+              stats.survival_rate >= 50 ? 'text-m-green' : 'text-m-red'
+            }`}>{stats.survival_rate}%</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="label-tag text-m-text-muted">K/D</span>
+            <span className={`text-2xs font-mono ${
+              stats.kd_ratio >= 1 ? 'text-m-green' : 'text-m-red'
+            }`}>{stats.kd_ratio.toFixed(2)}</span>
+          </div>
+        </div>
+      )}
+
       {/* Nav with sections */}
-      <nav className="flex-1 py-2 border-t border-1 border-m-border">
+      <nav className="flex-1">
         {sections.map((section) => (
           <div key={section.title}>
             {/* Section header */}
-            <div className="px-4 pt-4 pb-1">
+            <div className="px-4 pt-3 pb-1">
               <span className="text-[9px] tracking-[0.2em] font-bold text-m-text-muted/70 uppercase">
                 {section.title}
               </span>
@@ -122,7 +124,7 @@ export default function Sidebar() {
       {/* Config */}
       <button
         onClick={() => setView('settings')}
-        className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-all border-t border-1 border-m-border ${
+        className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-all ${
           view === 'settings'
             ? 'bg-m-green-glow text-m-green'
             : 'text-m-text-dim hover:text-m-text hover:bg-m-surface'

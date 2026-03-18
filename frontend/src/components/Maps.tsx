@@ -150,7 +150,7 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
     <div className="max-w-7xl mx-auto space-y-4">
       {/* Header */}
       <div>
-        <p className="label-tag text-m-green">MAPS // {selectedMap.toUpperCase()}</p>
+        <p className="label-tag text-m-green">MAPS // {selectedMap.toUpperCase().replace(/ /g, '.')}</p>
         <h2 className="text-xl font-display font-black tracking-wider text-m-text mt-1">
           {selectedMap.toUpperCase()}
         </h2>

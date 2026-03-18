@@ -39,8 +39,8 @@
   },
   "main": "electron/main.js",
   "build": {
-    "appId": "com.runlog.marathon",
-    "productName": "RunLog",
+    "appId": "com.runlog.exe",
+    "productName": "runlog.exe",
     "directories": {
       "output": "../release"
     },
