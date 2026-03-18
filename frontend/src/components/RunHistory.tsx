@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { format } from 'date-fns'
-import { getRuns, deleteRun } from '../lib/api'
+import { getRuns } from '../lib/api'
 import { useStore } from '../lib/store'
 import type { Run } from '../lib/types'
 
@@ -28,15 +28,6 @@ export default function RunHistory() {
   })
 
   const maps = [...new Set(runs.map((r) => r.map_name).filter(Boolean))]
-
-  async function handleDelete(id: number) {
-    try {
-      await deleteRun(id)
-      setRuns(runs.filter((r) => r.id !== id))
-    } catch (err) {
-      console.error('Failed to delete run:', err)
-    }
-  }
 
   return (
     <div className="max-w-7xl mx-auto space-y-4">
@@ -107,7 +98,7 @@ export default function RunHistory() {
       ) : (
         <div className="border border-1 border-m-green/20 divide-y divide-m-border">
           {filtered.map((run) => (
-            <RunRow key={run.id} run={run} onDelete={() => handleDelete(run.id)} />
+            <RunRow key={run.id} run={run} />
           ))}
         </div>
       )}
@@ -115,7 +106,7 @@ export default function RunHistory() {
   )
 }
 
-function RunRow({ run, onDelete }: { run: Run; onDelete: () => void }) {
+function RunRow({ run }: { run: Run }) {
   const [expanded, setExpanded] = useState(false)
 
   return (
@@ -229,15 +220,6 @@ function RunRow({ run, onDelete }: { run: Run; onDelete: () => void }) {
             </div>
           )}
 
-          {/* Delete */}
-          <div className="mt-4 pt-3 border-t border-m-border">
-            <button
-              onClick={(e) => { e.stopPropagation(); onDelete() }}
-              className="label-tag text-m-red/40 hover:text-m-red transition-colors"
-            >
-              DELETE RECORD
-            </button>
-          </div>
         </div>
       )}
     </div>

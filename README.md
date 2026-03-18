@@ -57,7 +57,6 @@ RunLog is a desktop companion app that **automatically records and analyzes** yo
 - Chronological log of all extraction runs with pagination
 - Filter by outcome (Exfiltrated / KIA) and map
 - Expandable rows showing full combat, loot, and squad details
-- Delete individual runs
 
 ### Run Reports
 - **Letter grades** (S through F) with color coding
@@ -240,7 +239,6 @@ A map location where you deployed.
 - `POST /api/runs` — Create a run
 - `GET /api/runs/{id}` — Get run details
 - `PUT /api/runs/{id}` — Update a run
-- `DELETE /api/runs/{id}` — Delete a run
 
 ### Runners
 - `GET /api/runners` — List runners

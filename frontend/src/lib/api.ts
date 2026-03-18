@@ -32,10 +32,6 @@ export async function updateRun(id: number, run: Partial<Run>): Promise<Run> {
   return data
 }
 
-export async function deleteRun(id: number): Promise<void> {
-  await api.delete(`/runs/${id}`)
-}
-
 // Runners
 export async function getRunners(): Promise<Runner[]> {
   const { data } = await api.get<Runner[]>('/runners')

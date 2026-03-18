@@ -62,12 +62,3 @@ def update_run(run_id: int, data: RunUpdate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(run)
     return run
-
-
-@router.delete("/{run_id}", status_code=204)
-def delete_run(run_id: int, db: Session = Depends(get_db)):
-    run = db.query(Run).filter(Run.id == run_id).first()
-    if not run:
-        raise HTTPException(status_code=404, detail="Run not found")
-    db.delete(run)
-    db.commit()
