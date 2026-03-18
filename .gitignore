@@ -11,7 +11,7 @@ release2/
 _saved_videos/
 backend/recordings/
 backend/runlog.db.backup
+backend/clips/
 
-# AppData sync - exclude large files
-data/recordings/
-data/clips/
+# Runtime data — never commit
+data/
