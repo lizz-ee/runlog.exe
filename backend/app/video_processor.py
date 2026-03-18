@@ -29,7 +29,7 @@ from .config import settings
 # -- Frame extraction settings (easy to tune) -------------------------------
 FRAME_RESOLUTION = 2560       # long edge px — 2K for legible UI text
 FRAME_FPS_START = 1           # lobby/loading screen — static, 1fps is fine
-FRAME_FPS_END = 4             # post-match tabs — flip fast, need higher fps
+FRAME_FPS_END = 5             # post-match tabs — flip fast, need higher fps
 
 
 # -- Phase 1 prompt (stats extraction from frames) --------------------------
@@ -38,9 +38,9 @@ PHASE1_PROMPT = """You are analyzing screenshots extracted from a Marathon (Bung
 
 The images are organized in TWO groups:
 - **start_NNNN.jpg**: Frames from the FIRST 2 MINUTES of the run. Look for:
-  - LOBBY screen: Shell (character class) name, equipped weapons, starting inventory value, player gamertag (center of squad UI), squad member gamertags
-  - LOADING SCREEN: Blue screen with map name in large green/yellow text and TWO DECIMAL COORDINATE NUMBERS at the bottom center (e.g. "10.564070" and "195.869476"). These are spawn coordinates — capture them EXACTLY.
-  - CONTRACT BRIEFING: Contract name, player username
+  - DEPLOYMENT LOADING SCREEN: A full-screen colored background (blue, red, black, purple, or green) with the map name in large text and TWO DECIMAL COORDINATE NUMBERS at the bottom center (e.g. "10.564070" and "195.869476"). These are spawn coordinates — capture them EXACTLY.
+  - SQUAD/DEPLOY screen: Shell (character class) name, player gamertag (center of squad UI), squad member gamertags
+  - The lobby/loadout screen is NOT recorded — do not expect to see starting inventory or equipped weapons in start frames
 
 - **end_NNNN.jpg**: Frames from the LAST 30 SECONDS of the run. Look for:
   - DEATH SCREEN: Who killed the player, weapon used, damage contributors list
@@ -72,7 +72,7 @@ Return ONLY valid JSON:
   "damage_contributors": [{"name": "gamertag", "damage": number, "finished": true/false}] or null,
   "spawn_coordinates": [10.564070, 195.869476] or null,
   "spawn_location": "zone name if visible" or null,
-  "loading_screen_found": true if you found the blue loading screen with coordinates,
+  "loading_screen_found": true if you found the deployment loading screen with coordinates,
   "stats_tab_found": true if you found the STATS tab with kill/loot numbers,
   "loadout_tab_found": true if you found the LOADOUT tab with weapons/wallet
 }
@@ -136,7 +136,7 @@ You will see some or all of these phases:
 1. **LOBBY/READY UP** - Character in lobby, green "READY UP" button visible. You can see the SHELL (character class) name and thumbnail image, the equipped loadout/weapons, and a STARTING INVENTORY VALUE (currency amount, e.g. "$4,500" or "B28/148"). Capture these.
 2. **CONTRACT BRIEFING** - Appears after matchmaking, before deploying. Shows the active contract name (e.g. "BUILD MEETS CRAFT II"), contract type (e.g. "MULTI-ZONE"), objectives with progress bars, player username and season level at top. Also shows warning text about gear risk.
 3. **DEPLOYING** - Countdown screen, shows map name and spawn coordinates
-4. **LOADING SCREEN** - Blue screen with map name in large green/yellow text, description below, and TWO DECIMAL COORDINATE NUMBERS at the bottom center (e.g. "10.564070" and "195.869476"). These are spawn coordinates — VERY IMPORTANT to capture exactly.
+4. **LOADING SCREEN** - Full-screen colored background (blue, red, black, purple, or green) with map name in large text, description below, and TWO DECIMAL COORDINATE NUMBERS at the bottom center (e.g. "10.564070" and "195.869476"). These are spawn coordinates — VERY IMPORTANT to capture exactly.
 5. **GAMEPLAY** - First-person shooter gameplay. Player loots, fights enemies (Combatants/AI and Runners/players), explores
 6. **DEATH** - Screen showing who killed the player and with what weapon, OR
 7. **EXTRACTION** - Player reaches extraction point and escapes with loot
@@ -168,7 +168,7 @@ Extract ALL of this information from the video:
   "damage_contributors": [
     {"name": "gamertag", "damage": number, "finished": true/false}
   ] or null — ALL players/enemies who dealt damage to you on the death screen (the finisher has "finished": true, others contributed damage but didn't land the killing blow. e.g. [{"name": "Azuka", "damage": 81, "finished": true}, {"name": "WarNer", "damage": 88, "finished": false}, {"name": "Falling", "damage": 25, "finished": false}]),
-  "spawn_coordinates": "two decimal numbers from the blue loading screen, e.g. [10.564070, 195.869476]" or null,
+  "spawn_coordinates": "two decimal numbers from the deployment loading screen, e.g. [10.564070, 195.869476]" or null,
   "spawn_location": "zone name visible on the in-game map or HUD if identifiable" or null,
   "grade": "YOUR rating of how well the player performed: S, A, B, C, D, or F (this is NOT from the game UI, YOU assign this grade based on the criteria below)",
   "highlights": [
@@ -878,7 +878,7 @@ def save_run_to_db(analysis: dict, run_date: datetime | None = None) -> int | No
     """Insert the analyzed run into the database. Returns the run ID.
 
     Also creates a spawn point if coordinates were extracted from the
-    blue loading screen, and matches the shell (runner) by name.
+    deployment loading screen, and matches the shell (runner) by name.
     """
     from .database import SessionLocal
     from .models import Run, SpawnPoint, Runner

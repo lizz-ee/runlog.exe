@@ -17,7 +17,7 @@
 - [x] Two-phase analysis (Phase 1: fast stats, Phase 2: async narrative + clips)
 - [x] Frame extraction — start (120s @ 1fps) and end (30s @ 4fps) windows
 - [x] Claude Sonnet integration for frame analysis + video analysis
-- [x] Spawn coordinate extraction from blue loading screen
+- [x] Spawn coordinate extraction from deployment loading screen
 - [x] Fuzzy spawn point matching (Euclidean distance threshold)
 - [x] Grade system (S through F)
 - [x] AI narrative summaries (second-person run reports)

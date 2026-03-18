@@ -50,7 +50,7 @@ runlog.exe is a desktop companion app that **automatically records and analyzes*
 - **4 maps:** Perimeter, Dire Marsh, Outpost, Cryo Archive
 - **Draggable spawn markers** on map images with per-spawn stats
 - **Spawn tooltips:** Survival %, win streak, avg loot, best/worst loot, favorite weapon/shell, killed-by tracking
-- **Coordinates:** Extracted from the blue loading screen via Claude Vision, fuzzy-matched to existing spawn points
+- **Coordinates:** Extracted from the deployment loading screen via Claude Vision, fuzzy-matched to existing spawn points
 - **Sortable:** By name, survival rate, loot value, win streak
 
 ### Run History & Archive
@@ -289,8 +289,8 @@ A map location where you deployed.
 
 ### Automatic (Video Capture)
 runlog.exe records your entire run as video. Key frames are extracted from:
-- **Start of run (first 120s at 1fps):** Map name, shell, squad members, loadout value, spawn coordinates from blue loading screen
-- **End of run (last 30s at 4fps):** Stats tab (kills, deaths, loot), survival status, weapons used, killed-by info
+- **Start of run (first 120s at 1fps):** Map name, shell, squad members, spawn coordinates from deployment loading screen
+- **End of run (last 30s at 5fps):** Stats tab (kills, deaths, loot), survival status, weapons used, killed-by info
 
 ---
 
