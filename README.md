@@ -1,166 +1,265 @@
 # MARATHON RUNLOG
 
-A desktop companion app for **Marathon** (Bungie, 2026). Drop a screenshot, get your stats.
+A local-first desktop app for **Marathon** (Bungie, 2026). Play your runs, stats appear automatically.
 
 ---
 
 ## What Is This?
 
-RunLog is a local-first desktop app that tracks your Marathon extraction runs using **screenshot parsing**. No manual data entry, no API keys, no accounts. Just screenshot your results screen, drop it in, and your stats build up over time.
+RunLog is a desktop companion app that **automatically records and analyzes** your Marathon extraction runs. No manual data entry, no API keys to manage, no accounts. Just play — RunLog captures your gameplay, extracts your stats with AI, grades your performance, generates highlight clips, and builds a comprehensive stats dashboard over time.
 
-**Powered by Claude Vision** — the app sends your end-of-match screenshot to Claude's vision API, which reads the game UI and extracts structured match data automatically.
+**Powered by Claude Vision** — RunLog records your Marathon gameplay using Windows Graphics Capture, then sends key frames to Claude's vision API to extract structured match data, write narrative run reports, and identify highlight moments.
 
 ---
 
 ## How It Works
 
 ```
-1. Play a Marathon run
-2. Screenshot the results screen (Win+Shift+S)
-3. Drop / paste it into RunLog
-4. Claude Vision extracts: kills, deaths, loot, survival, map, duration
-5. You confirm or tweak the parsed data
-6. Stats saved locally — dashboard updates
+1. Launch RunLog — it sits in your system tray
+2. Launch Marathon — RunLog detects it and starts watching
+3. Play normally — when you hit READY UP, recording begins automatically
+4. Finish your run — recording stops when you return to the lobby
+5. Stats extracted in ~1-2 min (kills, deaths, loot, map, spawn, loadout)
+6. Narrative report + highlight clips generated in ~10 min (async)
+7. Dashboard, maps, and run history update automatically
 ```
+
+You can also **manually log runs** by dropping/pasting end-of-match screenshots if you prefer.
 
 ---
 
 ## Core Features
 
+### Automatic Game Capture
+- **Zero-interaction recording** — detects Marathon window, records from READY UP to lobby
+- **Windows Graphics Capture (WGC)** — captures only the game window (privacy-safe, never records desktop)
+- **NVENC GPU encoding** — 60fps H.264 recording with minimal performance impact
+- **OCR-based state detection** — reads on-screen button text (SEARCHING, READY UP, PREPARE, DEPLOYING) to trigger recording start/stop
+- **Fallback capture** — ddagrab (DXGI Desktop Duplication) if WGC unavailable
+
+### Two-Phase AI Analysis
+- **Phase 1 (Fast, ~1-2 min):** Extracts key frames from start and end of recording, sends to Claude Sonnet for stat extraction — kills, deaths, loot, map, weapons, spawn coordinates, survival status
+- **Phase 2 (Async, ~10 min):** Compresses full video, sends to Claude for narrative analysis — letter grade (S through F), 2-4 paragraph run report written in second person, and timestamped highlight moments
+- **Auto-resume:** Unprocessed recordings from previous sessions are automatically queued on startup
+
+### Highlight Clips
+- **Auto-generated** from Phase 2 analysis at highlight timestamps
+- **Types:** Kill, Death, Extraction, Loot, Close Call, Funny
+- **Stream copy** — instant cuts from original 4K footage, no re-encoding
+- **Keep or delete** from the Live monitor
+
 ### Screenshot-Powered Run Logging
 - **Drag & drop** or **Ctrl+V paste** screenshots directly into the app
 - Claude Vision parses the end-of-match results screen
 - Pre-filled form lets you confirm or correct extracted data
-- Supports results screen + loadout screen screenshots
+- Supports sending 1-3 screenshots (stats + loadout tabs) in one request
 
-### Run History
-- Chronological log of all your extraction runs
-- Filter by map, runner, outcome (extracted/died), date range
-- Search and sort across your full history
+### Interactive Map Heatmaps
+- **4 maps:** Perimeter, Dire Marsh, Outpost, Cryo Archive
+- **Draggable spawn markers** on map images with per-spawn stats
+- **Spawn tooltips:** Survival %, win streak, avg loot, best/worst loot, favorite weapon/shell, killed-by tracking
+- **Coordinates:** Extracted from the blue loading screen via Claude Vision, fuzzy-matched to existing spawn points
+- **Sortable:** By name, survival rate, loot value, win streak
 
-### Loadout Tracking
-- Screenshot your loadout screen before a run
-- Weapons, mods, and gear parsed and stored
-- Link loadouts to specific runs (before/after pairing)
-- Save and name favorite loadouts
+### Run History & Archive
+- Chronological log of all extraction runs with pagination
+- Filter by outcome (Exfiltrated / KIA) and map
+- Expandable rows showing full combat, loot, and squad details
+- Delete individual runs
+
+### Run Reports
+- **Letter grades** (S through F) with color coding
+- **AI-generated narrative summaries** — story-style run reports
+- **Highlight gallery** — thumbnail grid of all clips for each run with inline video player
+- Paginated grid view (21 per page)
 
 ### Stats Dashboard
-- **Survival rate** — how often you extract vs. die
-- **K/D ratio** — overall and per-map
-- **Loot value** — total extracted value over time
-- **Weapon performance** — kills per weapon across runs
-- **Map breakdown** — your stats per map
-- **Trends** — performance over time (daily/weekly/monthly graphs)
-- **Session tracking** — group runs into play sessions
+- **Hero stats:** Total runs, survival rate, K/D ratio, total play time
+- **Favorites:** Most-used shell, weapon, map, squad mate
+- **Economy:** Total loot extracted, average per run, best and worst runs
+- **Combat:** PVE kills, runner kills, deaths, crew revives
+- **Time by map:** Breakdown of play time across all maps
+- **Recent runs:** Last 7 runs with expandable details
 
-### Runner Profiles
-- Track stats per Runner (character class)
-- See which Runners you perform best with
-- Loadout history per Runner
+### Runner / Shell Tracking
+- Track stats per Runner (shell/character class)
+- Auto-created from video analysis when new shells are detected
+- Per-runner stats: runs, survival rate, K/D, loot
+
+### Loadout Tracking
+- Save and name weapon loadouts (primary, secondary, heavy)
+- Card-based display with weapon breakdown
+- Create new loadouts manually
+
+### Live Capture Monitor
+- **Engine status cards:** Engine state, recording state, duration, queue size
+- **Detection feed:** Live frame from WGC capture for debugging
+- **Processing queue:** Real-time view of all videos being processed with phase indicators (Extracting Frames → Analyzing Stats → Saving to DB → Compressing → Analyzing Gameplay → Cutting Clips → Complete)
+- **Thumbnails and metadata** for each recording
+- **Keep/Delete** actions for processed recordings
+- **Auto-resume toast** for recordings carried over from previous sessions
+
+### Session Tracking
+- Group runs into play sessions
+- Session start/end timestamps with notes
 
 ---
 
 ## Tech Stack
 
-| Layer      | Tech                              |
-|------------|-----------------------------------|
-| Desktop    | Electron 28                       |
-| Frontend   | React 19 + TypeScript + Vite      |
-| Styling    | Tailwind CSS                      |
-| State      | Zustand                           |
-| Animation  | Framer Motion                     |
-| Backend    | Python FastAPI + Uvicorn          |
-| Database   | SQLite (local-first)              |
-| AI/Vision  | Anthropic Claude API (Vision)     |
-| Images     | Pillow                            |
+| Layer | Tech |
+|---|---|
+| Desktop | Electron 28 |
+| Frontend | React 19 + TypeScript + Vite |
+| Styling | Tailwind CSS (Marathon neon lime theme) |
+| State | Zustand |
+| Animation | Framer Motion |
+| Charts | Recharts |
+| Backend | Python FastAPI + Uvicorn |
+| Database | SQLite (local-first, auto-backup) |
+| AI / Vision | Anthropic Claude API (Sonnet) |
+| Capture | Windows Graphics Capture (WGC) + NVENC |
+| Fallback Capture | DXGI Desktop Duplication (ddagrab) |
+| OCR | EasyOCR (GPU-accelerated) |
+| Video | FFmpeg (muxing, compression, clip cutting) |
+| Images | Pillow, OpenCV |
 
 ---
 
 ## Data Models
 
-### Runner
-A Marathon character class the player uses.
-- `id`, `name`, `icon`, `notes`
+### Runner (Shell)
+A Marathon character class.
+- `id`, `name`, `icon`, `notes`, `created_at`
 
 ### Weapon
 A weapon in Marathon.
-- `id`, `name`, `type` (primary/secondary/heavy), `notes`
+- `id`, `name`, `weapon_type` (primary/secondary/heavy), `notes`, `created_at`
 
 ### Loadout
-A saved combination of weapons, mods, and gear.
+A saved combination of weapons and gear.
 - `id`, `name`, `runner_id`, `primary_weapon`, `secondary_weapon`, `heavy_weapon`
-- `mods`, `gear`, `notes`, `screenshot_path`, `created_at`
+- `mods` (JSON), `gear` (JSON), `notes`, `screenshot_path`, `created_at`
 
 ### Run
 A single extraction run / match.
-- `id`, `runner_id`, `loadout_id`, `map`, `date`
+- `id`, `runner_id`, `loadout_id`, `map_name`, `date`, `session_id`, `spawn_point_id`
 - `survived` (boolean — did you extract?)
-- `kills`, `deaths`, `assists`
-- `loot_extracted` (JSON — list of items/values)
-- `loot_value_total` (calculated total)
+- `kills`, `combatant_eliminations`, `runner_eliminations`, `deaths`, `assists`, `crew_revives`
+- `loot_extracted` (JSON), `loot_value_total`
 - `duration_seconds`
-- `squad_size`, `squad_members`
-- `screenshot_path` (the results screen image)
-- `notes`, `created_at`
+- `squad_size`, `squad_members` (JSON)
+- `primary_weapon`, `secondary_weapon`
+- `killed_by`, `killed_by_damage`
+- `player_gamertag`
+- `grade` (S/A/B/C/D/F), `summary` (AI narrative)
+- `screenshot_path`, `notes`, `created_at`
 
 ### Session
 A group of runs played in one sitting.
 - `id`, `started_at`, `ended_at`, `notes`
-- Links to multiple Runs
+
+### SpawnPoint
+A map location where you deployed.
+- `id`, `run_id`, `map_name`, `spawn_location`, `spawn_region`
+- `x`, `y` (percentage on map image)
+- `compass_bearing`
+- `game_coord_x`, `game_coord_y` (from loading screen)
+- `screenshot_path`, `notes`, `created_at`
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────┐
-│           Electron Desktop App          │
-│  ┌───────────────────────────────────┐  │
-│  │     React Frontend (Vite)         │  │
-│  │                                   │  │
-│  │  ┌─────────┐  ┌───────────────┐   │  │
-│  │  │Drop Zone│  │  Stats Dash   │   │  │
-│  │  │ (paste/ │  │  (charts,     │   │  │
-│  │  │  drag)  │  │   graphs)     │   │  │
-│  │  └────┬────┘  └───────────────┘   │  │
-│  │       │                           │  │
-│  │  ┌────▼────┐  ┌───────────────┐   │  │
-│  │  │Confirm  │  │  Run History  │   │  │
-│  │  │ Form    │  │  (list/filter)│   │  │
-│  │  └────┬────┘  └───────────────┘   │  │
-│  └───────┼───────────────────────────┘  │
-│          │ HTTP                          │
-│  ┌───────▼───────────────────────────┐  │
-│  │     FastAPI Backend               │  │
-│  │                                   │  │
-│  │  /api/parse-screenshot            │  │
-│  │     → Claude Vision API           │  │
-│  │     → returns structured JSON     │  │
-│  │                                   │  │
-│  │  /api/runs      (CRUD)            │  │
-│  │  /api/loadouts  (CRUD)            │  │
-│  │  /api/runners   (CRUD)            │  │
-│  │  /api/stats     (aggregations)    │  │
-│  │                                   │  │
-│  │  SQLite ─── local .db file        │  │
-│  └───────────────────────────────────┘  │
-└─────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                    Electron Desktop App                       │
+│                                                              │
+│  ┌─────────────────────┐  ┌───────────────────────────────┐  │
+│  │   Electron Main     │  │      React Frontend (Vite)    │  │
+│  │                     │  │                               │  │
+│  │  backend-manager    │  │  Dashboard    Run History     │  │
+│  │  (spawns Python)    │  │  Maps         Run Reports     │  │
+│  │                     │  │  Live Monitor Loadouts        │  │
+│  │  recording-manager  │  │  Log Run      Sidebar         │  │
+│  │  (monitors Marathon)│  │                               │  │
+│  │                     │  │  Zustand store + Axios API    │  │
+│  │  System tray        │  │                               │  │
+│  │  Window state       │  │                               │  │
+│  └─────────┬───────────┘  └───────────────┬───────────────┘  │
+│            │ IPC                           │ HTTP             │
+│  ┌─────────▼─────────────────────────────────────────────┐   │
+│  │              FastAPI Backend (Python)                  │   │
+│  │                                                       │   │
+│  │  ┌─────────────────────────────────────────────────┐  │   │
+│  │  │         Auto-Capture Engine                     │  │   │
+│  │  │                                                 │  │   │
+│  │  │  WGC Capture ──► NVENC H.264 ──► MP4 mux       │  │   │
+│  │  │       │                              │          │  │   │
+│  │  │  Frame relay (0.5s) ──► EasyOCR      │          │  │   │
+│  │  │       │                              │          │  │   │
+│  │  │  State detection ──► Start/Stop      │          │  │   │
+│  │  │  (SEARCHING → record, PREPARE → stop)│          │  │   │
+│  │  └─────────────────────────────┬───────────────────┘  │   │
+│  │                                │                      │   │
+│  │  ┌─────────────────────────────▼───────────────────┐  │   │
+│  │  │         Video Processing Pipeline               │  │   │
+│  │  │                                                 │  │   │
+│  │  │  Phase 1: Key frames ──► Claude Sonnet          │  │   │
+│  │  │    → Stats, spawn coords, weapons, survival     │  │   │
+│  │  │    → Saved to DB (~1-2 min)                     │  │   │
+│  │  │                                                 │  │   │
+│  │  │  Phase 2: Compressed video ──► Claude Sonnet    │  │   │
+│  │  │    → Grade, narrative summary, highlights       │  │   │
+│  │  │    → Clip cutting (stream copy, no re-encode)   │  │   │
+│  │  │    → Updated in DB (~10 min)                    │  │   │
+│  │  └─────────────────────────────────────────────────┘  │   │
+│  │                                                       │   │
+│  │  /api/runs       (CRUD)        /api/capture (engine)  │   │
+│  │  /api/loadouts   (CRUD)        /api/spawns  (heatmap) │   │
+│  │  /api/runners    (CRUD)        /api/screenshot (parse)│   │
+│  │  /api/weapons    (CRUD)        /api/stats   (aggs)    │   │
+│  │  /api/sessions   (CRUD)                               │   │
+│  │                                                       │   │
+│  │  SQLite ─── %APPDATA%/marathon-runlog/data/runlog.db  │   │
+│  └───────────────────────────────────────────────────────┘   │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
 ## API Endpoints
 
+### Auto-Capture Engine
+- `POST /api/capture/start` — Start the capture engine
+- `POST /api/capture/stop` — Stop the capture engine
+- `GET /api/capture/status` — Engine status (active, recording, queue, processing phases)
+- `GET /api/capture/frame` — Latest detection frame as JPEG
+- `GET /api/capture/thumbnail/{filename}` — Recording thumbnail
+- `GET /api/capture/clips` — List all highlight clips
+- `GET /api/capture/clips/{filename}` — Serve clip (HTTP range requests)
+- `POST /api/capture/recording/keep` — Save a recording
+- `POST /api/capture/recording/delete` — Delete a recording
+
 ### Screenshot Parsing
-- `POST /api/parse-screenshot` — Upload screenshot, returns parsed match data via Claude Vision
+- `POST /api/screenshot/parse` — Upload 1+ screenshots, returns parsed match data via Claude Vision
+- `GET /api/screenshot/last-path` — Path of most recently uploaded screenshot
+
+### Spawn Points
+- `POST /api/spawns/parse` — Upload spawn screenshot, get location via Claude Vision
+- `POST /api/spawns` — Create spawn point
+- `GET /api/spawns` — List spawns (filter by map)
+- `GET /api/spawns/heatmap` — Spawn frequency analysis with per-spawn stats
+- `PUT /api/spawns/update-coords` — Update x,y by map + location name
+- `PUT /api/spawns/update-coords-by-id` — Update x,y by spawn ID
 
 ### Runs
-- `GET /api/runs` — List all runs (with filters)
-- `POST /api/runs` — Create a new run
+- `GET /api/runs` — List runs (paginated, filter by map/survived/runner)
+- `GET /api/runs/recent` — Last 10 runs
+- `POST /api/runs` — Create a run
 - `GET /api/runs/{id}` — Get run details
 - `PUT /api/runs/{id}` — Update a run
 - `DELETE /api/runs/{id}` — Delete a run
-- `GET /api/runs/recent` — Last N runs
 
 ### Loadouts
 - `GET /api/loadouts` — List saved loadouts
@@ -172,42 +271,54 @@ A group of runs played in one sitting.
 ### Runners
 - `GET /api/runners` — List runners
 - `POST /api/runners` — Add a runner
-- `GET /api/runners/{id}` — Get runner details + stats
+- `GET /api/runners/{id}` — Get runner details
+- `PUT /api/runners/{id}` — Update a runner
+- `DELETE /api/runners/{id}` — Delete a runner
+
+### Weapons
+- `GET /api/weapons` — List weapons
+- `POST /api/weapons` — Create a weapon
+- `DELETE /api/weapons/{id}` — Delete a weapon
+
+### Sessions
+- `GET /api/sessions` — List sessions
+- `POST /api/sessions` — Create a session
+- `PUT /api/sessions/{id}/end` — End a session
 
 ### Stats
-- `GET /api/stats/overview` — Global stats (survival rate, K/D, total runs)
-- `GET /api/stats/by-map` — Stats broken down by map
-- `GET /api/stats/by-runner` — Stats broken down by runner
-- `GET /api/stats/by-weapon` — Weapon performance stats
-- `GET /api/stats/trends` — Performance over time (daily/weekly)
-- `GET /api/stats/sessions` — Session-grouped stats
+- `GET /api/stats/overview` — Global stats (survival rate, K/D, favorites, time breakdown)
+- `GET /api/stats/by-map` — Stats per map
+- `GET /api/stats/by-runner` — Stats per runner
+- `GET /api/stats/trends` — Daily aggregated trends
 
 ---
 
 ## Screenshots the App Parses
 
-### End-of-Match Results Screen
-The main input. Claude Vision extracts:
-- Kill count, death count, assists
-- Whether you survived / extracted
-- Map name
-- Match duration
-- Loot summary (items + values)
+### Automatic (Video Capture)
+RunLog records your entire run as video. Key frames are extracted from:
+- **Start of run (first 120s at 1fps):** Map name, shell, squad members, loadout value, spawn coordinates from blue loading screen
+- **End of run (last 30s at 4fps):** Stats tab (kills, deaths, loot), survival status, weapons used, killed-by info
 
-### Loadout Screen (Optional)
-Screenshot your loadout before a run:
-- Runner class
-- Primary, secondary, heavy weapons
-- Mods and gear equipped
+### Manual (Screenshot Upload)
+Drop 1-3 screenshots and Claude Vision extracts:
+- Kill count, death count, assists, crew revives
+- Survival / extraction status
+- Map name and match duration
+- Loot summary (items + values)
+- Weapons used (primary, secondary)
 
 ---
 
 ## Getting Started
 
 ### Prerequisites
-- Python 3.11+
+- Windows 10/11
+- Python 3.12+
 - Node.js 18+
+- FFmpeg (on PATH)
 - Anthropic API key (for Claude Vision)
+- NVIDIA GPU recommended (for NVENC encoding)
 
 ### Setup
 ```bash
@@ -215,26 +326,37 @@ Screenshot your loadout before a run:
 cd backend
 pip install -r requirements.txt
 cp .env.example .env  # Add your ANTHROPIC_API_KEY
-python run.py
 
 # Frontend
 cd frontend
 npm install
-npm run dev
 ```
 
-### Launch
+### Development
 ```bash
-# Or use the launcher
-./LAUNCH.bat
+# Terminal 1 — Backend
+cd backend
+RUNLOG_DEV=1 python run.py
+
+# Terminal 2 — Frontend + Electron
+cd frontend
+npm run electron:dev
+```
+
+### Build
+```bash
+cd frontend
+npm run dist
+# Output in ../release/
 ```
 
 ---
 
 ## Local-First Philosophy
 
-- All data stored in a local SQLite database
-- Screenshots saved locally in `backend/media_uploads/`
+- All data stored in a local SQLite database (`%APPDATA%/marathon-runlog/data/`)
+- Automatic database backups on startup (keeps last 7)
+- Screenshots and recordings saved locally
 - No accounts, no cloud sync, no telemetry
 - Your Anthropic API key is the only external dependency
-- Works offline for everything except screenshot parsing
+- Works offline for everything except AI-powered analysis
