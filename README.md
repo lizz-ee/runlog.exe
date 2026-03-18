@@ -78,7 +78,7 @@ RunLog is a desktop companion app that **automatically records and analyzes** yo
 - **Combat detail:** PVE kills, runner kills, deaths, revives
 - **Economy:** Total loot, avg loot per run, exfil vs KIA count
 - **Info:** Favorite weapon, avg run time
-- Shells auto-created from video analysis when new ones are detected
+- Select from the available Marathon shells to view per-shell performance
 
 ### Live Capture Monitor
 - **Engine status cards:** Engine state, recording state, duration, queue size
