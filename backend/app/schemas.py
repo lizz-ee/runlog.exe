@@ -51,7 +51,6 @@ class LoadoutCreate(BaseModel):
     runner_id: Optional[int] = None
     primary_weapon: Optional[str] = None
     secondary_weapon: Optional[str] = None
-    heavy_weapon: Optional[str] = None
     mods: Optional[list] = None
     gear: Optional[list] = None
     notes: Optional[str] = None
@@ -61,7 +60,6 @@ class LoadoutUpdate(BaseModel):
     runner_id: Optional[int] = None
     primary_weapon: Optional[str] = None
     secondary_weapon: Optional[str] = None
-    heavy_weapon: Optional[str] = None
     mods: Optional[list] = None
     gear: Optional[list] = None
     notes: Optional[str] = None
@@ -72,7 +70,6 @@ class LoadoutOut(BaseModel):
     runner_id: Optional[int]
     primary_weapon: Optional[str]
     secondary_weapon: Optional[str]
-    heavy_weapon: Optional[str]
     mods: Optional[list]
     gear: Optional[list]
     notes: Optional[str]
@@ -228,7 +225,6 @@ class ParsedScreenshot(BaseModel):
     runner_name: Optional[str] = None
     primary_weapon: Optional[str] = None
     secondary_weapon: Optional[str] = None
-    heavy_weapon: Optional[str] = None
     items_collected: Optional[int] = None
     items_auto_vaulted: Optional[int] = None
     bullet_balance: Optional[float] = None

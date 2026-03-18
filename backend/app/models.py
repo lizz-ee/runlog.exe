@@ -25,7 +25,7 @@ class Weapon(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
-    weapon_type = Column(String(50), nullable=True)  # primary, secondary, heavy
+    weapon_type = Column(String(50), nullable=True)  # primary, secondary
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -38,7 +38,6 @@ class Loadout(Base):
     runner_id = Column(Integer, ForeignKey("runners.id"), nullable=True)
     primary_weapon = Column(String(100), nullable=True)
     secondary_weapon = Column(String(100), nullable=True)
-    heavy_weapon = Column(String(100), nullable=True)
     mods = Column(JSON, nullable=True)
     gear = Column(JSON, nullable=True)
     notes = Column(Text, nullable=True)

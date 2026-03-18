@@ -123,7 +123,7 @@ A Marathon character class.
 
 ### Weapon
 A weapon in Marathon.
-- `id`, `name`, `weapon_type` (primary/secondary/heavy), `notes`, `created_at`
+- `id`, `name`, `weapon_type` (primary/secondary), `notes`, `created_at`
 
 ### Run
 A single extraction run / match.

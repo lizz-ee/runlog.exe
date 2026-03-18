@@ -57,7 +57,6 @@ Extract all visible match data and return ONLY valid JSON with these fields:
   "runner_name": "string or null" (character class if identifiable),
   "primary_weapon": "string or null" (weapon name from slot 1),
   "secondary_weapon": "string or null" (weapon name from slot 2),
-  "heavy_weapon": "string or null" (if a 3rd weapon slot is visible),
   "items_collected": number or null (the "+N Items Collected" count),
   "items_auto_vaulted": number or null (the "+N Items Auto-Vaulted" count),
   "bullet_balance": number or null (the $ currency shown),

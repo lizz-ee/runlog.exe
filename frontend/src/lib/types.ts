@@ -20,7 +20,6 @@ export interface Loadout {
   runner_id: number | null
   primary_weapon: string | null
   secondary_weapon: string | null
-  heavy_weapon: string | null
   mods: string[] | null
   gear: string[] | null
   notes: string | null
@@ -88,7 +87,6 @@ export interface ParsedScreenshot {
   runner_name: string | null
   primary_weapon: string | null
   secondary_weapon: string | null
-  heavy_weapon: string | null
   items_collected: number | null
   items_auto_vaulted: number | null
   bullet_balance: number | null
