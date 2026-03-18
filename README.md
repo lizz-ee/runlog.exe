@@ -46,7 +46,7 @@ RunLog is a desktop companion app that **automatically records and analyzes** yo
 - **Stream copy** — instant cuts from original 4K footage, no re-encoding
 - **Keep or delete** from the Live monitor
 
-### Interactive Map Heatmaps
+### Interactive Maps
 - **4 maps:** Perimeter, Dire Marsh, Outpost, Cryo Archive
 - **Draggable spawn markers** on map images with per-spawn stats
 - **Spawn tooltips:** Survival %, win streak, avg loot, best/worst loot, favorite weapon/shell, killed-by tracking
