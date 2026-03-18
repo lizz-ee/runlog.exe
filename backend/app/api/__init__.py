@@ -9,9 +9,11 @@ from .stats import router as stats_router
 from .sessions import router as sessions_router
 from .spawns import router as spawns_router
 from .capture_api import router as capture_router
+from .settings_api import router as settings_router
 
 api_router = APIRouter(prefix="/api")
 
+api_router.include_router(settings_router, prefix="/settings", tags=["settings"])
 api_router.include_router(screenshot_router, prefix="/screenshot", tags=["screenshot"])
 api_router.include_router(runs_router, prefix="/runs", tags=["runs"])
 api_router.include_router(runners_router, prefix="/runners", tags=["runners"])

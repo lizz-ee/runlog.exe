@@ -120,6 +120,19 @@ export default function Sidebar() {
           </div>
         </div>
       )}
+
+      {/* Config */}
+      <button
+        onClick={() => setView('settings')}
+        className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-all border-t border-1 border-m-border ${
+          view === 'settings'
+            ? 'bg-m-green-glow text-m-green'
+            : 'text-m-text-dim hover:text-m-text hover:bg-m-surface'
+        }`}
+      >
+        <span className={`label-tag ${view === 'settings' ? 'text-m-green' : 'text-m-text-muted'}`}>00</span>
+        <span className="text-xs tracking-[0.1em] font-medium">SYS.CONFIG</span>
+      </button>
     </aside>
   )
 }

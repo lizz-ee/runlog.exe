@@ -32,6 +32,25 @@ export async function updateRun(id: number, run: Partial<Run>): Promise<Run> {
   return data
 }
 
+// Settings
+export async function getSettings(): Promise<{ has_api_key: boolean; api_key_masked: string; api_key_source: string }> {
+  const { data } = await api.get('/settings')
+  return data
+}
+
+export async function setApiKey(apiKey: string): Promise<void> {
+  await api.post('/settings/api-key', { api_key: apiKey })
+}
+
+export async function testApiKey(apiKey: string): Promise<{ status: string; response: string }> {
+  const { data } = await api.post('/settings/api-key/test', { api_key: apiKey })
+  return data
+}
+
+export async function removeApiKey(): Promise<void> {
+  await api.delete('/settings/api-key')
+}
+
 // Runners
 export async function getRunners(): Promise<Runner[]> {
   const { data } = await api.get<Runner[]>('/runners')

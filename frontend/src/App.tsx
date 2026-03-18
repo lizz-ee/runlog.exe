@@ -9,6 +9,7 @@ import Maps from './components/Maps'
 import Live from './components/Live'
 import RunReports from './components/RunReports'
 import Shells from './components/Shells'
+import Settings from './components/Settings'
 import Toasts from './components/Toasts'
 import TitleBar from './components/TitleBar'
 
@@ -80,6 +81,7 @@ export default function App() {
         {mapName && <Maps selectedMap={mapName} />}
         {view === 'live' && <Live />}
         {view === 'highlights' && <RunReports />}
+        {view === 'settings' && <Settings />}
       </main>
       <Toasts />
       </div>
