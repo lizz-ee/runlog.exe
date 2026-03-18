@@ -434,14 +434,18 @@ def analyze_frames_phase1(frames_dir: str) -> dict:
     raise RuntimeError("No Claude auth available for Phase 1")
 
 
+SPAWN_RETRY_CHUNK = 45        # seconds per retry chunk when searching for loading screen
+SPAWN_RETRY_MAX_TIME = 300    # max seconds into video to search (5 min cap)
+
+
 def _maybe_expand_and_retry(
     analysis: dict, video_path: str, frames_dir: str, video_duration: float
 ) -> dict:
-    """If key screens weren't found, expand the search window and retry once.
+    """If key screens weren't found, expand the search window and retry.
 
-    - loading_screen_found: false -> extract minutes 2-4, replace start frames
-    - stats_tab_found: false -> extract -60s to -30s, replace end frames
-    Maximum one retry (two API calls total).
+    - loading_screen_found: false -> keep searching in 45s chunks until found or video exhausted
+    - stats_tab_found: false -> expand end window to -60s to -30s, one retry
+    Spawn coordinates are critical for map tracking, so we don't give up easily.
     """
     loading_found = analysis.get("loading_screen_found", True)
     stats_found = analysis.get("stats_tab_found", True)
@@ -449,26 +453,7 @@ def _maybe_expand_and_retry(
     if loading_found and stats_found:
         return analysis
 
-    expanded = False
-
-    if not loading_found and video_duration > 90:
-        print("[processor] Loading screen not found, expanding start window to 90-180s...")
-        for f in glob_mod.glob(os.path.join(frames_dir, 'start_*.jpg')):
-            os.remove(f)
-        cmd = [
-            'ffmpeg', '-y', '-hide_banner', '-loglevel', 'warning',
-            '-ss', '90', '-t', '90',
-            '-i', video_path,
-            '-vf', f'scale={FRAME_RESOLUTION}:-2,fps={FRAME_FPS_START}',
-            '-q:v', '3',
-            os.path.join(frames_dir, 'start_%04d.jpg'),
-        ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-        if result.returncode != 0:
-            print(f"[processor] FFmpeg start frame expansion failed: {result.stderr[:200]}")
-        else:
-            expanded = True
-
+    # -- Retry end frames (stats tab) — one retry is enough --
     if not stats_found and video_duration > 60:
         print("[processor] Stats tab not found, expanding end window to -60s to -30s...")
         for f in glob_mod.glob(os.path.join(frames_dir, 'end_*.jpg')):
@@ -485,29 +470,74 @@ def _maybe_expand_and_retry(
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         if result.returncode != 0:
             print(f"[processor] FFmpeg end frame expansion failed: {result.stderr[:200]}")
-        else:
-            expanded = True
 
-    if not expanded:
-        return analysis
+    # -- Retry start frames (loading screen) — keep searching in chunks --
+    search_offset = FRAME_DURATION_START  # start after the initial window
+    max_search = min(video_duration, SPAWN_RETRY_MAX_TIME)
 
-    print("[processor] Retrying Phase 1 with expanded frames...")
-    try:
-        retry_analysis = analyze_frames_phase1(frames_dir)
-        # Merge: prefer retry values for fields that were missing/zero
-        for key, value in retry_analysis.items():
-            if value is not None and (analysis.get(key) is None or analysis.get(key) == 0):
-                analysis[key] = value
-        # Always update found flags from retry
-        analysis["loading_screen_found"] = retry_analysis.get("loading_screen_found", loading_found)
-        analysis["stats_tab_found"] = retry_analysis.get("stats_tab_found", stats_found)
-        analysis["loadout_tab_found"] = retry_analysis.get(
-            "loadout_tab_found", analysis.get("loadout_tab_found")
-        )
-        return analysis
-    except Exception as e:
-        print(f"[processor] Retry failed: {e}")
-        return analysis  # Return partial data from first attempt
+    while not loading_found and search_offset < max_search:
+        chunk_end = min(search_offset + SPAWN_RETRY_CHUNK, max_search)
+        chunk_duration = chunk_end - search_offset
+        print(f"[processor] Loading screen not found, searching {search_offset:.0f}-{chunk_end:.0f}s...")
+
+        for f in glob_mod.glob(os.path.join(frames_dir, 'start_*.jpg')):
+            os.remove(f)
+        cmd = [
+            'ffmpeg', '-y', '-hide_banner', '-loglevel', 'warning',
+            '-ss', str(search_offset), '-t', str(chunk_duration),
+            '-i', video_path,
+            '-vf', f'scale={FRAME_RESOLUTION}:-2,fps={FRAME_FPS_START}',
+            '-q:v', '3',
+            os.path.join(frames_dir, 'start_%04d.jpg'),
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        if result.returncode != 0:
+            print(f"[processor] FFmpeg start frame chunk failed: {result.stderr[:200]}")
+            break
+
+        # Analyze just the start frames for spawn data
+        try:
+            print(f"[processor] Analyzing chunk {search_offset:.0f}-{chunk_end:.0f}s for spawn...")
+            retry_analysis = analyze_frames_phase1(frames_dir)
+            loading_found = retry_analysis.get("loading_screen_found", False)
+
+            # Merge spawn data if found
+            if loading_found:
+                print(f"[processor] Loading screen found at {search_offset:.0f}-{chunk_end:.0f}s!")
+                for key in ("map_name", "spawn_coordinates", "spawn_location", "loading_screen_found"):
+                    if retry_analysis.get(key) is not None:
+                        analysis[key] = retry_analysis[key]
+                break
+
+            # Also merge any other data found along the way
+            for key, value in retry_analysis.items():
+                if value is not None and (analysis.get(key) is None or analysis.get(key) == 0):
+                    analysis[key] = value
+        except Exception as e:
+            print(f"[processor] Chunk analysis failed: {e}")
+            break
+
+        search_offset = chunk_end
+
+    if not loading_found:
+        print(f"[processor] Loading screen not found after searching up to {max_search:.0f}s")
+
+    # -- Final merged retry for stats if we expanded end frames --
+    if not stats_found:
+        try:
+            print("[processor] Retrying with expanded end frames...")
+            retry_analysis = analyze_frames_phase1(frames_dir)
+            for key, value in retry_analysis.items():
+                if value is not None and (analysis.get(key) is None or analysis.get(key) == 0):
+                    analysis[key] = value
+            analysis["stats_tab_found"] = retry_analysis.get("stats_tab_found", False)
+            analysis["loadout_tab_found"] = retry_analysis.get(
+                "loadout_tab_found", analysis.get("loadout_tab_found")
+            )
+        except Exception as e:
+            print(f"[processor] End frame retry failed: {e}")
+
+    return analysis
 
 
 # -- Video compression (for Phase 2 / legacy) ------------------------------
