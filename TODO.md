@@ -15,16 +15,18 @@
 
 ### Video Processing Pipeline (Done)
 - [x] Two-phase analysis (Phase 1: fast stats, Phase 2: async narrative + clips)
-- [x] Frame extraction — start (120s @ 1fps) and end (30s @ 4fps) windows
+- [x] Frame extraction — start (90s @ 0.5fps) and end (30s @ 5fps) windows
 - [x] Claude Sonnet integration for frame analysis + video analysis
 - [x] Spawn coordinate extraction from deployment loading screen
+- [x] Iterative spawn search — forward in 45s chunks, no cap, searches entire video
+- [x] Iterative stats search — backward in 30s chunks through entire video
+- [x] Adaptive fps escalation — 5 → 10 → 15 → 20 → 30fps if Sonnet needs more frames
 - [x] Fuzzy spawn point matching (Euclidean distance threshold)
 - [x] Grade system (S through F)
 - [x] AI narrative summaries (second-person run reports)
 - [x] Highlight clip cutting (stream copy, no re-encoding)
 - [x] Clip thumbnails auto-generated
 - [x] Processing queue with real-time status tracking
-- [x] Retry logic (expand frame windows if loading/stats screens not found)
 - [x] Legacy single-pass fallback pipeline
 
 ### Interactive Maps (Done)

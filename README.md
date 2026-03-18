@@ -36,7 +36,10 @@ runlog.exe is a desktop companion app that **automatically records and analyzes*
 - **Fallback capture** — ddagrab (DXGI Desktop Duplication) if WGC unavailable
 
 ### Two-Phase AI Analysis
-- **Phase 1 (Fast):** Extracts key frames from start and end of recording, sends to Claude Sonnet for stat extraction — kills, deaths, loot, map, weapons, spawn coordinates, survival status
+- **Phase 1 (Fast):** Extracts key frames from start (0-90s at 0.5fps) and end (last 30s at 5fps) of recording, sends to Claude Sonnet for stat extraction — kills, deaths, loot, map, weapons, spawn coordinates, survival status
+- **Iterative spawn search:** If deployment loading screen not found in first 90s, searches forward in 45s chunks through the entire video until coordinates are found
+- **Iterative stats search:** If stats tab not found, searches backwards through the video in 30s chunks
+- **Adaptive fps:** If Sonnet sees stats tabs but frames flip too fast, escalates extraction fps (5 → 10 → 15 → 20 → 30fps cap) until readable
 - **Phase 2 (Async):** Compresses full video, sends to Claude for narrative analysis — letter grade (S through F), 2-4 paragraph run report written in second person, and timestamped highlight moments
 - **Auto-resume:** Unprocessed recordings from previous sessions are automatically queued on startup
 
