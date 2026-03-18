@@ -1,4 +1,4 @@
-# MARATHON RUNLOG
+# runlog.exe
 
 A local-first desktop app for **Marathon** (Bungie, 2026). Play your runs, stats appear automatically.
 
@@ -6,17 +6,17 @@ A local-first desktop app for **Marathon** (Bungie, 2026). Play your runs, stats
 
 ## What Is This?
 
-RunLog is a desktop companion app that **automatically records and analyzes** your Marathon extraction runs. No manual data entry, no API keys to manage, no accounts. Just play — RunLog captures your gameplay, extracts your stats with AI, grades your performance, generates highlight clips, and builds a comprehensive stats dashboard over time.
+runlog.exe is a desktop companion app that **automatically records and analyzes** your Marathon extraction runs. No manual data entry, no API keys to manage, no accounts. Just play — runlog.exe captures your gameplay, extracts your stats with AI, grades your performance, generates highlight clips, and builds a comprehensive stats dashboard over time.
 
-**Powered by Claude Vision** — RunLog records your Marathon gameplay using Windows Graphics Capture, then sends key frames to Claude's vision API to extract structured match data, write narrative run reports, and identify highlight moments.
+**Powered by Claude Vision** — runlog.exe records your Marathon gameplay using Windows Graphics Capture, then sends key frames to Claude's vision API to extract structured match data, write narrative run reports, and identify highlight moments.
 
 ---
 
 ## How It Works
 
 ```
-1. Launch RunLog — it sits in your system tray
-2. Launch Marathon — RunLog detects it and starts watching
+1. Launch runlog.exe — it sits in your system tray
+2. Launch Marathon — runlog.exe detects it and starts watching
 3. Play normally — recording begins automatically when matchmaking starts
 4. Finish your run — recording stops when you return to the lobby
 5. Stats extracted automatically (kills, deaths, loot, map, spawn, loadout)
@@ -268,7 +268,7 @@ A map location where you deployed.
 ## Screenshots the App Parses
 
 ### Automatic (Video Capture)
-RunLog records your entire run as video. Key frames are extracted from:
+runlog.exe records your entire run as video. Key frames are extracted from:
 - **Start of run (first 120s at 1fps):** Map name, shell, squad members, loadout value, spawn coordinates from blue loading screen
 - **End of run (last 30s at 4fps):** Stats tab (kills, deaths, loot), survival status, weapons used, killed-by info
 
