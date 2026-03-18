@@ -44,11 +44,16 @@ export default {
       animation: {
         'pulse-slow': 'pulse 3s ease-in-out infinite',
         'scan': 'scan 4s linear infinite',
+        'scanDown': 'scanDown 2s linear infinite',
       },
       keyframes: {
         scan: {
           '0%': { backgroundPosition: '0% 0%' },
           '100%': { backgroundPosition: '0% 100%' },
+        },
+        scanDown: {
+          '0%': { transform: 'translateY(-100%)' },
+          '100%': { transform: 'translateY(800%)' },
         },
       },
     },

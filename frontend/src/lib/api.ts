@@ -51,6 +51,12 @@ export async function removeApiKey(): Promise<void> {
   await api.delete('/settings/api-key')
 }
 
+// Squad
+export async function getSquadStats(limit = 7): Promise<any[]> {
+  const { data } = await api.get('/squad/stats', { params: { limit } })
+  return data
+}
+
 // Runners
 export async function getRunners(): Promise<Runner[]> {
   const { data } = await api.get<Runner[]>('/runners')
