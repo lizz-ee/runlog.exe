@@ -38,10 +38,9 @@ FRAME_FPS_END = 5             # post-match tabs — flip fast, need higher fps
 PHASE1_PROMPT = """You are analyzing screenshots extracted from a Marathon (Bungie 2026 extraction shooter) gameplay recording.
 
 The images are organized in TWO groups:
-- **start_NNNN.jpg**: Frames from the FIRST 2 MINUTES of the run. Look for:
+- **start_NNNN.jpg**: Frames from the FIRST 90 SECONDS of the run. Look for:
   - DEPLOYMENT LOADING SCREEN: A full-screen colored background (blue, red, black, purple, or green) with the map name in large text and TWO DECIMAL COORDINATE NUMBERS at the bottom center (e.g. "10.564070" and "195.869476"). These are spawn coordinates — capture them EXACTLY.
-  - SQUAD/DEPLOY screen: Shell (character class) name, player gamertag (center of squad UI), squad member gamertags
-  - The lobby/loadout screen is NOT recorded — do not expect to see starting inventory or equipped weapons in start frames
+  - The lobby/loadout screen is NOT recorded — do not expect to see shell, squad, starting inventory, or equipped weapons in start frames. These come from end frames.
 
 - **end_NNNN.jpg**: Frames from the LAST 30 SECONDS of the run. Look for:
   - DEATH SCREEN: Who killed the player, weapon used, damage contributors list
@@ -54,10 +53,9 @@ Extract ALL visible data. The STATS tab is GROUND TRUTH — use its exact number
 Return ONLY valid JSON:
 {
   "map_name": "Perimeter" or "Outpost" or "Dire Marsh" or "Cryo Archive" or null,
-  "shell_name": "character class name from lobby" or null,
-  "player_gamertag": "local player's gamertag (center of squad UI)" or null,
-  "squad_members": ["all", "squad", "gamertags"] or null,
-  "starting_loadout_value": number or null,
+  "shell_name": "character class visible on STATS tab (character model shown)" or null,
+  "player_gamertag": "local player's gamertag from STATS or LOADOUT tab" or null,
+  "squad_members": ["squad", "gamertags", "from end screens"] or null,
   "survived": true if "EXFILTRATED" or "Exit Successful", false if died,
   "kills": total from STATS tab (Combatant + Runner Eliminations),
   "combatant_eliminations": exact number from STATS tab,
@@ -435,7 +433,6 @@ def analyze_frames_phase1(frames_dir: str) -> dict:
 
 
 SPAWN_RETRY_CHUNK = 45        # seconds per retry chunk when searching for loading screen
-SPAWN_RETRY_MAX_TIME = 300    # max seconds into video to search (5 min cap)
 
 
 def _maybe_expand_and_retry(
@@ -473,7 +470,7 @@ def _maybe_expand_and_retry(
 
     # -- Retry start frames (loading screen) — keep searching in chunks --
     search_offset = FRAME_DURATION_START  # start after the initial window
-    max_search = min(video_duration, SPAWN_RETRY_MAX_TIME)
+    max_search = video_duration
 
     while not loading_found and search_offset < max_search:
         chunk_end = min(search_offset + SPAWN_RETRY_CHUNK, max_search)
@@ -520,7 +517,7 @@ def _maybe_expand_and_retry(
         search_offset = chunk_end
 
     if not loading_found:
-        print(f"[processor] Loading screen not found after searching up to {max_search:.0f}s")
+        print(f"[processor] Loading screen not found after searching entire video ({video_duration:.0f}s)")
 
     # -- Final merged retry for stats if we expanded end frames --
     if not stats_found:
