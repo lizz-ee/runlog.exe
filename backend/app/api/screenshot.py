@@ -77,7 +77,7 @@ def _find_claude_cli():
         shutil.which("claude"),
         os.path.expanduser("~/.local/bin/claude"),
         os.path.expanduser("~/.local/bin/claude.exe"),
-        r"C:\Users\User\.local\bin\claude.exe",
+        os.path.expanduser("~/AppData/Local/Programs/claude/claude.exe"),
     ]
     for c in candidates:
         if c and os.path.isfile(c):

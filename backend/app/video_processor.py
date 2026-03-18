@@ -211,7 +211,7 @@ def _find_claude_cli():
         shutil.which("claude"),
         os.path.expanduser("~/.local/bin/claude"),
         os.path.expanduser("~/.local/bin/claude.exe"),
-        r"C:\Users\User\.local\bin\claude.exe",
+        os.path.expanduser("~/AppData/Local/Programs/claude/claude.exe"),
     ]
     for c in candidates:
         if c and os.path.isfile(c):
@@ -462,8 +462,11 @@ def _maybe_expand_and_retry(
             '-q:v', '3',
             os.path.join(frames_dir, 'start_%04d.jpg'),
         ]
-        subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-        expanded = True
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        if result.returncode != 0:
+            print(f"[processor] FFmpeg start frame expansion failed: {result.stderr[:200]}")
+        else:
+            expanded = True
 
     if not stats_found and video_duration > 60:
         print("[processor] Stats tab not found, expanding end window to -60s to -30s...")
@@ -478,8 +481,11 @@ def _maybe_expand_and_retry(
             '-q:v', '3',
             os.path.join(frames_dir, 'end_%04d.jpg'),
         ]
-        subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        expanded = True
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        if result.returncode != 0:
+            print(f"[processor] FFmpeg end frame expansion failed: {result.stderr[:200]}")
+        else:
+            expanded = True
 
     if not expanded:
         return analysis
@@ -563,7 +569,10 @@ def compress_for_api(input_path: str, output_path: str, max_size_mb: int = 20) -
                 '-an',
                 output_path,
             ]
-            subprocess.run(cmd2, capture_output=True, text=True, timeout=120)
+            result2 = subprocess.run(cmd2, capture_output=True, text=True, timeout=120)
+            if result2.returncode != 0:
+                print(f"[processor] Re-compression failed: {result2.stderr[:200]}")
+                return False
             size_mb = os.path.getsize(output_path) / (1024 * 1024)
             print(f"[processor] Re-compressed: {size_mb:.1f}MB")
 
@@ -812,7 +821,10 @@ def cut_clips(source_path: str, clips_dir: str, highlights: list[dict], run_time
         ]
 
         try:
-            subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            if result.returncode != 0:
+                print(f"[processor] Clip FFmpeg failed: {result.stderr[:200]}")
+                continue
             if os.path.exists(clip_path) and os.path.getsize(clip_path) > 0:
                 clip_paths.append(clip_path)
                 print(f"[processor] Clip saved: {filename} ({clip_type} @ {ts}s)")
@@ -966,6 +978,7 @@ def save_run_to_db(analysis: dict, run_date: datetime | None = None) -> int | No
         return run_id
     except Exception as e:
         print(f"[processor] DB error: {e}")
+        db.close()
         return None
 
 
@@ -996,6 +1009,7 @@ def update_run_phase2(run_id: int, phase2_data: dict) -> bool:
         return True
     except Exception as e:
         print(f"[processor-p2] DB update error: {e}")
+        db.close()
         return False
 
 
