@@ -6,7 +6,7 @@ A local-first desktop app for **Marathon** (Bungie, 2026). Play your runs, stats
 
 ## What Is This?
 
-runlog.exe is a desktop companion app that **automatically records and analyzes** your Marathon extraction runs. No manual data entry, no API keys to manage, no accounts. Just play — runlog.exe captures your gameplay, extracts your stats with AI, grades your performance, generates highlight clips, and builds a comprehensive stats dashboard over time.
+runlog.exe is a desktop companion app that **automatically records and analyzes** your Marathon extraction runs. No manual data entry, no accounts. Just play — runlog.exe captures your gameplay, extracts your stats with AI, grades your performance, generates highlight clips, and builds a comprehensive stats dashboard over time.
 
 **Powered by Claude Vision** — runlog.exe records your Marathon gameplay using Windows Graphics Capture, then sends key frames to Claude's vision API to extract structured match data, write narrative run reports, and identify highlight moments.
 
@@ -73,12 +73,23 @@ runlog.exe is a desktop companion app that **automatically records and analyzes*
 - **Recent runs:** Last 7 runs with expandable details
 
 ### Shells Page
-- **Per-shell stat breakdowns** — select a shell to see its full performance profile
+- **Cyberpunk HUD cards** — shell artwork with corner brackets, scan line animations, glow effects, survival micro-bars
+- **Ranked by performance** — sorted best to worst by run count, all shells selectable (unused shells show zeroed stats)
 - **Hero stats:** Runs, survival rate, K/D, avg loot, total time per shell
 - **Combat detail:** PVE kills, runner kills, deaths, revives
 - **Economy:** Total loot, avg loot per run, exfil vs KIA count
 - **Info:** Favorite weapon, avg run time
-- Select from the available Marathon shells to view per-shell performance
+
+### Squad Page
+- **Top 7 squad mates** ranked by runs together (rule of 7)
+- **Cyberpunk HUD cards** — gamertag, run count, survival rate, animated scan lines, corner brackets
+- **VS Overall** — shows how your survival rate changes with each squad mate
+- **Per-mate breakdowns:** Operations (runs, exfil/KIA, time), Combat (PVE/PVP kills, deaths, revives), Economy (loot, avg loot)
+
+### Settings
+- **API key configuration** — paste your Anthropic API key, test with one click, stored locally
+- **Setup guide** — step-by-step instructions for new users
+- **Key validation** — tests against Claude API before saving
 
 ### Live Capture Monitor
 - **Engine status cards:** Engine state, recording state, duration, queue size
@@ -163,9 +174,9 @@ A map location where you deployed.
 │  │   Electron Main     │  │      React Frontend (Vite)    │  │
 │  │                     │  │                               │  │
 │  │  backend-manager    │  │  Dashboard    Run History     │  │
-│  │  (spawns Python)    │  │  Maps         Run Reports     │  │
-│  │                     │  │  Live Monitor Loadouts        │  │
-│  │  recording-manager  │  │  Log Run      Sidebar         │  │
+│  │  (spawns Python)    │  │  Maps         Debrief         │  │
+│  │                     │  │  Shells       Squad           │  │
+│  │  recording-manager  │  │  Live Monitor Settings        │  │
 │  │  (monitors Marathon)│  │                               │  │
 │  │                     │  │  Zustand store + Axios API    │  │
 │  │  System tray        │  │                               │  │
@@ -200,10 +211,10 @@ A map location where you deployed.
 │  │  └─────────────────────────────────────────────────┘  │   │
 │  │                                                       │   │
 │  │  /api/runs       (CRUD)        /api/capture (engine)  │   │
-│  │  /api/loadouts   (CRUD)        /api/spawns  (heatmap) │   │
-│  │  /api/runners    (CRUD)        /api/screenshot (parse)│   │
-│  │  /api/weapons    (CRUD)        /api/stats   (aggs)    │   │
-│  │  /api/sessions   (CRUD)                               │   │
+│  │  /api/runners    (CRUD)        /api/spawns  (heatmap) │   │
+│  │  /api/weapons    (CRUD)        /api/screenshot (parse)│   │
+│  │  /api/sessions   (CRUD)        /api/stats   (aggs)    │   │
+│  │  /api/squad      (stats)       /api/settings (config) │   │
 │  │                                                       │   │
 │  │  SQLite ─── %APPDATA%/marathon-runlog/data/runlog.db  │   │
 │  └───────────────────────────────────────────────────────┘   │
@@ -263,6 +274,15 @@ A map location where you deployed.
 - `GET /api/stats/by-runner` — Stats per runner
 - `GET /api/stats/trends` — Daily aggregated trends
 
+### Squad
+- `GET /api/squad/stats` — Top squad mates with per-mate stats (runs, survival, combat, loot)
+
+### Settings
+- `GET /api/settings` — Current settings (API key status, masked key, source)
+- `POST /api/settings/api-key` — Save API key
+- `POST /api/settings/api-key/test` — Test API key validity
+- `DELETE /api/settings/api-key` — Remove saved API key
+
 ---
 
 ## Screenshots the App Parses
@@ -281,7 +301,6 @@ runlog.exe records your entire run as video. Key frames are extracted from:
 - Python 3.12+
 - Node.js 18+
 - FFmpeg (on PATH)
-- Anthropic API key (for Claude Vision)
 - NVIDIA GPU recommended (for NVENC encoding)
 
 ### Setup
@@ -289,12 +308,14 @@ runlog.exe records your entire run as video. Key frames are extracted from:
 # Backend
 cd backend
 pip install -r requirements.txt
-cp .env.example .env  # Add your ANTHROPIC_API_KEY
 
 # Frontend
 cd frontend
 npm install
 ```
+
+### API Key
+Configure your Anthropic API key in-app via **SYS.CONFIG** (Settings page). The key is tested before saving and stored locally in `%APPDATA%/marathon-runlog/data/settings.json`.
 
 ### Development
 ```bash
