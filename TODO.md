@@ -49,11 +49,13 @@
 - [x] Run History with pagination, filters (outcome, map), expandable details
 - [x] Run Reports with grades, narratives, highlight galleries, inline video player
 - [x] Live Capture Monitor with engine status, detection feed, processing queue
-- [x] Shells page (per-shell stats with combat, economy, and info breakdowns)
+- [x] Shells page — cyberpunk HUD cards, sorted by performance, all selectable
+- [x] Squad page — top 7 squad mates, per-mate stats, VS overall survival diff
 - [x] System tray integration
 - [x] Auto-backup (7 rolling SQLite snapshots)
 - [x] Settings page (API key config with test/save, setup guide)
 - [x] Cyberpunk splash screen with boot sequence
+- [x] Consistent cyberpunk aesthetic (// separators, dot notation, RUNLOG.EXE branding)
 
 ---
 
@@ -65,19 +67,16 @@
 
 ### Stats & Charts
 - [ ] Trends/charts on dashboard (survival rate over time, loot over time)
-- [ ] Weapon stats page (K/D per weapon, win rate per weapon)
 - [ ] Per-map trends (performance on each map over time)
-- [ ] Squad stats page (performance with specific squad mates)
+- [ ] Weapon performance scoring — combined survival rate + K/D + loot per weapon, best/worst weapon per shell and per map
 
 ### UI Enhancements
-- [ ] Run detail view as dedicated page (currently inline expand only)
 - [ ] Export data (CSV/JSON) for runs, stats, spawn data
 
 ### Capture Improvements
-- [ ] Detect "READY UP" pre-match screen to log loadout going IN to a run
+- [ ] Detect "READY UP" pre-match screen to log loadout going IN to a run (blocked by OCR speed)
 - [ ] Death screen detection for mid-match death location tracking
 - [ ] Custom clip trimming UI (adjust start/end of auto-generated clips)
 
 ### Data
-- [ ] Weapon database seeding (auto-populate from Marathon_Complete_Database.xlsx)
 - [ ] Death heatmap (map game coordinates to map image, mark death locations)
