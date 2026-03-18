@@ -436,7 +436,7 @@ def analyze_frames_phase1(frames_dir: str) -> dict:
 
 SPAWN_RETRY_CHUNK = 45        # seconds per retry chunk when searching for loading screen
 STATS_RETRY_CHUNK = 30        # seconds per retry chunk when searching backwards for stats
-STATS_BOOST_FPS = 10          # higher fps if Sonnet says frames are flipping too fast
+STATS_FPS_ESCALATION = [10, 15, 20, 30]  # fps escalation when Sonnet needs more frames (30 cap)
 
 
 def _merge_analysis(base: dict, retry: dict) -> None:
@@ -483,20 +483,27 @@ def _maybe_expand_and_retry(
     if loading_found and stats_found:
         return analysis
 
-    # -- Stats: adaptive fps boost if Sonnet sees tabs but can't read them --
+    # -- Stats: adaptive fps escalation if Sonnet sees tabs but can't read them --
     if needs_more_frames and not stats_found:
         end_window_start = max(0, video_duration - 30)
-        print(f"[processor] Stats tab seen but frames too fast, re-extracting at {STATS_BOOST_FPS}fps...")
-        if _extract_end_frames(video_path, frames_dir, end_window_start, 30, STATS_BOOST_FPS):
-            try:
-                retry = analyze_frames_phase1(frames_dir)
-                _merge_analysis(analysis, retry)
-                stats_found = retry.get("stats_tab_found", False)
-                if stats_found:
-                    analysis["stats_tab_found"] = True
-                    print("[processor] Stats found with boosted fps!")
-            except Exception as e:
-                print(f"[processor] Boosted fps retry failed: {e}")
+        for boost_fps in STATS_FPS_ESCALATION:
+            print(f"[processor] Stats tab seen but frames too fast, re-extracting at {boost_fps}fps...")
+            if _extract_end_frames(video_path, frames_dir, end_window_start, 30, boost_fps):
+                try:
+                    retry = analyze_frames_phase1(frames_dir)
+                    _merge_analysis(analysis, retry)
+                    stats_found = retry.get("stats_tab_found", False)
+                    needs_more_frames = retry.get("stats_tab_needs_more_frames", False)
+                    if stats_found:
+                        analysis["stats_tab_found"] = True
+                        print(f"[processor] Stats found at {boost_fps}fps!")
+                        break
+                    if not needs_more_frames:
+                        # Sonnet no longer asking for more frames — stop escalating
+                        break
+                except Exception as e:
+                    print(f"[processor] {boost_fps}fps retry failed: {e}")
+                    break
 
     # -- Stats: iterate backwards through video in chunks --
     if not stats_found:
@@ -519,17 +526,26 @@ def _maybe_expand_and_retry(
                         print(f"[processor] Stats found at {window_start:.0f}-{search_end:.0f}s!")
                         break
 
-                    # Check if it needs more frames in this window
+                    # Check if it needs more frames in this window — escalate fps
                     if retry.get("stats_tab_needs_more_frames"):
-                        print(f"[processor] Stats seen at {window_start:.0f}-{search_end:.0f}s but need more fps...")
-                        if _extract_end_frames(video_path, frames_dir, window_start, window_duration, STATS_BOOST_FPS):
-                            boost_retry = analyze_frames_phase1(frames_dir)
-                            stats_found = boost_retry.get("stats_tab_found", False)
-                            if stats_found:
-                                _merge_analysis(analysis, boost_retry)
-                                analysis["stats_tab_found"] = True
-                                print(f"[processor] Stats found with boosted fps at {window_start:.0f}-{search_end:.0f}s!")
-                                break
+                        for boost_fps in STATS_FPS_ESCALATION:
+                            print(f"[processor] Stats seen at {window_start:.0f}-{search_end:.0f}s, trying {boost_fps}fps...")
+                            if _extract_end_frames(video_path, frames_dir, window_start, window_duration, boost_fps):
+                                try:
+                                    boost_retry = analyze_frames_phase1(frames_dir)
+                                    stats_found = boost_retry.get("stats_tab_found", False)
+                                    if stats_found:
+                                        _merge_analysis(analysis, boost_retry)
+                                        analysis["stats_tab_found"] = True
+                                        print(f"[processor] Stats found at {boost_fps}fps at {window_start:.0f}-{search_end:.0f}s!")
+                                        break
+                                    if not boost_retry.get("stats_tab_needs_more_frames"):
+                                        break  # stop escalating
+                                except Exception as e:
+                                    print(f"[processor] {boost_fps}fps boost failed: {e}")
+                                    break
+                        if stats_found:
+                            break
 
                     _merge_analysis(analysis, retry)
                 except Exception as e:
