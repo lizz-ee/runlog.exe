@@ -57,6 +57,8 @@ export interface Run {
   spawn_location: string | null
   shell_name: string | null
   player_gamertag: string | null
+  recording_path: string | null
+  viewed: boolean | null
   created_at: string
 }
 
@@ -190,6 +192,10 @@ export interface CaptureStatus {
   status_counts: Record<string, number>
   resumed_count: number
   capture_mode: string | null
+  has_frame: boolean
+  window_found: boolean
+  last_detection: string | null
+  detection_count: number
   last_result: ProcessResult | null
 }
 
@@ -200,6 +206,13 @@ export interface ProcessingItem {
   duration_seconds: number | null
   created_at: string | null
   thumbnail: string | null
+  detail: string | null
+  phase_started_at: string | null
+  p1_started_at?: string | null
+  p1_ended_at?: string | null
+  p2_started_at?: string | null
+  p2_ended_at?: string | null
+  p1_failed?: boolean
 }
 
 export interface ProcessResult {
@@ -237,10 +250,10 @@ export interface Highlight {
 
 export interface Clip {
   filename: string
-  path: string
   size_mb: number
   type: string
   run_timestamp: string | null
+  run_folder: string | null
   created: number
   thumbnail: string | null
 }

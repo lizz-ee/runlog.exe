@@ -8,7 +8,7 @@ A local-first desktop app for **Marathon** (Bungie, 2026). Play your runs, stats
 
 runlog.exe is a desktop companion app that **automatically records and analyzes** your Marathon extraction runs. No manual data entry, no accounts. Just play — runlog.exe captures your gameplay, extracts your stats with AI, grades your performance, generates highlight clips, and builds a comprehensive stats dashboard over time.
 
-**Powered by Claude Vision** — runlog.exe records your Marathon gameplay using Windows Graphics Capture, then sends key frames to Claude's vision API to extract structured match data, write narrative run reports, and identify highlight moments.
+**Powered by Claude Vision** — runlog.exe records your Marathon gameplay using a dedicated Rust capture engine (WGC + MediaFoundation H.264, zero-copy GPU pipeline), then sends key frames to Claude's vision API to extract structured match data, write narrative run reports, and identify highlight moments.
 
 ---
 
@@ -30,17 +30,19 @@ runlog.exe is a desktop companion app that **automatically records and analyzes*
 
 ### Automatic Game Capture
 - **Zero-interaction recording** — detects Marathon window, records from matchmaking to lobby
-- **Windows Graphics Capture (WGC)** — captures only the game window (privacy-safe, never records desktop)
-- **NVENC GPU encoding** — 60fps H.264 recording with minimal performance impact
-- **OCR-based state detection** — reads on-screen button text (SEARCHING, READY UP, PREPARE, DEPLOYING) to trigger recording start/stop
-- **Fallback capture** — ddagrab (DXGI Desktop Duplication) if WGC unavailable
+- **Rust capture engine** (`runlog-recorder.exe`) — dedicated binary for recording, zero-copy GPU pipeline
+- **Windows Graphics Capture (WGC)** — captures only the game window (privacy-safe, never records desktop, works when alt-tabbed)
+- **MediaFoundation H.264 encoding** — 60fps recording at native 4K, hardware-accelerated on any GPU
+- **OCR-based state detection** — three scan regions detect deployment screen (start recording), RUN_COMPLETE (log stats timestamp), and lobby buttons (stop recording)
+- **Ready-up screenshot capture** — captures full-screen + cropped loadout screenshots before each run for shell/loadout identification
 
 ### Two-Phase AI Analysis
-- **Phase 1 (Fast):** Extracts key frames from start (0-90s at 0.5fps) and end (last 30s at 5fps) of recording, sends to Claude Sonnet for stat extraction — kills, deaths, loot, map, weapons, spawn coordinates, survival status
-- **Iterative spawn search:** If deployment loading screen not found in first 90s, searches forward in 45s chunks through the entire video until coordinates are found
+- **Phase 1 (Fast, High Thinking):** Uses OCR screenshots (deploy, readyup, loadout crop) + end-of-run frames. Claude Sonnet with high thinking extracts stats (kills, deaths, loot, map, weapons, spawn coordinates, survival status), identifies shell by facial geometry, reads loadout values and item tiers
+- **Screenshot pipeline:** Deploy screenshot for map/coordinates, readyup screenshot for shell/loadout identification, cropped loadout for detailed item tier analysis
+- **Iterative spawn search:** If deployment loading screen not found in first 90s, searches forward in 45s chunks
 - **Iterative stats search:** If stats tab not found, searches backwards through the video in 30s chunks
 - **Adaptive fps:** If Sonnet sees stats tabs but frames flip too fast, escalates extraction fps (5 → 10 → 15 → 20 → 30fps cap) until readable
-- **Phase 2 (Async):** Compresses full video, sends to Claude for narrative analysis — letter grade (S through F), 2-4 paragraph run report written in second person, and timestamped highlight moments
+- **Phase 2 (Async, Medium Thinking):** Compresses full video, sends to Claude for narrative analysis — letter grade (S through F), 2-4 paragraph run report written in second person, and timestamped highlight moments
 - **Auto-resume:** Unprocessed recordings from previous sessions are automatically queued on startup
 
 ### Highlight Clips
@@ -121,8 +123,7 @@ runlog.exe is a desktop companion app that **automatically records and analyzes*
 | Backend | Python FastAPI + Uvicorn |
 | Database | SQLite (local-first, auto-backup) |
 | AI / Vision | Anthropic Claude API (Sonnet) |
-| Capture | Windows Graphics Capture (WGC) + NVENC |
-| Fallback Capture | DXGI Desktop Duplication (ddagrab) |
+| Capture | Rust binary (WGC + MediaFoundation H.264, zero-copy GPU) |
 | OCR | EasyOCR (GPU-accelerated) |
 | Video | FFmpeg (muxing, compression, clip cutting) |
 | Images | Pillow, OpenCV |
@@ -192,12 +193,12 @@ A map location where you deployed.
 │  │  ┌─────────────────────────────────────────────────┐  │   │
 │  │  │         Auto-Capture Engine                     │  │   │
 │  │  │                                                 │  │   │
-│  │  │  WGC Capture ──► NVENC H.264 ──► MP4 mux       │  │   │
-│  │  │       │                              │          │  │   │
-│  │  │  Frame relay (0.5s) ──► EasyOCR      │          │  │   │
-│  │  │       │                              │          │  │   │
-│  │  │  State detection ──► Start/Stop      │          │  │   │
-│  │  │  (SEARCHING → record, PREPARE → stop)│          │  │   │
+│  │  │  Rust binary (runlog-recorder.exe)              │  │   │
+│  │  │    WGC ──► MediaFoundation H.264 (GPU, 60fps)  │  │   │
+│  │  │    OCR frames (2fps) ──► Python EasyOCR        │  │   │
+│  │  │                                                 │  │   │
+│  │  │  State detection ──► Start/Stop                │  │   │
+│  │  │  (DEPLOY → record, PREPARE → stop)             │  │   │
 │  │  └─────────────────────────────┬───────────────────┘  │   │
 │  │                                │                      │   │
 │  │  ┌─────────────────────────────▼───────────────────┐  │   │
@@ -290,10 +291,13 @@ A map location where you deployed.
 
 ## Screenshots the App Parses
 
-### Automatic (Video Capture)
-runlog.exe records your entire run as video. Key frames are extracted from:
-- **Start of run (first 90s at 0.5fps):** Map name, spawn coordinates from deployment loading screen
-- **End of run (last 30s at 5fps):** Stats tab (kills, deaths, loot), survival status, weapons used, killed-by info
+### Automatic (OCR Screenshots + Video Capture)
+runlog.exe captures screenshots at key moments and records the full run as video:
+- **Ready-up screenshot** (`readyup.jpg`): Full-screen capture of the loadout screen — shell, equipped items, contract, crew size
+- **Loadout crop** (`readyup_loadout.jpg`): Zoomed crop of the loadout grid — item tiers (gray/green/blue/purple/gold from price tag color), values, shell portrait
+- **Deploy screenshot** (`deploy.jpg`): Deployment loading screen — map name, spawn coordinates
+- **End-of-run frames** (last 60s at 5fps): Stats tab (kills, deaths, loot), survival status, weapons used, killed-by info
+- **Full video recording** (4K 60fps): Used for Phase 2 narrative analysis and highlight clip generation
 
 ---
 
@@ -304,13 +308,18 @@ runlog.exe records your entire run as video. Key frames are extracted from:
 - Python 3.12+
 - Node.js 18+
 - FFmpeg (on PATH)
-- NVIDIA GPU recommended (for NVENC encoding)
+- Rust toolchain (for building runlog-recorder.exe, or use pre-built binary)
 
 ### Setup
 ```bash
 # Backend
 cd backend
 pip install -r requirements.txt
+
+# Build Rust recorder
+cd recorder
+cargo build --release
+cd ..
 
 # Frontend
 cd frontend

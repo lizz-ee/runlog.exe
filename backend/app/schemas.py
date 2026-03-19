@@ -118,6 +118,7 @@ class RunUpdate(BaseModel):
     squad_size: Optional[int] = None
     squad_members: Optional[list] = None
     notes: Optional[str] = None
+    viewed: Optional[bool] = None
     session_id: Optional[int] = None
 
 class RunOut(BaseModel):
@@ -150,6 +151,8 @@ class RunOut(BaseModel):
     summary: Optional[str] = None
     shell_name: Optional[str] = None
     player_gamertag: Optional[str] = None
+    recording_path: Optional[str] = None
+    viewed: Optional[bool] = None
     created_at: datetime
 
     class Config:

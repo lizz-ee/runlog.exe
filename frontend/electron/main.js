@@ -1,6 +1,9 @@
-const { app, BrowserWindow, Tray, Menu, Notification, nativeImage, ipcMain, dialog } = require('electron')
+const { app, BrowserWindow, Tray, Menu, Notification, nativeImage, ipcMain, dialog, powerSaveBlocker } = require('electron')
 const path = require('path')
 const fs = require('fs')
+
+// Prevent Windows from throttling/suspending this app when backgrounded
+const powerBlockerId = powerSaveBlocker.start('prevent-app-suspension')
 const http = require('http')
 const { BackendManager } = require('./backend-manager')
 const { RecordingManager } = require('./recording-manager')
@@ -24,16 +27,139 @@ function saveWindowState() {
 }
 
 let mainWindow = null
+let overlayWindow = null
 let tray = null
 let backendManager = null
 let recordingManager = null
 
 // ── Helpers ────────────────────────────────────────────────────────
 
-function showNotification(title, body) {
-  if (Notification.isSupported()) {
-    new Notification({ title, body, silent: true }).show()
+// ── Overlay settings ──────────────────────────────────────────────
+const overlaySettingsFile = path.join(app.getPath('userData'), 'overlay-settings.json')
+
+function loadOverlaySettings() {
+  try {
+    return JSON.parse(fs.readFileSync(overlaySettingsFile, 'utf-8'))
+  } catch { return { enabled: true, corner: 'top-left' } }
+}
+
+function saveOverlaySettings(settings) {
+  try { fs.writeFileSync(overlaySettingsFile, JSON.stringify(settings)) } catch {}
+}
+
+function getOverlayPosition(corner) {
+  const { screen } = require('electron')
+  const display = screen.getPrimaryDisplay()
+  const { width, height } = display.size  // Always use full screen size
+  const w = 260, h = 30
+  const bottomY = height - h
+  switch (corner) {
+    case 'top-right': return { x: width - w, y: 0 }
+    case 'top-center': return { x: Math.round((width - w) / 2), y: 0 }
+    case 'bottom-left': return { x: 0, y: bottomY }
+    case 'bottom-center': return { x: Math.round((width - w) / 2), y: bottomY }
+    case 'bottom-right': return { x: width - w, y: bottomY }
+    default: return { x: 0, y: 0 } // top-left
   }
+}
+
+function createOverlay() {
+  const settings = loadOverlaySettings()
+  if (!settings.enabled) return
+  if (overlayWindow) return
+  const pos = (settings.customX != null && settings.customY != null)
+    ? { x: settings.customX, y: settings.customY }
+    : getOverlayPosition(settings.corner || 'top-left')
+  overlayWindow = new BrowserWindow({
+    width: 260,
+    height: 30,
+    x: pos.x,
+    y: pos.y,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    focusable: false,
+    resizable: false,
+    hasShadow: false,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      backgroundThrottling: false,
+    },
+  })
+  overlayWindow.setIgnoreMouseEvents(true)
+  overlayWindow.setAlwaysOnTop(true, 'screen-saver')  // Highest z-level — stays above fullscreen games
+  overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+
+  const overlayHTML = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: transparent; overflow: hidden; user-select: none; -webkit-app-region: no-drag; }
+#bar { background: rgba(5,5,8,0.88); border-bottom: 1px solid rgba(200,255,0,0.15);
+       border-right: 1px solid rgba(200,255,0,0.08);
+       padding: 0 10px; font: 700 11px 'JetBrains Mono', monospace; letter-spacing: 0.18em;
+       color: rgba(200,255,0,0.5); display: flex; align-items: center; gap: 0; height: 30px;
+       position: relative; overflow: hidden; }
+#bar::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 1px;
+              background: linear-gradient(90deg, rgba(200,255,0,0.3), transparent 60%); }
+#sym { color: rgba(200,255,0,0.25); margin-right: 6px; font-size: 12px; }
+#main { color: rgba(200,255,0,0.6); }
+#sep { color: rgba(200,255,0,0.15); margin: 0 6px; }
+#aux { color: rgba(200,255,0,0.25); font-size: 9px; letter-spacing: 0.25em; }
+#bar.rec { border-color: rgba(255,60,60,0.3); }
+#bar.rec::after { background: linear-gradient(90deg, rgba(255,60,60,0.4), transparent 60%); }
+#bar.rec #sym { color: rgba(255,60,60,0.7); animation: pulse 1.2s infinite; }
+#bar.rec #main { color: rgba(255,60,60,0.75); }
+#bar.rec #aux { color: rgba(255,60,60,0.25); }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.2} }
+</style></head><body>
+<div id="bar">
+  <span id="sym">&#x25C8;</span>
+  <span id="main">RUNLOG.EXE</span>
+  <span id="sep">&#x2500;&#x2500;</span>
+  <span id="aux">INIT</span>
+</div>
+<script>
+window.updateOverlay = function(s, d) {
+  var bar = document.getElementById('bar');
+  var sym = document.getElementById('sym');
+  var main = document.getElementById('main');
+  var aux = document.getElementById('aux');
+  if (s === 'recording') {
+    bar.className = 'rec';
+    sym.innerHTML = '&#x25A0;';
+    var parts = (d||'').split('|');
+    main.textContent = 'REC ' + parts[0];
+    aux.textContent = parts[1] || 'CAPTURE::LOCK';
+  } else {
+    bar.className = '';
+    sym.innerHTML = '&#x25C8;';
+    if (d && d !== 'WATCHING') {
+      main.textContent = 'DET: ' + d;
+      aux.textContent = '4K.WGC';
+    } else {
+      main.textContent = 'RUNLOG.EXE';
+      aux.textContent = 'SCAN.ACTIVE';
+    }
+  }
+};
+</script></body></html>`
+
+  overlayWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(overlayHTML))
+  overlayWindow.on('closed', () => { overlayWindow = null })
+}
+
+function updateOverlay(state, detail) {
+  if (!overlayWindow) return
+  overlayWindow.webContents.executeJavaScript(
+    `window.updateOverlay && window.updateOverlay('${state}', '${(detail || '').replace(/'/g, "\\'")}')`,
+  ).catch(() => {})
+}
+
+function showNotification(title, body) {
+  // Replaced by overlay — no more Windows popups
 }
 
 function checkProcessingActive() {
@@ -97,11 +223,15 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      webSecurity: false,
+      webSecurity: true,
       preload: path.join(__dirname, 'preload.js'),
+      backgroundThrottling: false,  // Keep OCR/detection running at full speed when alt-tabbed
     },
   })
   if (saved?.isMaximized) mainWindow.maximize()
+
+  // Create overlay on startup
+  createOverlay()
 
   // Save position/size on move and resize
   mainWindow.on('resize', saveWindowState)
@@ -212,10 +342,10 @@ app.whenReady().then(async () => {
 
         /* Corner brackets */
         .corner { position: fixed; width: 30px; height: 30px; border-color: #c8ff0015; border-style: solid; z-index: 5; }
-        .tl { top: 20px; left: 20px; border-width: 1px 0 0 1px; }
-        .tr { top: 20px; right: 20px; border-width: 1px 1px 0 0; }
-        .bl { bottom: 20px; left: 20px; border-width: 0 0 1px 1px; }
-        .br { bottom: 20px; right: 20px; border-width: 0 1px 1px 0; }
+        .tl { top: 1rem; left: 1rem; border-width: 1px 0 0 1px; }
+        .tr { top: 1rem; right: 1rem; border-width: 1px 1px 0 0; }
+        .bl { bottom: 1rem; left: 1rem; border-width: 0 0 1px 1px; }
+        .br { bottom: 1rem; right: 1rem; border-width: 0 1px 1px 0; }
 
         /* Hex decoration */
         .hex { position: fixed; font-size: 8px; color: #111; letter-spacing: 0.1em; z-index: 1; }
@@ -328,21 +458,25 @@ app.whenReady().then(async () => {
       console.log(`[recording] ${status}: ${message}`)
       sendToRenderer('recording-status', { status, message })
 
-      // Show notifications for key events
+      // Update overlay for key events (create on first event if not already)
+      if (!overlayWindow) createOverlay()
       if (status === 'recording_started') {
-        showNotification('runlog.exe', 'Recording started — READY UP detected')
+        updateOverlay('recording', '')
       } else if (status === 'recording_stopped') {
-        showNotification('runlog.exe', 'Recording stopped — sending to Sonnet...')
+        updateOverlay('active', 'PROCESSING')
       } else if (status === 'run_processed') {
-        showNotification('runlog.exe', `Run analyzed — ${message}`)
+        updateOverlay('active', 'COMPLETE')
+        // Hide overlay after 5s
+        setTimeout(() => updateOverlay('active', 'WATCHING'), 5000)
       } else if (status === 'active') {
-        showNotification('runlog.exe', 'Marathon detected — watching for READY UP')
+        createOverlay()
+        updateOverlay('active', 'WATCHING')
       }
     })
     recordingManager.start()
     console.log('=== runlog.exe ===')
     console.log('  Auto-capture active')
-    console.log('  Recording starts when Marathon detected + READY UP screen')
+    console.log('  Recording starts when deployment screen detected')
   }
 
   if (!isDev) {
@@ -404,3 +538,49 @@ ipcMain.on('window-close', async () => {
 ipcMain.on('get-api-base-url', (event) => {
   event.returnValue = isDev ? '' : 'http://127.0.0.1:8000'
 })
+ipcMain.on('overlay-update', (_event, state, detail) => {
+  updateOverlay(state, detail)
+})
+ipcMain.on('overlay-toggle', (_event, enabled) => {
+  const settings = loadOverlaySettings()
+  settings.enabled = enabled
+  saveOverlaySettings(settings)
+  if (enabled) {
+    createOverlay()
+    updateOverlay('active', 'WATCHING')
+  } else if (overlayWindow) {
+    overlayWindow.close()
+    overlayWindow = null
+  }
+})
+ipcMain.on('overlay-set-corner', (_event, corner) => {
+  const settings = loadOverlaySettings()
+  settings.corner = corner
+  delete settings.customX
+  delete settings.customY
+  saveOverlaySettings(settings)
+  if (overlayWindow) {
+    const pos = getOverlayPosition(corner)
+    overlayWindow.setBounds({ x: pos.x, y: pos.y, width: 260, height: 30 })
+  }
+})
+ipcMain.on('overlay-nudge', (_event, direction) => {
+  if (!overlayWindow) return
+  const { screen } = require('electron')
+  const display = screen.getPrimaryDisplay()
+  const { width, height } = display.size
+  const bounds = overlayWindow.getBounds()
+  const step = 10
+  let { x, y } = bounds
+  if (direction === 'up') y = Math.max(0, y - step)
+  if (direction === 'down') y = Math.min(height - bounds.height, y + step)
+  if (direction === 'left') x = Math.max(0, x - step)
+  if (direction === 'right') x = Math.min(width - bounds.width, x + step)
+  overlayWindow.setBounds({ x, y, width: bounds.width, height: bounds.height })
+  // Save custom position
+  const settings = loadOverlaySettings()
+  settings.customX = x
+  settings.customY = y
+  saveOverlaySettings(settings)
+})
+ipcMain.handle('overlay-get-settings', () => loadOverlaySettings())

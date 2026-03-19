@@ -23,4 +23,11 @@ contextBridge.exposeInMainWorld('runlog', {
   windowMinimize: () => ipcRenderer.send('window-minimize'),
   windowMaximize: () => ipcRenderer.send('window-maximize'),
   windowClose: () => ipcRenderer.send('window-close'),
+
+  // Overlay
+  updateOverlay: (state, detail) => ipcRenderer.send('overlay-update', state, detail),
+  toggleOverlay: (enabled) => ipcRenderer.send('overlay-toggle', enabled),
+  setOverlayCorner: (corner) => ipcRenderer.send('overlay-set-corner', corner),
+  nudgeOverlay: (direction) => ipcRenderer.send('overlay-nudge', direction),
+  getOverlaySettings: () => ipcRenderer.invoke('overlay-get-settings'),
 })

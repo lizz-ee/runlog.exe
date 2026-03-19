@@ -1,8 +1,9 @@
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy import desc, func
 
 from ..database import get_db
 from ..models import Run
@@ -62,3 +63,29 @@ def update_run(run_id: int, data: RunUpdate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(run)
     return run
+
+
+@router.get("/unviewed/count")
+def unviewed_count(db: Session = Depends(get_db)):
+    """Get count of unviewed runs."""
+    count = db.query(func.count(Run.id)).filter(Run.viewed == False).scalar()
+    return JSONResponse(content={"count": count})
+
+
+@router.post("/{run_id}/viewed")
+def mark_viewed(run_id: int, db: Session = Depends(get_db)):
+    """Mark a run as viewed."""
+    run = db.query(Run).filter(Run.id == run_id).first()
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    run.viewed = True
+    db.commit()
+    return JSONResponse(content={"status": "ok"})
+
+
+@router.post("/viewed/all")
+def mark_all_viewed(db: Session = Depends(get_db)):
+    """Mark all runs as viewed."""
+    db.query(Run).filter(Run.viewed == False).update({"viewed": True})
+    db.commit()
+    return JSONResponse(content={"status": "ok"})

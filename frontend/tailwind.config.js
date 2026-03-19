@@ -45,6 +45,7 @@ export default {
         'pulse-slow': 'pulse 3s ease-in-out infinite',
         'scan': 'scan 4s linear infinite',
         'scanDown': 'scanDown 2s linear infinite',
+        'spin-slow': 'spin 3s linear infinite',
       },
       keyframes: {
         scan: {

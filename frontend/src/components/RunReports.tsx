@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { getRuns, getClips, getClipUrl } from '../lib/api'
+import axios from 'axios'
+import { getRuns, getClips, getClipUrl, apiBase } from '../lib/api'
 import type { Run, Clip } from '../lib/types'
 
 const GRADE_COLORS: Record<string, string> = {
@@ -85,9 +86,9 @@ export default function RunReports() {
     return (
       <div className="max-w-7xl mx-auto space-y-6">
         <div>
-          <p className="label-tag text-m-green">CAPTURE // DEBRIEF</p>
+          <p className="label-tag text-m-green">CAPTURE // RUN.REPORTS</p>
           <h2 className="text-xl font-display font-black tracking-wider text-m-text mt-1">
-            RUN REPORTS
+            DEBRIEF
           </h2>
         </div>
         <div className="bg-m-card border border-m-border p-10 text-center">
@@ -102,9 +103,9 @@ export default function RunReports() {
       {/* Header */}
       <div className="flex items-end justify-between">
         <div>
-          <p className="label-tag text-m-green">CAPTURE // DEBRIEF</p>
+          <p className="label-tag text-m-green">CAPTURE // RUN.REPORTS</p>
           <h2 className="text-xl font-display font-black tracking-wider text-m-text mt-1">
-            RUN REPORTS
+            DEBRIEF
           </h2>
         </div>
         <p className="label-tag text-m-text-muted">
@@ -231,9 +232,26 @@ export default function RunReports() {
                       {/* 1. Highlights/Clips — FIRST (most useful) */}
                       {runClips.length > 0 && (
                         <div>
-                          <p className="label-tag text-m-text-muted mb-2">
-                            HIGHLIGHTS — {runClips.length} CLIP{runClips.length !== 1 ? 'S' : ''}
-                          </p>
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="label-tag text-m-text-muted">
+                              HIGHLIGHTS — {runClips.length} CLIP{runClips.length !== 1 ? 'S' : ''}
+                            </p>
+                            {runClips[0]?.run_folder && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  axios.post(`${apiBase}/api/capture/open-folder`, { folder: runClips[0].run_folder })
+                                }}
+                                className="label-tag px-2 py-0.5 border border-m-border text-m-text-muted hover:text-m-green hover:border-m-green/40 transition-all flex items-center gap-1.5"
+                                title="Open clips folder"
+                              >
+                                <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
+                                  <path d="M1 3.5A1.5 1.5 0 012.5 2h3.879a1.5 1.5 0 011.06.44l1.122 1.12A1.5 1.5 0 009.62 4H13.5A1.5 1.5 0 0115 5.5v7a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 12.5v-9z"/>
+                                </svg>
+                                OPEN
+                              </button>
+                            )}
+                          </div>
                           <div className="grid grid-cols-3 gap-3">
                             {runClips.map((clip) => (
                               <button

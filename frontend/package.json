@@ -5,7 +5,7 @@
   "description": "Marathon run tracker - screenshot powered stats",
   "scripts": {
     "dev": "RUNLOG_DEV=1 vite",
-    "build": "tsc && vite build",
+    "build": "npx tsc && npx vite build",
     "preview": "vite preview",
     "electron": "electron .",
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
@@ -40,7 +40,7 @@
   "main": "electron/main.js",
   "build": {
     "appId": "com.runlog.exe",
-    "productName": "runlog.exe",
+    "productName": "runlog",
     "directories": {
       "output": "../release"
     },
@@ -59,14 +59,21 @@
           "!*.pyc",
           "!media_uploads/**",
           "!runlog.db",
-          "!.env"
+          "!.env",
+          "!recorder/target/**",
+          "!recorder/src/**",
+          "!recorder/Cargo.toml",
+          "!recorder/Cargo.lock"
         ]
+      },
+      {
+        "from": "../backend/recorder/target/release/runlog-recorder.exe",
+        "to": "backend/runlog-recorder.exe"
       }
     ],
     "win": {
       "target": ["dir"],
-      "icon": "electron/icon.ico",
-      "signAndEditExecutable": false
+      "icon": "electron/icon.ico"
     },
     "asar": true,
     "asarUnpack": [

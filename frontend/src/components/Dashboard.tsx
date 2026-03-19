@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useStore } from '../lib/store'
-import { getOverviewStats, getRecentRuns } from '../lib/api'
+import { getOverviewStats, getRecentRuns, markRunViewed, markAllRunsViewed } from '../lib/api'
+
 import { format } from 'date-fns'
 import type { Run } from '../lib/types'
 
@@ -19,7 +20,7 @@ function formatDuration(seconds: number | null): string {
 }
 
 export default function Dashboard() {
-  const { stats, runs, setStats, setRuns, setView } = useStore()
+  const { stats, runs, setStats, setRuns, setView, refreshUnviewed } = useStore()
 
   useEffect(() => {
     getOverviewStats().then(setStats)
@@ -113,13 +114,28 @@ export default function Dashboard() {
       {/* Recent Runs */}
       <div>
         <div className="flex items-center justify-between mb-3">
-          <p className="label-tag text-m-green">RECENT OPERATIONS</p>
-          <button
-            onClick={() => setView('history')}
-            className="label-tag text-m-green hover:underline"
-          >
-            VIEW ALL →
-          </button>
+          <p className="label-tag text-m-text-muted">RECENT.OPERATIONS</p>
+          <div className="flex items-center gap-3">
+            {runs.some(r => !r.viewed) && (
+              <button
+                onClick={() => {
+                  markAllRunsViewed().then(() => {
+                    setRuns(runs.map(r => ({ ...r, viewed: true })))
+                    refreshUnviewed()
+                  })
+                }}
+                className="label-tag text-m-cyan hover:text-m-text transition-colors"
+              >
+                MARK ALL READ
+              </button>
+            )}
+            <button
+              onClick={() => setView('history')}
+              className="label-tag text-m-green hover:underline"
+            >
+              VIEW ALL →
+            </button>
+          </div>
         </div>
 
         {runs.length === 0 ? (
@@ -132,7 +148,10 @@ export default function Dashboard() {
         ) : (
           <div className="border border-1 border-m-green/20 divide-y divide-m-border">
             {runs.slice(0, 7).map((run) => (
-              <RunRow key={run.id} run={run} />
+              <RunRow key={run.id} run={run} onViewed={() => {
+                setRuns(runs.map(r => r.id === run.id ? { ...r, viewed: true } : r))
+                refreshUnviewed()
+              }} />
             ))}
           </div>
         )}
@@ -141,14 +160,24 @@ export default function Dashboard() {
   )
 }
 
-function RunRow({ run }: { run: Run }) {
+function RunRow({ run, onViewed }: { run: Run; onViewed?: () => void }) {
   const [expanded, setExpanded] = useState(false)
+  const isUnviewed = run.viewed === false || run.viewed === null
 
   return (
     <div>
       <div
-        onClick={() => setExpanded(!expanded)}
-        className="grid grid-cols-[50px_6px_110px_auto_1fr_40px_40px_30px_30px_75px_50px] items-center gap-x-3 px-4 py-3 bg-m-card hover:bg-m-surface transition-colors cursor-pointer"
+        onClick={() => {
+          setExpanded(!expanded)
+          if (isUnviewed && !expanded) {
+            markRunViewed(run.id).then(() => onViewed?.()).catch(() => {})
+          }
+        }}
+        className={`grid grid-cols-[50px_6px_110px_auto_1fr_40px_40px_30px_30px_75px_50px] items-center gap-x-3 px-4 py-3 transition-colors cursor-pointer ${
+          isUnviewed
+            ? 'bg-m-cyan/[0.04] border-l-2 border-l-m-cyan/40 hover:bg-m-cyan/[0.08]'
+            : 'bg-m-card border-l-2 border-l-transparent hover:bg-m-surface'
+        }`}
       >
         <span className={`label-tag px-2 py-0.5 border border-1 text-center ${
           run.survived

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { format } from 'date-fns'
-import { getRuns } from '../lib/api'
+import { getRuns, updateRun } from '../lib/api'
 import { useStore } from '../lib/store'
 import type { Run } from '../lib/types'
 
@@ -9,6 +9,67 @@ function formatDuration(seconds: number | null): string {
   const m = Math.floor(seconds / 60)
   const s = seconds % 60
   return `${m}:${String(s).padStart(2, '0')}`
+}
+
+const SHELLS = ['Triage', 'Assassin', 'Recon', 'Vandal', 'Destroyer', 'Thief']
+
+function ShellPicker({ run }: { run: Run }) {
+  const [editing, setEditing] = useState(false)
+  const { runners, setRuns } = useStore()
+
+  const handleSelect = async (name: string) => {
+    setEditing(false)
+    const runner = runners.find(r => r.name.toLowerCase() === name.toLowerCase())
+    try {
+      await updateRun(run.id, { runner_id: runner?.id ?? null } as any)
+      // Refresh runs list
+      getRuns({ limit: 200 }).then(setRuns).catch(console.error)
+    } catch (e) {
+      console.error('Failed to update shell:', e)
+    }
+  }
+
+  if (!editing) {
+    return (
+      <div className="flex justify-between items-center">
+        <span className="text-[10px] font-mono text-m-text-muted tracking-wider">SHELL</span>
+        <button
+          onClick={(e) => { e.stopPropagation(); setEditing(true) }}
+          className="text-xs font-mono text-m-text hover:text-m-green transition-colors"
+          title="Click to change shell"
+        >
+          {run.shell_name ?? 'Unknown'} <span className="text-m-text-muted/50 text-[9px]">✎</span>
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex justify-between items-center">
+      <span className="text-[10px] font-mono text-m-text-muted tracking-wider">SHELL</span>
+      <div className="flex gap-1 flex-wrap justify-end">
+        {SHELLS.map(name => (
+          <button
+            key={name}
+            onClick={(e) => { e.stopPropagation(); handleSelect(name) }}
+            className={`text-[9px] font-mono px-1.5 py-0.5 border transition-all ${
+              run.shell_name === name
+                ? 'border-m-green text-m-green bg-m-green-glow'
+                : 'border-m-border text-m-text-muted hover:text-m-text hover:border-m-text'
+            }`}
+          >
+            {name.toUpperCase()}
+          </button>
+        ))}
+        <button
+          onClick={(e) => { e.stopPropagation(); setEditing(false) }}
+          className="text-[9px] font-mono px-1 text-m-text-muted hover:text-m-red"
+        >
+          ✕
+        </button>
+      </div>
+    </div>
+  )
 }
 
 export default function RunHistory() {
@@ -175,7 +236,7 @@ function RunRow({ run }: { run: Run }) {
               <p className="label-tag text-m-green mb-2">RUN DETAILS</p>
               <DetailRow label="MAP" value={run.map_name ?? '—'} />
               <DetailRow label="SPAWN" value={run.spawn_location ?? 'Unknown'} />
-              <DetailRow label="SHELL" value={run.shell_name ?? 'Unknown'} />
+              <ShellPicker run={run} />
               <DetailRow label="PRIMARY" value={run.primary_weapon ?? '—'} />
               <DetailRow label="SECONDARY" value={run.secondary_weapon ?? '—'} />
               <DetailRow label="OUTCOME" value={run.survived ? 'Exfiltrated' : 'Eliminated'}

@@ -32,6 +32,19 @@ export async function updateRun(id: number, run: Partial<Run>): Promise<Run> {
   return data
 }
 
+export async function getUnviewedCount(): Promise<number> {
+  const { data } = await api.get('/runs/unviewed/count')
+  return data.count
+}
+
+export async function markRunViewed(id: number): Promise<void> {
+  await api.post(`/runs/${id}/viewed`)
+}
+
+export async function markAllRunsViewed(): Promise<void> {
+  await api.post('/runs/viewed/all')
+}
+
 // Settings
 export async function getSettings(): Promise<{ has_api_key: boolean; api_key_masked: string; api_key_source: string }> {
   const { data } = await api.get('/settings')

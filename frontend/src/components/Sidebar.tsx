@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useStore } from '../lib/store'
 import type { View } from '../lib/types'
 
@@ -35,14 +36,32 @@ const sections: NavSection[] = [
   {
     title: 'CAPTURE',
     items: [
-      { view: 'live' as View, label: 'LIVE', tag: '09' },
-      { view: 'highlights' as View, label: 'DEBRIEF', tag: '10' },
+      { view: 'live' as View, label: 'DETECT.EXE', tag: '09' },
+      { view: 'highlights' as View, label: 'RUN REPORTS', tag: '10' },
     ],
   },
 ]
 
+// Negative-space plus icon — four squares with a + gap between them
+function UnviewedBadge() {
+  return (
+    <svg width="10" height="10" viewBox="0 0 10 10" className="ml-3 flex-shrink-0">
+      <rect x="0" y="0" width="4" height="4" fill="currentColor" />
+      <rect x="6" y="0" width="4" height="4" fill="currentColor" />
+      <rect x="0" y="6" width="4" height="4" fill="currentColor" />
+      <rect x="6" y="6" width="4" height="4" fill="currentColor" />
+    </svg>
+  )
+}
+
 export default function Sidebar() {
-  const { view, setView, stats } = useStore()
+  const { view, setView, stats, unviewedCount, refreshUnviewed } = useStore()
+
+  useEffect(() => {
+    refreshUnviewed()
+    const interval = setInterval(refreshUnviewed, 5000)
+    return () => clearInterval(interval)
+  }, [])
 
   return (
     <aside className="w-52 bg-m-black border-r border-1 border-m-border flex flex-col">
@@ -108,10 +127,13 @@ export default function Sidebar() {
                 }`}>
                   {item.tag}
                 </span>
-                <div className="flex-1">
+                <div className="flex-1 flex items-center">
                   <span className={`text-xs tracking-[0.1em] font-medium ${item.disabled ? 'line-through decoration-m-red/60' : ''}`}>
                     {item.label}
                   </span>
+                  {item.view === 'dashboard' && unviewedCount > 0 && (
+                    <span className="text-m-cyan"><UnviewedBadge /></span>
+                  )}
                   {item.disabled && (
                     <p className="label-tag text-m-red/50 mt-0.5">REDACTED</p>
                   )}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import axios from 'axios'
 import { getCaptureStatus, getFrameUrl, getThumbnailUrl, apiBase } from '../lib/api'
 import { useStore } from '../lib/store'
@@ -22,16 +22,122 @@ function formatTimestamp(isoStr: string | null): string {
 
 const PHASE_LABELS: Record<string, string> = {
   queued: 'QUEUED',
-  extracting_frames: 'EXTRACTING FRAMES',
-  analyzing_stats: 'ANALYZING STATS',
-  saving: 'SAVING TO DB',
-  phase1_done: 'STATS READY',
-  compressing: 'COMPRESSING',
-  analyzing_gameplay: 'ANALYZING GAMEPLAY',
-  analyzing: 'ANALYZING',
-  cutting_clips: 'CUTTING CLIPS',
+  extracting_frames: 'FRAMES',
+  analyzing_stats: 'STATS',
+  saving: 'READY',
+  phase1_done: 'READY',
+  phase1_failed: 'P1 FAILED',
+  analyzing_gameplay: 'GAMEPLAY',
+  analyzing: 'GAMEPLAY',
+  cutting_clips: 'CLIPS',
   done: 'COMPLETE',
   error: 'FAILED',
+}
+
+// Ordered pipeline stages
+const PIPELINE_STAGES = [
+  { key: 'queued', label: 'QUEUED', short: 'Q' },
+  { key: 'extracting_frames', label: 'FRAMES', short: 'FR' },
+  { key: 'analyzing_stats', label: 'STATS', short: 'ST' },
+  { key: 'saving', label: 'READY', short: 'RD' },
+  { key: 'analyzing_gameplay', label: 'GAMEPLAY', short: 'GP' },
+  { key: 'cutting_clips', label: 'CLIPS', short: 'CL' },
+  { key: 'done', label: 'COMPLETE', short: '✓' },
+]
+
+function getStageIndex(status: string): number {
+  // Handle aliases
+  const key = status === 'analyzing' ? 'analyzing_gameplay'
+    : status === 'phase1_failed' ? 'phase1_done'
+    : status
+  const idx = PIPELINE_STAGES.findIndex(s => s.key === key)
+  return idx >= 0 ? idx : -1
+}
+
+function PipelineProgress({ status, detail, p1Failed }: { status: string; detail?: string | null; p1Failed?: boolean }) {
+  const currentIdx = getStageIndex(status)
+  if (currentIdx < 0) return null
+
+  const isP1Failed = status === 'phase1_failed' || !!p1Failed
+  const p1EndIdx = PIPELINE_STAGES.findIndex(s => s.key === 'phase1_done')
+
+  // Shape per stage: P0 (circle), P1 (triangle, square, circle), P2 (triangle, square, circle)
+  const SHAPES = ['circle', 'triangle', 'square', 'circle', 'triangle', 'square', 'circle'] as const
+
+  return (
+    <div className="flex items-center gap-0">
+      {/* Status label first, then shapes */}
+      {status !== 'done' && status !== 'queued' && status !== 'encoding' && (
+        <span className={`text-[9px] font-mono mr-2 tracking-wider ${isP1Failed ? 'text-m-red' : 'text-m-cyan'}`}>
+          {PHASE_LABELS[status] || status.toUpperCase()}
+        </span>
+      )}
+      {PIPELINE_STAGES.map((stage, i) => {
+        const isCompleted = i < currentIdx
+        const isActive = i === currentIdx
+        const isDone = status === 'done'
+        const phaseGap = i === 1 || i === 4  // Gap between P0/P1 and P1/P2
+        const shape = SHAPES[i]
+
+        const colorClass = isDone
+          ? (isP1Failed && i <= p1EndIdx ? 'text-m-red/60' : 'text-m-green')
+          : isP1Failed && i <= p1EndIdx
+            ? (isActive ? 'text-m-red' : isCompleted ? 'text-m-red/60' : 'text-m-border/40')
+            : isCompleted
+              ? 'text-m-green'
+              : isActive
+                ? 'text-m-cyan'
+                : 'text-m-border/40'
+
+        const spin = isActive && (shape === 'square' || shape === 'triangle')
+
+        return (
+          <div key={stage.key} className={`flex items-center ${phaseGap ? 'ml-2' : 'ml-[3px]'} ${i === 0 ? 'ml-0' : ''}`}>
+            <div className="relative group">
+              <svg width="8" height="8" viewBox="0 0 8 8" className={`${colorClass} ${spin ? 'animate-spin-slow' : ''}`} style={{
+                ...(spin ? { animationDuration: '3s' } : {}),
+                ...(isActive ? { filter: 'drop-shadow(0 0 3px currentColor)' } : {}),
+              }}>
+                {shape === 'circle' && (
+                  <circle cx="4" cy="4" r="3.5" fill="currentColor" />
+                )}
+                {shape === 'square' && (
+                  <rect x="0.5" y="0.5" width="7" height="7" rx="1" fill="currentColor" />
+                )}
+                {shape === 'triangle' && (
+                  <polygon points="4,0.5 7.5,7 0.5,7" fill="currentColor" />
+                )}
+              </svg>
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:block z-20">
+                <div className="bg-m-black border border-m-border px-1.5 py-0.5 text-[8px] font-mono text-m-text-muted whitespace-nowrap">
+                  {PHASE_LABELS[stage.key] || stage.key.toUpperCase()}
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function ScanLine({ gradient }: { gradient: string }) {
+  const [key, setKey] = useState(0)
+  const [duration, setDuration] = useState(() => 5 + Math.random() * 6)
+  const onEnd = useCallback(() => {
+    setDuration(5 + Math.random() * 6)
+    setKey(k => k + 1)
+  }, [])
+  return (
+    <div
+      key={key}
+      className={`absolute left-0 right-0 h-[15px] bg-gradient-to-b ${gradient} to-transparent`}
+      style={{
+        animation: `feedScan ${duration}s linear 1 forwards`,
+      }}
+      onAnimationEnd={onEnd}
+    />
+  )
 }
 
 function phaseLabel(status: string): string {
@@ -42,28 +148,13 @@ function phaseColor(status: string): string {
   switch (status) {
     case 'done': return 'text-m-green'
     case 'phase1_done': return 'text-m-yellow'
+    case 'phase1_failed': return 'text-m-red'
     case 'error': return 'text-m-red'
     case 'queued': return 'text-m-text-muted'
     default: return 'text-m-yellow'
   }
 }
 
-function statusCardText(counts: Record<string, number>): string {
-  const parts: string[] = []
-  const active = [
-    'extracting_frames', 'analyzing_stats', 'saving', 'phase1_done',
-    'compressing', 'analyzing_gameplay', 'analyzing', 'cutting_clips',
-  ]
-  for (const phase of active) {
-    if (counts[phase]) {
-      const label = PHASE_LABELS[phase] || phase.toUpperCase()
-      parts.push(`${counts[phase]} ${label}`)
-    }
-  }
-  if (counts.queued) parts.push(`${counts.queued} QUEUED`)
-  if (parts.length === 0) return '0 PENDING'
-  return parts.join(' | ')
-}
 
 function getSeenRunId(): number | null {
   const v = sessionStorage.getItem('runlog_lastSeenRunId')
@@ -83,6 +174,7 @@ export default function Live() {
   const [status, setStatus] = useState<CaptureStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [frameKey, setFrameKey] = useState(0)
+  const [dismissing, setDismissing] = useState<Record<string, 'keeping' | 'deleting'>>({})
   const { refreshData, addToast } = useStore()
 
   useEffect(() => {
@@ -121,6 +213,24 @@ export default function Live() {
     }
   }, [])
 
+  // Push overlay updates when recording state changes
+  useEffect(() => {
+    const runlog = (window as any).runlog
+    if (!runlog?.updateOverlay || !status) return
+    if (status.recording) {
+      const det = status.last_detection
+      // During recording: show time, switch aux to RUN.COMPLETE when detected
+      let recDetail = formatTime(status.recording_seconds)
+      if (det === 'endgame') recDetail += '|RUN.COMPLETE'
+      runlog.updateOverlay('recording', recDetail)
+    } else if (status.active && status.last_detection) {
+      const det = status.last_detection === 'run' ? 'RUN.EXE' : status.last_detection.toUpperCase().replace('_', '.')
+      runlog.updateOverlay('active', det)
+    } else if (status.active) {
+      runlog.updateOverlay('active', 'WATCHING')
+    }
+  }, [status?.recording, status?.recording_seconds, status?.last_detection])
+
   // Auto-refresh dashboard data when a new run is processed
   useEffect(() => {
     const newRunId = status?.last_result?.run_id
@@ -130,7 +240,7 @@ export default function Live() {
       addToast({
         type: 'success',
         title: 'RUN PROCESSED',
-        body: `Run #${newRunId} analyzed and saved`,
+        body: 'Run analyzed and saved',
       })
     }
   }, [status?.last_result?.run_id])
@@ -167,91 +277,254 @@ export default function Live() {
     <div className="max-w-7xl mx-auto space-y-4">
       {/* Header */}
       <div>
-        <p className="label-tag text-m-green">CAPTURE // LIVE</p>
+        <p className="label-tag text-m-text-muted">CAPTURE // DETECT.EXE</p>
         <h2 className="text-xl font-display font-black tracking-wider text-m-text mt-1">
-          AUTO CAPTURE
+          DETECTION SYSTEM
         </h2>
       </div>
 
-      {/* Status Cards */}
-      <div className="grid grid-cols-4 gap-[1px] bg-m-border">
-        <div className="bg-m-card p-5">
-          <p className="label-tag text-m-text-muted">ENGINE</p>
-          <p className={`text-2xl font-mono font-bold mt-1 ${
-            status?.active ? 'text-m-green' : error ? 'text-m-red' : 'text-m-yellow'
-          }`}>
-            {status?.active ? 'ACTIVE' : error ? 'OFFLINE' : 'WAITING'}
-          </p>
-        </div>
-        <div className="bg-m-card p-5">
-          <p className="label-tag text-m-text-muted">RECORDING</p>
-          <p className={`text-2xl font-mono font-bold mt-1 ${
-            status?.recording ? 'text-m-red' : 'text-m-text-muted'
-          }`}>
-            {status?.recording ? 'RECORDING' : 'IDLE'}
-          </p>
-        </div>
-        <div className="bg-m-card p-5">
-          <p className="label-tag text-m-text-muted">DURATION</p>
-          <p className="text-2xl font-mono font-bold mt-1 text-m-text">
-            {status?.recording ? formatTime(status.recording_seconds) : '--:--'}
-          </p>
-        </div>
-        <div className="bg-m-card p-5">
-          <p className="label-tag text-m-text-muted">QUEUE</p>
-          <p className={`text-2xl font-mono font-bold mt-1 ${
-            hasActive ? 'text-m-yellow' : 'text-m-text-muted'
-          }`}>
-            {statusCardText(counts)}
-          </p>
-        </div>
-      </div>
-
-      {/* Recording indicator */}
-      {status?.recording && (
-        <div className="bg-m-card border border-m-red/40 p-4 flex items-center gap-3">
-          <div className="w-3 h-3 bg-m-red rounded-full animate-pulse" />
-          <span className="text-sm font-mono text-m-red font-bold tracking-wider">
-            REC {formatTime(status.recording_seconds)}
-          </span>
-          <span className="text-xs text-m-text-muted ml-2">
-            {status.recording_path?.split(/[/\\]/).pop()}
-          </span>
-        </div>
-      )}
-
-      {/* Detection Feed */}
+      {/* Detection Feed — cyberpunk terminal with CSS overlays */}
       <div>
-        <p className="label-tag text-m-text-muted mb-3">DETECTION FEED</p>
-        <div className="bg-m-card border border-m-border p-2">
-          {status?.active && status?.capture_mode === 'wgc' ? (
-            <img
-              src={`${getFrameUrl()}?t=${frameKey}`}
-              alt="Detection feed"
-              className="w-full max-h-[400px] object-contain"
-            />
-          ) : (
-            <div className="h-[300px] flex items-center justify-center flex-col gap-3">
-              <p className="text-m-text-muted text-sm font-mono tracking-wider">
-                {error
-                  ? 'CAPTURE ENGINE OFFLINE'
-                  : status?.capture_mode === 'waiting' || status?.capture_mode === 'none'
-                    ? 'NO GAME DETECTED'
-                    : 'STARTING...'}
+        <div className={`relative overflow-hidden bg-m-black border-2 transition-colors duration-500 ${
+          status?.recording ? 'border-m-red/50' : 'border-m-border'
+        }`}>
+          {/* Corner brackets — flush to edges */}
+          <div className="absolute top-0 left-0 w-5 h-5 border-l-2 border-t-2 border-m-green/40 z-20 pointer-events-none" />
+          <div className="absolute top-0 right-0 w-5 h-5 border-r-2 border-t-2 border-m-green/40 z-20 pointer-events-none" />
+          <div className="absolute bottom-0 left-0 w-5 h-5 border-l-2 border-b-2 border-m-green/40 z-20 pointer-events-none" />
+          <div className="absolute bottom-0 right-0 w-5 h-5 border-r-2 border-b-2 border-m-green/40 z-20 pointer-events-none" />
+
+
+          {/* Scanline overlay */}
+          <div className="absolute inset-0 z-10 pointer-events-none opacity-30"
+            style={{ background: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.15) 2px, rgba(0,0,0,0.15) 4px)' }}
+          />
+
+          {/* Vignette */}
+          <div className="absolute inset-0 z-10 pointer-events-none"
+            style={{ background: 'radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.5) 100%)' }}
+          />
+
+          {/* Top-left overlay: Engine + Detection */}
+          <div className="absolute top-3 left-3 z-20 pointer-events-none feed-overlay-block feed-overlay-block-left">
+            <p className={`text-[11px] font-mono font-bold tracking-wider ${
+              status?.active ? 'text-m-green animate-rgb-split' : error ? 'text-m-red' : 'text-m-yellow'
+            }`}>
+              {status?.active ? 'ENGINE.ACTIVE' : error ? 'ENGINE.OFFLINE' : 'ENGINE.WAITING'}
+            </p>
+            <p className="text-[10px] font-mono text-m-text-muted mt-0.5">
+              DET: <span className={
+                !status?.last_detection ? 'text-m-text-muted/50'
+                : status.last_detection === 'deploy' ? 'text-m-green'
+                : status.last_detection === 'ready_up' ? 'text-m-yellow'
+                : status.last_detection === 'run' ? 'text-m-yellow'
+                : status.last_detection === 'deploying' ? 'text-m-yellow'
+                : status.last_detection === 'searching' ? 'text-m-cyan'
+                : status.last_detection === 'endgame' ? 'text-m-red'
+                : status.last_detection === 'exfiltrated' ? 'text-m-green'
+                : status.last_detection === 'eliminated' ? 'text-m-red'
+                : status.last_detection === 'prepare' ? 'text-m-cyan'
+                : status.last_detection === 'select_zone' ? 'text-m-cyan'
+                : 'text-m-green'
+              }>
+                {status?.last_detection === 'run' ? 'RUN.EXE' : status?.last_detection?.toUpperCase().replace('_', '.') || 'NONE'}
+              </span>
+            </p>
+          </div>
+
+          {/* Top-right overlay: Branding + Recording */}
+          <div className="absolute top-3 right-3 z-20 pointer-events-none feed-overlay-block feed-overlay-block-right">
+            <p className="text-[11px] font-mono font-bold tracking-wider text-m-green">
+              RUNLOG CAPTURE SYSTEMS
+            </p>
+            {status?.recording ? (
+              <p className="text-[10px] font-mono text-m-red font-bold mt-0.5 animate-pulse">
+                ■ REC {formatTime(status.recording_seconds)}
               </p>
-              {(status?.capture_mode === 'waiting' || status?.capture_mode === 'none') && (
-                <p className="text-m-text-muted/50 text-xs">
-                  Launch Marathon for game capture
+            ) : (
+              <p className="text-[10px] font-mono text-m-text-muted/50 mt-0.5">
+                STANDBY
+              </p>
+            )}
+          </div>
+
+          {/* Bottom data bar — Marathon-style ticker */}
+          <div className="absolute bottom-8 left-0 right-0 z-20 pointer-events-none flex items-center justify-between px-3 py-1.5">
+            <div className="flex items-center gap-4">
+              {status?.recording && status.recording_path && (
+                <p className="text-[9px] font-mono text-m-text-muted/50">
+                  {status.recording_path.split(/[/\\]/).pop()}
                 </p>
               )}
+              <p className="text-[8px] font-mono text-m-green/20 tracking-widest">
+                RDP 978xd 1704-24595
+              </p>
+            </div>
+            <div className="flex items-center gap-4">
+              <p className="text-[8px] font-mono text-m-green/20 tracking-widest">
+                IRT 7962 // TGSSPASK 7211
+              </p>
+              <p className="text-[9px] font-mono text-m-green/30 tracking-wider">
+                {status?.capture_mode === 'wgc' ? 'WGC // 4K' : status?.capture_mode?.toUpperCase() || ''}
+              </p>
+            </div>
+          </div>
+
+          {/* OCR regions overlay — CSS positioned */}
+          {status?.active && status?.capture_mode === 'wgc' && status?.has_frame && (
+            <>
+              {/* OCR.DEPLOY — center, map name detection */}
+              <div className="absolute z-10 pointer-events-none" style={{ left: '35%', top: '38%', width: '30%', height: '27%' }}>
+                <span className="absolute -top-4 left-0 text-[8px] font-mono text-m-cyan/50 tracking-wider">OCR.DEPLOY</span>
+                <div className="w-full h-full border border-m-cyan/30 bg-m-cyan/[0.02] overflow-hidden relative">
+                  <ScanLine gradient="from-m-cyan/[0.1]" />
+                  <div className="absolute top-0 left-0 w-2 h-2 border-l border-t border-m-cyan/60" />
+                  <div className="absolute top-0 right-0 w-2 h-2 border-r border-t border-m-cyan/60" />
+                  <div className="absolute bottom-0 left-0 w-2 h-2 border-l border-b border-m-cyan/60" />
+                  <div className="absolute bottom-0 right-0 w-2 h-2 border-r border-b border-m-cyan/60" />
+                </div>
+              </div>
+
+              {/* OCR.ENDGAME — upper center, //RUN_COMPLETE */}
+              <div className="absolute z-10 pointer-events-none" style={{ left: '28%', top: '13.5%', width: '44%', height: '14%' }}>
+                <span className="absolute -top-4 left-0 text-[8px] font-mono text-m-green/50 tracking-wider">OCR.ENDGAME</span>
+                <div className="w-full h-full border border-m-green/20 bg-m-green/[0.01] overflow-hidden relative">
+                  <ScanLine gradient="from-m-green/[0.1]" />
+                  <div className="absolute top-0 left-0 w-2 h-2 border-l border-t border-m-green/40" />
+                  <div className="absolute top-0 right-0 w-2 h-2 border-r border-t border-m-green/40" />
+                  <div className="absolute bottom-0 left-0 w-2 h-2 border-l border-b border-m-green/40" />
+                  <div className="absolute bottom-0 right-0 w-2 h-2 border-r border-b border-m-green/40" />
+                </div>
+              </div>
+
+              {/* OCR.LOBBY — bottom center, PREPARE/READY UP */}
+              <div className="absolute z-10 pointer-events-none" style={{ left: '33%', top: '72%', width: '34%', height: '17%' }}>
+                <span className="absolute -top-4 left-0 text-[8px] font-mono text-m-yellow/50 tracking-wider">OCR.LOBBY</span>
+                <div className="w-full h-full border border-m-yellow/30 bg-m-yellow/[0.02] overflow-hidden relative">
+                  <ScanLine gradient="from-m-yellow/[0.1]" />
+                  <div className="absolute top-0 left-0 w-2 h-2 border-l border-t border-m-yellow/60" />
+                  <div className="absolute top-0 right-0 w-2 h-2 border-r border-t border-m-yellow/60" />
+                  <div className="absolute bottom-0 left-0 w-2 h-2 border-l border-b border-m-yellow/60" />
+                  <div className="absolute bottom-0 right-0 w-2 h-2 border-r border-b border-m-yellow/60" />
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* The actual feed — no PIL debug overlay */}
+          {status?.active && status?.capture_mode === 'wgc' && status?.has_frame ? (
+            <img
+              src={`${getFrameUrl()}?t=${frameKey}`}
+              alt=""
+              className="w-full min-h-[400px] max-h-[550px] object-contain relative z-0 text-transparent"
+            />
+          ) : (
+            <div className="h-[400px] flex items-center justify-center flex-col gap-4 relative z-0">
+              {/* Empty state — cyberpunk terminal */}
+              <div className="animate-glitch">
+                <p className="text-m-green/60 text-lg font-mono tracking-[0.3em] font-bold">
+                  {error
+                    ? 'ENGINE.OFFLINE'
+                    : status?.capture_mode === 'unavailable'
+                      ? 'RECORDER.MISSING'
+                      : status?.capture_mode === 'wgc' && status?.window_found
+                        ? 'INITIALIZING...'
+                        : 'AWAITING SIGNAL'}
+                </p>
+              </div>
+              <div className="text-center space-y-2">
+                <p className="text-m-text-muted/40 text-[10px] font-mono tracking-[0.2em]">
+                  {status?.active ? 'ENGINE.ACTIVE' : 'ENGINE.STANDBY'} // {status?.capture_mode?.toUpperCase() || 'NONE'}
+                </p>
+                {!(status?.capture_mode === 'wgc' && status?.window_found) && (
+                  <p className="text-m-text-muted/20 text-[10px] font-mono tracking-wider">
+                    Launch Marathon to begin detection
+                  </p>
+                )}
+              </div>
             </div>
           )}
         </div>
       </div>
 
+      {/* Pipeline Overview */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <p className="label-tag text-m-text-muted">PIPELINE.STATUS</p>
+          <div className="flex items-center gap-4 text-[10px] font-mono text-m-text-muted">
+            <span>{processingItems.length} TOTAL</span>
+            {(counts.done || 0) > 0 && <span className="text-m-green">{counts.done} DONE</span>}
+            {(counts.error || 0) > 0 && <span className="text-m-red">{counts.error} FAILED</span>}
+          </div>
+        </div>
+      <div className="bg-m-card border border-m-border px-6 pt-4 pb-5 relative overflow-hidden">
+
+        {/* Pill-shaped pipeline — Marathon HUD style */}
+        {(() => {
+          const phases = [
+            { label: 'PHASE.00', stages: PIPELINE_STAGES.slice(0, 1) },
+            { label: 'PHASE.01 // STATS', stages: PIPELINE_STAGES.slice(1, 4) },
+            { label: 'PHASE.02 // NARRATIVE', stages: PIPELINE_STAGES.slice(4) },
+          ]
+
+          function pillColor(key: string, hasItems: boolean) {
+            if (!hasItems) return 'border-m-border/20 bg-m-surface/50'
+            if (key === 'done') return 'border-m-green bg-m-green/15'
+            if (key === 'queued') return 'border-m-text-muted/60 bg-m-text-muted/5'
+            return 'border-m-green bg-m-green/10 animate-pill-glow'
+          }
+
+          function pillTextColor(key: string, hasItems: boolean) {
+            if (!hasItems) return 'text-m-text-muted/25'
+            if (key === 'done') return 'text-m-green'
+            if (key === 'queued') return 'text-m-text-muted'
+            return 'text-m-green'
+          }
+
+          return (
+            <div className="flex items-start gap-4">
+              {phases.map((phase, pi) => (
+                <div key={pi} style={{ flex: phase.stages.length }}>
+                  <p className="text-[8px] font-mono tracking-[0.2em] text-m-text-muted/40 mb-2">{phase.label}</p>
+                  <div className="flex gap-[2px]">
+                    {phase.stages.map((stage, si) => {
+                      const count = stage.key === 'analyzing_gameplay'
+                        ? (counts[stage.key] || 0) + (counts['analyzing'] || 0)
+                        : (counts[stage.key] || 0)
+                      const hasItems = count > 0
+                      const isFirst = si === 0
+                      const isLast = si === phase.stages.length - 1
+                      const rounded = isFirst && isLast
+                        ? 'rounded-full'
+                        : isFirst
+                          ? 'rounded-l-full rounded-r-[3px]'
+                          : isLast
+                            ? 'rounded-r-full rounded-l-[3px]'
+                            : 'rounded-[3px]'
+
+                      return (
+                        <div
+                          key={stage.key}
+                          className={`flex-1 flex items-center justify-center border ${rounded} h-7 transition-all ${pillColor(stage.key, hasItems)}`}
+                        >
+                          <span className={`text-[9px] font-mono font-bold tracking-wider ${pillTextColor(stage.key, hasItems)}`}>
+                            {hasItems ? `${count} ${stage.label}` : stage.label}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )
+        })()}
+      </div>
+      </div>
+
       {/* Processing Queue - always visible */}
       <div>
-        <p className="label-tag text-m-text-muted mb-3">PROCESSING QUEUE</p>
+        <p className="label-tag text-m-text-muted mb-3">PROCESSING.QUEUE</p>
         <div className="bg-m-card border border-m-border">
           {displayItems.length === 0 ? (
             <div className="px-5 py-4 flex items-center gap-3">
@@ -275,16 +548,6 @@ export default function Live() {
                     <div className="w-16 h-9 bg-m-border/30 rounded border border-m-border flex-shrink-0" />
                   )}
 
-                  {/* Status dot */}
-                  {item.status === 'done' ? (
-                    <div className="w-2 h-2 bg-m-green rounded-full flex-shrink-0" />
-                  ) : item.status === 'error' ? (
-                    <div className="w-2 h-2 bg-m-red rounded-full flex-shrink-0" />
-                  ) : item.status === 'queued' ? (
-                    <div className="w-2 h-2 bg-m-text-muted rounded-full flex-shrink-0" />
-                  ) : (
-                    <div className="w-2 h-2 bg-m-yellow rounded-full animate-pulse flex-shrink-0" />
-                  )}
 
                   {/* Info */}
                   <div className="flex-1 min-w-0">
@@ -303,41 +566,112 @@ export default function Live() {
                         </span>
                       )}
                       {item.run_id && (
-                        <span className="text-[10px] font-mono text-m-green">
-                          RUN {item.run_id}
+                        <span className="text-[10px] font-mono text-m-cyan">
+                          LOGGED
                         </span>
                       )}
                     </div>
                   </div>
 
-                  {/* Status + actions */}
-                  <div className="flex items-center gap-3 flex-shrink-0">
-                    {item.status === 'done' ? (
+                  {/* Status + actions — fixed width for alignment */}
+                  <div className="flex items-center gap-3 flex-shrink-0 w-[200px] justify-end">
+                    {item.status === 'done' && dismissing[item.file] ? (
+                      <div className={`flex items-center gap-2 animate-pulse ${
+                        dismissing[item.file] === 'keeping' ? 'text-m-green' : 'text-m-red'
+                      }`}>
+                        <span className="text-xs font-mono font-bold tracking-wider">
+                          {dismissing[item.file] === 'keeping'
+                            ? '▸ ARCHIVING RECORDING...'
+                            : '▸ DISCARDING RECORDING...'}
+                        </span>
+                      </div>
+                    ) : item.status === 'done' ? (
                       <>
+                        <div className="flex flex-col items-center gap-1">
+                          <div className="flex gap-2">
                         <button
-                          onClick={() => axios.post(`${apiBase}/api/capture/recording/keep`, { filename: item.file })
-                            .then(() => addToast({ type: 'success', title: 'VIDEO SAVED', body: item.file }))
-                            .catch(() => addToast({ type: 'error', title: 'SAVE FAILED', body: item.file }))}
+                          onClick={() => {
+                            setDismissing(prev => ({ ...prev, [item.file]: 'keeping' }))
+                            axios.post(`${apiBase}/api/capture/recording/keep`, { filename: item.file, run_id: item.run_id })
+                              .then(() => {
+                                setTimeout(() => {
+                                  addToast({ type: 'success', title: 'RECORDING ARCHIVED', body: 'Saved to run folder' })
+                                  setDismissing(prev => { const n = { ...prev }; delete n[item.file]; return n })
+                                }, 2000)
+                              })
+                              .catch(() => {
+                                addToast({ type: 'error', title: 'SAVE FAILED', body: item.file })
+                                setDismissing(prev => { const n = { ...prev }; delete n[item.file]; return n })
+                              })
+                          }}
                           className="label-tag px-2 py-1 border border-m-green/40 text-m-green hover:bg-m-green-glow transition-all"
                         >
-                          KEEP
+                          SAVE
                         </button>
                         <button
-                          onClick={() => axios.post(`${apiBase}/api/capture/recording/delete`, { filename: item.file })
-                            .then(() => addToast({ type: 'info', title: 'VIDEO DELETED', body: item.file }))
-                            .catch(() => addToast({ type: 'error', title: 'DELETE FAILED', body: item.file }))}
+                          onClick={() => {
+                            setDismissing(prev => ({ ...prev, [item.file]: 'deleting' }))
+                            axios.post(`${apiBase}/api/capture/recording/delete`, { filename: item.file })
+                              .then(() => {
+                                setTimeout(() => {
+                                  addToast({ type: 'info', title: 'RECORDING DISCARDED', body: item.file })
+                                  setDismissing(prev => { const n = { ...prev }; delete n[item.file]; return n })
+                                }, 1500)
+                              })
+                              .catch(() => {
+                                addToast({ type: 'error', title: 'DELETE FAILED', body: item.file })
+                                setDismissing(prev => { const n = { ...prev }; delete n[item.file]; return n })
+                              })
+                          }}
                           className="label-tag px-2 py-1 border border-m-red/40 text-m-red hover:bg-m-red-glow transition-all"
                         >
-                          DELETE
+                          DISCARD
                         </button>
-                        <span className="text-xs font-mono font-bold tracking-wider text-m-green">
-                          COMPLETE
-                        </span>
+                          </div>
+                          <span className="text-[8px] font-mono text-m-text-muted/50 tracking-wider">FULL RECORDING</span>
+                        </div>
+                        <PipelineProgress status={item.status} detail={item.detail} p1Failed={item.p1_failed} />
                       </>
+                    ) : item.status === 'error' ? (
+                      <div className="flex items-center gap-3">
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => {
+                              // Remove error markers so it retries
+                              axios.post(`${apiBase}/api/capture/recording/retry`, { filename: item.file })
+                                .then(() => addToast({ type: 'info', title: 'RETRYING', body: item.file }))
+                                .catch(() => addToast({ type: 'error', title: 'RETRY FAILED', body: item.file }))
+                            }}
+                            className="label-tag px-2 py-1 border border-m-yellow/40 text-m-yellow hover:bg-m-yellow/10 transition-all"
+                          >
+                            RETRY
+                          </button>
+                          <button
+                            onClick={() => {
+                              setDismissing(prev => ({ ...prev, [item.file]: 'deleting' }))
+                              axios.post(`${apiBase}/api/capture/recording/delete`, { filename: item.file })
+                                .then(() => {
+                                  setTimeout(() => {
+                                    addToast({ type: 'info', title: 'RECORDING DISCARDED', body: item.file })
+                                    setDismissing(prev => { const n = { ...prev }; delete n[item.file]; return n })
+                                  }, 1500)
+                                })
+                                .catch(() => {
+                                  addToast({ type: 'error', title: 'DELETE FAILED', body: item.file })
+                                  setDismissing(prev => { const n = { ...prev }; delete n[item.file]; return n })
+                                })
+                            }}
+                            className="label-tag px-2 py-1 border border-m-red/40 text-m-red hover:bg-m-red-glow transition-all"
+                          >
+                            DISCARD
+                          </button>
+                        </div>
+                        <span className="text-xs font-mono font-bold tracking-wider text-m-red">
+                          FAILED
+                        </span>
+                      </div>
                     ) : (
-                      <span className={`text-xs font-mono font-bold tracking-wider ${phaseColor(item.status)}`}>
-                        {phaseLabel(item.status)}
-                      </span>
+                      <PipelineProgress status={item.status} detail={item.detail} p1Failed={item.p1_failed} />
                     )}
                   </div>
                 </div>

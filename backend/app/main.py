@@ -42,12 +42,8 @@ with engine.connect() as conn:
     if "player_gamertag" not in existing_cols:
         conn.execute(text("ALTER TABLE runs ADD COLUMN player_gamertag VARCHAR(100)"))
         conn.commit()
-        # Backfill: set player_gamertag for existing runs where squad_members contains the name
-        # This seeds the auto-exclusion so historical squad mate stats work immediately
-        conn.execute(text(
-            "UPDATE runs SET player_gamertag = 'kale#8064' "
-            "WHERE squad_members LIKE '%kale#8064%' AND player_gamertag IS NULL"
-        ))
+    if "viewed" not in existing_cols:
+        conn.execute(text("ALTER TABLE runs ADD COLUMN viewed BOOLEAN DEFAULT 0"))
         conn.commit()
 
 app = FastAPI(

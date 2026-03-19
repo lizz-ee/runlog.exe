@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { getRecentRuns, getOverviewStats } from './api'
+import { getRecentRuns, getOverviewStats, getUnviewedCount } from './api'
 import type { View, Run, OverviewStats, Runner, Loadout, ParsedScreenshot } from './types'
 
 export interface Toast {
@@ -43,6 +43,11 @@ interface AppState {
 
   // Refresh runs + stats from backend (after a new run is processed)
   refreshData: () => Promise<void>
+
+  // Unviewed runs
+  unviewedCount: number
+  setUnviewedCount: (count: number) => void
+  refreshUnviewed: () => Promise<void>
 
   // Pending captures from hotkeys
   pendingCapture: PendingCapture | null
@@ -89,6 +94,15 @@ export const useStore = create<AppState>((set) => ({
     } catch (e) {
       console.error('Failed to refresh data:', e)
     }
+  },
+
+  unviewedCount: 0,
+  setUnviewedCount: (unviewedCount) => set({ unviewedCount }),
+  refreshUnviewed: async () => {
+    try {
+      const count = await getUnviewedCount()
+      set({ unviewedCount: count })
+    } catch {}
   },
 
   pendingCapture: null,

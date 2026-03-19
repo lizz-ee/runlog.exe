@@ -70,10 +70,15 @@ export default function App() {
   const mapName = MAP_VIEW_TO_NAME[view]
 
   return (
-    <div className="flex flex-col h-screen bg-m-bg">
+    <div className="flex flex-col h-screen bg-m-bg splash-bg">
+      {/* Splash background elements */}
+      {/* Corner deco — centered in the main area's bottom-right padding */}
+      <div className="corner-bracket corner-br" />
+      <div className="fixed bottom-[1rem] right-[3.5rem] text-[8px] tracking-widest font-mono text-m-text-muted/15 select-none pointer-events-none z-[2]">
+        0x4D415241 // 0x54484F4E
+      </div>
       <TitleBar />
-      {/* scanlines overlay removed — too distracting */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden relative z-10">
       <Sidebar />
       <main className="flex-1 overflow-y-auto px-8 pt-5 pb-8">
         {view === 'dashboard' && <Dashboard />}

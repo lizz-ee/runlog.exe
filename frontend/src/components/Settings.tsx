@@ -3,6 +3,15 @@ import { getSettings, setApiKey, testApiKey, removeApiKey } from '../lib/api'
 
 type KeyStatus = 'idle' | 'testing' | 'valid' | 'invalid' | 'saving' | 'saved' | 'error'
 
+const CORNERS = [
+  { value: 'top-left', label: 'TL' },
+  { value: 'top-center', label: 'TC' },
+  { value: 'top-right', label: 'TR' },
+  { value: 'bottom-left', label: 'BL' },
+  { value: 'bottom-center', label: 'BC' },
+  { value: 'bottom-right', label: 'BR' },
+] as const
+
 export default function Settings() {
   const [keyInput, setKeyInput] = useState('')
   const [status, setStatus] = useState<KeyStatus>('idle')
@@ -11,12 +20,25 @@ export default function Settings() {
   const [maskedKey, setMaskedKey] = useState('')
   const [keySource, setKeySource] = useState('')
 
+  // Overlay settings
+  const [overlayEnabled, setOverlayEnabled] = useState(true)
+  const [overlayCorner, setOverlayCorner] = useState('top-left')
+
   useEffect(() => {
     getSettings().then((s) => {
       setHasKey(s.has_api_key)
       setMaskedKey(s.api_key_masked)
       setKeySource(s.api_key_source)
     }).catch(console.error)
+
+    // Load overlay settings
+    const runlog = (window as any).runlog
+    if (runlog?.getOverlaySettings) {
+      runlog.getOverlaySettings().then((s: any) => {
+        setOverlayEnabled(s.enabled ?? true)
+        setOverlayCorner(s.corner ?? 'top-left')
+      }).catch(() => {})
+    }
   }, [])
 
   async function handleTest() {
@@ -103,6 +125,78 @@ export default function Settings() {
         </h2>
       </div>
 
+      {/* Overlay Settings */}
+      <div className="border border-1 border-m-border bg-m-card">
+        <div className="px-5 py-4 border-b border-m-border">
+          <p className="label-tag text-m-green mb-1">RECORDING OVERLAY</p>
+          <p className="text-xs text-m-text-muted">
+            Always-on-top status indicator during capture and recording.
+          </p>
+        </div>
+
+        <div className="px-5 py-4 space-y-4">
+          {/* Toggle */}
+          <div className="flex items-center justify-between">
+            <span className="label-tag text-m-text-muted">OVERLAY</span>
+            <button
+              onClick={() => {
+                const next = !overlayEnabled
+                setOverlayEnabled(next)
+                const runlog = (window as any).runlog
+                runlog?.toggleOverlay?.(next)
+              }}
+              className={`px-3 py-1 text-2xs font-mono tracking-widest border transition-all ${
+                overlayEnabled
+                  ? 'border-m-green/40 text-m-green bg-m-green/10'
+                  : 'border-m-border text-m-text-muted bg-m-surface'
+              }`}
+            >
+              {overlayEnabled ? 'ENABLED' : 'DISABLED'}
+            </button>
+          </div>
+
+          {/* Corner selector + nudge */}
+          <div className="space-y-2">
+            <span className="label-tag text-m-text-muted">POSITION</span>
+            <div className="flex gap-4">
+              <div className="grid grid-cols-3 gap-1 flex-1">
+                {CORNERS.map((c) => (
+                  <button
+                    key={c.value}
+                    onClick={() => {
+                      setOverlayCorner(c.value)
+                      const runlog = (window as any).runlog
+                      runlog?.setOverlayCorner?.(c.value)
+                    }}
+                    className={`px-2 py-1.5 text-2xs font-mono tracking-widest border transition-all ${
+                      overlayCorner === c.value
+                        ? 'border-m-green/40 text-m-green bg-m-green/10'
+                        : 'border-m-border text-m-text-muted bg-m-surface hover:text-m-text'
+                    }`}
+                  >
+                    {c.label}
+                  </button>
+                ))}
+              </div>
+              {/* Nudge controls */}
+              <div className="flex flex-col items-center gap-0.5">
+                <span className="text-[7px] font-mono text-m-text-muted/40 tracking-widest mb-0.5">NUDGE</span>
+                <button onClick={() => (window as any).runlog?.nudgeOverlay?.('up')}
+                  className="w-7 h-5 text-[9px] font-mono text-m-text-muted border border-m-border bg-m-surface hover:text-m-green hover:border-m-green/30 transition-all">▲</button>
+                <div className="flex gap-0.5">
+                  <button onClick={() => (window as any).runlog?.nudgeOverlay?.('left')}
+                    className="w-7 h-5 text-[9px] font-mono text-m-text-muted border border-m-border bg-m-surface hover:text-m-green hover:border-m-green/30 transition-all">◄</button>
+                  <button onClick={() => (window as any).runlog?.nudgeOverlay?.('right')}
+                    className="w-7 h-5 text-[9px] font-mono text-m-text-muted border border-m-border bg-m-surface hover:text-m-green hover:border-m-green/30 transition-all">►</button>
+                </div>
+                <button onClick={() => (window as any).runlog?.nudgeOverlay?.('down')}
+                  className="w-7 h-5 text-[9px] font-mono text-m-text-muted border border-m-border bg-m-surface hover:text-m-green hover:border-m-green/30 transition-all">▼</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* API Key Section */}
       <div className="border border-1 border-m-border bg-m-card">
         <div className="px-5 py-4 border-b border-m-border">
@@ -113,9 +207,7 @@ export default function Settings() {
             <span className="text-m-cyan">console.anthropic.com</span>
           </p>
         </div>
-
         <div className="px-5 py-4 space-y-4">
-          {/* Current status */}
           <div className="flex items-center justify-between">
             <span className="label-tag text-m-text-muted">STATUS</span>
             {hasKey ? (
@@ -130,22 +222,18 @@ export default function Settings() {
               </div>
             )}
           </div>
-
           {hasKey && (
             <div className="flex items-center justify-between">
               <span className="label-tag text-m-text-muted">ACTIVE KEY</span>
               <span className="text-2xs font-mono text-m-text-muted">{maskedKey}</span>
             </div>
           )}
-
           {hasKey && keySource && (
             <div className="flex items-center justify-between">
               <span className="label-tag text-m-text-muted">SOURCE</span>
               <span className="text-2xs font-mono text-m-text-muted uppercase">{keySource}</span>
             </div>
           )}
-
-          {/* Input */}
           <div className="space-y-2">
             <label className="label-tag text-m-text-muted">
               {hasKey ? 'REPLACE KEY' : 'ENTER KEY'}
@@ -153,44 +241,26 @@ export default function Settings() {
             <input
               type="password"
               value={keyInput}
-              onChange={(e) => {
-                setKeyInput(e.target.value)
-                setStatus('idle')
-                setStatusMsg('')
-              }}
+              onChange={(e) => { setKeyInput(e.target.value); setStatus('idle'); setStatusMsg('') }}
               placeholder="sk-ant-api03-..."
               className="w-full px-3 py-2 text-xs font-mono bg-m-black text-m-text border border-1 border-m-border focus:border-m-green focus:outline-none placeholder:text-m-text-muted/30"
             />
           </div>
-
-          {/* Status message */}
           {statusMsg && (
-            <div className={`text-2xs font-mono tracking-wider ${statusColor}`}>
-              {statusMsg}
-            </div>
+            <div className={`text-2xs font-mono tracking-wider ${statusColor}`}>{statusMsg}</div>
           )}
-
-          {/* Actions */}
           <div className="flex gap-2">
-            <button
-              onClick={handleTestAndSave}
-              disabled={!keyInput.trim() || status === 'testing' || status === 'saving'}
-              className="px-4 py-2 text-xs tracking-widest uppercase bg-m-green/10 text-m-green border border-1 border-m-green/30 hover:bg-m-green/20 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-            >
+            <button onClick={handleTestAndSave} disabled={!keyInput.trim() || status === 'testing' || status === 'saving'}
+              className="px-4 py-2 text-xs tracking-widest uppercase bg-m-green/10 text-m-green border border-1 border-m-green/30 hover:bg-m-green/20 transition-all disabled:opacity-30 disabled:cursor-not-allowed">
               {status === 'testing' ? 'TESTING...' : status === 'saving' ? 'SAVING...' : 'TEST & SAVE'}
             </button>
-            <button
-              onClick={handleTest}
-              disabled={!keyInput.trim() || status === 'testing'}
-              className="px-4 py-2 text-xs tracking-widest uppercase bg-m-surface text-m-text-muted border border-1 border-m-border hover:text-m-text transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-            >
+            <button onClick={handleTest} disabled={!keyInput.trim() || status === 'testing'}
+              className="px-4 py-2 text-xs tracking-widest uppercase bg-m-surface text-m-text-muted border border-1 border-m-border hover:text-m-text transition-all disabled:opacity-30 disabled:cursor-not-allowed">
               TEST ONLY
             </button>
             {hasKey && (
-              <button
-                onClick={handleRemove}
-                className="px-4 py-2 text-xs tracking-widest uppercase text-m-red/40 hover:text-m-red transition-colors ml-auto"
-              >
+              <button onClick={handleRemove}
+                className="px-4 py-2 text-xs tracking-widest uppercase text-m-red/40 hover:text-m-red transition-colors ml-auto">
                 REMOVE KEY
               </button>
             )}

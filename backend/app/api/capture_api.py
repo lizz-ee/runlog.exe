@@ -80,7 +80,7 @@ def capture_status():
 
 @router.get("/frame")
 def capture_frame():
-    """Return the latest detection frame as JPEG (for debugging/preview)."""
+    """Return the latest detection frame as JPEG. All overlays are CSS now."""
     engine = _get_engine()
     jpeg = engine.get_latest_frame_jpeg()
     if jpeg is None:
@@ -109,53 +109,73 @@ def list_clips():
     import re
     clips = []
     if os.path.exists(CLIPS_DIR):
-        for f in sorted(os.listdir(CLIPS_DIR), reverse=True):
-            if f.endswith(".mp4"):
-                filepath = os.path.join(CLIPS_DIR, f)
-                size_mb = os.path.getsize(filepath) / (1024 * 1024)
-
-                # Extract run timestamp: clip_YYYYMMDD_HHMMSS_type_N.mp4
-                ts_match = re.match(r'clip_(\d{8}_\d{6})_', f)
-                run_timestamp = ts_match.group(1) if ts_match else None
-
-                # Extract clip type
-                clip_type = "highlight"
-                if "close_call" in f:
-                    clip_type = "close_call"
-                else:
-                    for t in ("kill", "death", "loot", "extraction", "funny", "highlight"):
-                        if f"_{t}_" in f:
-                            clip_type = t
-                            break
-
-                thumb_name = f.replace(".mp4", "_thumb.jpg")
-                thumb_exists = os.path.exists(os.path.join(CLIPS_DIR, thumb_name))
-                clips.append({
-                    "filename": f,
-                    "path": filepath,
-                    "size_mb": round(size_mb, 1),
-                    "type": clip_type,
-                    "run_timestamp": run_timestamp,
-                    "created": os.path.getmtime(filepath),
-                    "thumbnail": thumb_name if thumb_exists else None,
-                })
+        # Walk run subfolders: clips/run_YYYYMMDD_HHMMSS/
+        for run_folder in sorted(os.listdir(CLIPS_DIR), reverse=True):
+            run_folder_path = os.path.join(CLIPS_DIR, run_folder)
+            if not os.path.isdir(run_folder_path):
+                # Legacy flat clip — handle for backwards compat
+                if run_folder.endswith(".mp4") and "_4k" not in run_folder:
+                    _add_clip_entry(clips, CLIPS_DIR, run_folder, run_folder=None)
+                continue
+            for f in sorted(os.listdir(run_folder_path)):
+                # Skip 4K versions — app uses 1080p
+                if f.endswith(".mp4") and "_4k" not in f:
+                    _add_clip_entry(clips, run_folder_path, f, run_folder=run_folder)
     return JSONResponse(content={"clips": clips})
 
 
-@router.get("/clips/{filename}")
-def serve_clip(filename: str, request: Request):
-    """Serve a clip file with HTTP range request support for browser playback."""
+def _add_clip_entry(clips: list, folder: str, filename: str, run_folder: str | None = None):
+    """Helper to build a clip metadata entry."""
+    import re
+    filepath = os.path.join(folder, filename)
+    size_mb = os.path.getsize(filepath) / (1024 * 1024)
+
+    ts_match = re.match(r'clip_(\d{8}_\d{6})_', filename)
+    run_timestamp = ts_match.group(1) if ts_match else None
+
+    clip_type = "highlight"
+    if "close_call" in filename:
+        clip_type = "close_call"
+    else:
+        for t in ("pvp_kill", "combat", "kill", "death", "loot", "extraction", "funny", "highlight"):
+            if f"_{t}_" in filename:
+                clip_type = t
+                break
+
+    thumb_name = filename.replace(".mp4", "_thumb.jpg")
+    thumb_exists = os.path.exists(os.path.join(folder, thumb_name))
+
+    # For serving, use run_folder/filename path if in subfolder
+    serve_path = f"{run_folder}/{filename}" if run_folder else filename
+    thumb_serve = f"{run_folder}/{thumb_name}" if run_folder else thumb_name
+
+    clips.append({
+        "filename": serve_path,
+        "size_mb": round(size_mb, 1),
+        "type": clip_type,
+        "run_timestamp": run_timestamp,
+        "run_folder": run_folder,
+        "created": os.path.getmtime(filepath),
+        "thumbnail": thumb_serve if thumb_exists else None,
+    })
+
+
+@router.get("/clips/{filepath:path}")
+def serve_clip(filepath: str, request: Request):
+    """Serve a clip file with HTTP range request support for browser playback.
+
+    Supports both flat (legacy) and subfolder paths: clips/file.mp4 or clips/run_xxx/file.mp4
+    """
     from starlette.responses import StreamingResponse
 
-    filepath = os.path.join(CLIPS_DIR, filename)
-    if not os.path.exists(filepath):
+    full_path = os.path.join(CLIPS_DIR, filepath)
+    if not os.path.exists(full_path):
         raise HTTPException(status_code=404, detail="Clip not found")
 
-    file_size = os.path.getsize(filepath)
+    file_size = os.path.getsize(full_path)
     range_header = request.headers.get("range")
 
     if range_header:
-        # Parse "bytes=START-END"
         range_spec = range_header.replace("bytes=", "")
         parts = range_spec.split("-")
         start = int(parts[0]) if parts[0] else 0
@@ -164,7 +184,7 @@ def serve_clip(filename: str, request: Request):
         content_length = end - start + 1
 
         def iterfile():
-            with open(filepath, "rb") as f:
+            with open(full_path, "rb") as f:
                 f.seek(start)
                 remaining = content_length
                 while remaining > 0:
@@ -185,18 +205,18 @@ def serve_clip(filename: str, request: Request):
             },
         )
 
-    # No range — serve full file
     from fastapi.responses import FileResponse
-    return FileResponse(filepath, media_type="video/mp4")
+    return FileResponse(full_path, media_type="video/mp4")
 
 
 class RecordingAction(BaseModel):
     filename: str
+    run_id: int | None = None
 
 
 @router.post("/recording/keep")
 def keep_recording(body: RecordingAction):
-    """Mark a recording to be kept. Moves to saved folder."""
+    """Mark a recording to be kept. Moves to saved folder and links to run."""
     filename = body.filename
     if not filename:
         raise HTTPException(status_code=400, detail="filename required")
@@ -205,9 +225,12 @@ def keep_recording(body: RecordingAction):
     if not os.path.exists(filepath):
         raise HTTPException(status_code=404, detail="Recording not found")
 
-    saved_dir = os.path.join(RECORDINGS_DIR, "saved")
-    os.makedirs(saved_dir, exist_ok=True)
-    saved_path = os.path.join(saved_dir, filename)
+    # Move full recording into the run's clips subfolder
+    # Filename format: run_YYYYMMDD_HHMMSS.mp4 -> clips/run_YYYYMMDD_HHMMSS/
+    run_tag = filename.replace(".mp4", "")
+    run_folder = os.path.join(CLIPS_DIR, run_tag)
+    os.makedirs(run_folder, exist_ok=True)
+    saved_path = os.path.join(run_folder, filename)
 
     import shutil
     shutil.move(filepath, saved_path)
@@ -216,7 +239,20 @@ def keep_recording(body: RecordingAction):
     thumb = filename.replace(".mp4", "_thumb.jpg")
     thumb_path = os.path.join(RECORDINGS_DIR, thumb)
     if os.path.exists(thumb_path):
-        shutil.move(thumb_path, os.path.join(saved_dir, thumb))
+        shutil.move(thumb_path, os.path.join(run_folder, thumb))
+
+    # Store recording path on the run record
+    if body.run_id:
+        from ..database import SessionLocal
+        from ..models import Run
+        db = SessionLocal()
+        try:
+            run = db.query(Run).filter(Run.id == body.run_id).first()
+            if run:
+                run.recording_path = saved_path
+                db.commit()
+        finally:
+            db.close()
 
     # Remove from processing queue UI
     if _engine:
@@ -247,3 +283,43 @@ def delete_recording(body: RecordingAction):
         _engine.remove_processing_item(filename)
 
     return JSONResponse(content={"status": "deleted"})
+
+
+@router.post("/recording/retry")
+def retry_recording(body: RecordingAction):
+    """Retry processing a failed recording by removing error markers."""
+    filename = body.filename
+    if not filename:
+        raise HTTPException(status_code=400, detail="filename required")
+
+    filepath = os.path.join(RECORDINGS_DIR, filename)
+
+    # Remove all processing markers so it gets re-queued
+    for ext in ('.done', '.p1done', '.encoded', '.endgame'):
+        marker = filepath + ext
+        if os.path.exists(marker):
+            os.remove(marker)
+
+    # Reset status in processing queue
+    if _engine:
+        _engine.reset_processing_item(filename)
+
+    return JSONResponse(content={"status": "retrying"})
+
+
+@router.post("/open-folder")
+def open_run_folder(body: dict):
+    """Open a run's clips folder in the system file explorer."""
+    import subprocess
+    folder = body.get("folder")
+    if folder:
+        folder_path = os.path.join(CLIPS_DIR, folder)
+    else:
+        folder_path = CLIPS_DIR
+
+    if not os.path.isdir(folder_path):
+        os.makedirs(folder_path, exist_ok=True)
+
+    # Open in Windows Explorer
+    subprocess.Popen(['explorer', folder_path.replace('/', '\\')])
+    return JSONResponse(content={"status": "opened", "path": folder_path})
