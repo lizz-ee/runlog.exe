@@ -201,7 +201,7 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
           return (
             <div
               className="absolute z-30 pointer-events-none"
-              style={{ left: '1%', top: '1%', width: `${bracketWidth}%` }}
+              style={{ left: '2%', top: '2%', width: `${bracketWidth}%` }}
             >
               {/* Bracket — top-left + bottom-right corners hugging the dots */}
               <div className="relative flex items-center justify-center gap-[8px] px-2">
@@ -215,7 +215,7 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
                 ))}
               </div>
               {/* Label — below bracket */}
-              <div className="flex items-center justify-center mt-2.5">
+              <div className="flex items-center justify-center mt-3">
                 <span className="text-[7px] font-mono text-m-cyan/40 tracking-[0.2em]">
                   STAGING // {unchartedSpawns.length}
                 </span>
