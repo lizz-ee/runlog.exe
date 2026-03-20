@@ -72,6 +72,13 @@ def unviewed_count(db: Session = Depends(get_db)):
     return JSONResponse(content={"count": count})
 
 
+@router.get("/unviewed/reports")
+def unviewed_reports_count(db: Session = Depends(get_db)):
+    """Get count of unviewed run reports (runs with summary but not viewed)."""
+    count = db.query(func.count(Run.id)).filter(Run.viewed == False, Run.summary.isnot(None)).scalar()
+    return JSONResponse(content={"count": count})
+
+
 @router.post("/{run_id}/viewed")
 def mark_viewed(run_id: int, db: Session = Depends(get_db)):
     """Mark a run as viewed."""

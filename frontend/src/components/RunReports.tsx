@@ -144,12 +144,21 @@ export default function RunReports() {
               const gradeClass = GRADE_COLORS[run.grade || ''] || GRADE_COLORS.C
               const isExpanded = expanded.has(run.id)
               const isStoryOpen = storyExpanded.has(run.id)
-              const toggleExpand = () => setExpanded(prev => {
-                const next = new Set(prev)
-                if (next.has(run.id)) next.delete(run.id)
-                else next.add(run.id)
-                return next
-              })
+              const toggleExpand = () => {
+                setExpanded(prev => {
+                  const next = new Set(prev)
+                  if (next.has(run.id)) {
+                    next.delete(run.id)
+                  } else {
+                    next.add(run.id)
+                    // Mark as viewed when expanded
+                    if (!run.viewed) {
+                      axios.post(`${apiBase}/api/runs/${run.id}/viewed`).catch(() => {})
+                    }
+                  }
+                  return next
+                })
+              }
               const toggleStory = (e: React.MouseEvent) => {
                 e.stopPropagation()
                 setStoryExpanded(prev => {
@@ -165,7 +174,9 @@ export default function RunReports() {
                   {/* Compact row — matches Archive density */}
                   <div
                     onClick={toggleExpand}
-                    className={`grid grid-cols-[36px_6px_50px_110px_auto_1fr_75px_50px_20px] items-center gap-x-3 px-4 py-3 bg-m-card hover:bg-m-surface transition-colors cursor-pointer`}
+                    className={`grid grid-cols-[36px_6px_50px_110px_auto_1fr_75px_50px_20px] items-center gap-x-3 px-4 py-3 bg-m-card hover:bg-m-surface transition-colors cursor-pointer ${
+                      !run.viewed ? 'border-l-2 border-l-m-cyan' : ''
+                    }`}
                   >
                     {/* Grade badge */}
                     {run.grade ? (

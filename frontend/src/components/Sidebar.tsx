@@ -66,12 +66,13 @@ const VIEW_TO_MAP: Record<string, string> = {
 }
 
 export default function Sidebar() {
-  const { view, setView, stats, unviewedCount, refreshUnviewed } = useStore()
+  const { view, setView, stats, unviewedCount, refreshUnviewed, unviewedReportsCount, refreshUnviewedReports } = useStore()
   const [stagingCounts, setStagingCounts] = useState<Record<string, number>>({})
 
   useEffect(() => {
     refreshUnviewed()
-    const interval = setInterval(refreshUnviewed, 5000)
+    refreshUnviewedReports()
+    const interval = setInterval(() => { refreshUnviewed(); refreshUnviewedReports() }, 5000)
     return () => clearInterval(interval)
   }, [])
 
@@ -168,6 +169,9 @@ export default function Sidebar() {
                     {item.label}
                   </span>
                   {item.view === 'dashboard' && unviewedCount > 0 && (
+                    <span className="text-m-cyan"><UnviewedBadge /></span>
+                  )}
+                  {item.view === 'highlights' && unviewedReportsCount > 0 && (
                     <span className="text-m-cyan"><UnviewedBadge /></span>
                   )}
                   {stagingCounts[item.view] > 0 && (
