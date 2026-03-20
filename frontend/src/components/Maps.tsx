@@ -315,7 +315,7 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
                       </p>
                     )}
                     {spawn.gameCoords && (
-                      <p className={`text-[9px] font-mono mt-0.5 ${isUncharted ? 'text-m-cyan/70' : 'text-m-cyan/50'}`}>
+                      <p className="text-[10px] font-mono mt-1 text-m-cyan tracking-wide">
                         {spawn.gameCoords[0].toFixed(2)}, {spawn.gameCoords[1].toFixed(2)}
                       </p>
                     )}
