@@ -159,6 +159,10 @@ function SquadCard({ mate, rank, isSelected, onClick }: {
   const [hovered, setHovered] = useState(false)
   const active = isSelected || hovered
 
+  // Rarity colors based on rank: 1=gold, 2=purple, 3=blue, 4=green, 5-7=gray
+  const rarityColor = rank === 1 ? '#FFD700' : rank === 2 ? '#A855F7' : rank === 3 ? '#3B82F6' : rank === 4 ? '#22C55E' : '#555'
+  const rarityGlow = rank <= 4 ? `0 0 12px ${rarityColor}40` : 'none'
+
   return (
     <button
       onClick={onClick}
@@ -166,31 +170,35 @@ function SquadCard({ mate, rank, isSelected, onClick }: {
       onMouseLeave={() => setHovered(false)}
       className="relative aspect-[3/4] group focus:outline-none"
     >
-      {/* Background with animated gradient border */}
+      {/* Background */}
       <div className={`absolute inset-0 transition-all duration-300 ${
         isSelected
-          ? 'bg-gradient-to-b from-[#c8ff00]/10 via-[#c8ff00]/5 to-transparent'
+          ? 'bg-gradient-to-b from-[var(--rc)]/10 via-[var(--rc)]/5 to-transparent'
           : 'bg-m-card'
-      }`} />
+      }`} style={{ '--rc': rarityColor } as any} />
+
+      {/* Rarity border */}
+      <div className="absolute inset-0 border transition-all duration-300"
+        style={{
+          borderColor: active ? `${rarityColor}90` : `${rarityColor}30`,
+          boxShadow: active ? rarityGlow : 'none',
+        }} />
 
       {/* Scan line on hover/select */}
       <div className={`absolute inset-0 overflow-hidden pointer-events-none ${active ? 'opacity-100' : 'opacity-0'} transition-opacity`}>
-        <div className="absolute top-0 left-0 right-0 h-[40px] bg-gradient-to-b from-[#c8ff00]/8 to-transparent animate-[scanDown_2s_linear_infinite]" />
+        <div className="absolute top-0 left-0 right-0 h-[40px] bg-gradient-to-b to-transparent animate-[scanDown_2s_linear_infinite]"
+          style={{ background: `linear-gradient(to bottom, ${rarityColor}15, transparent)` }} />
       </div>
 
-      {/* Corner brackets */}
-      <div className={`absolute top-1 left-1 w-2.5 h-2.5 border-l border-t transition-colors duration-300 ${
-        active ? 'border-[#c8ff00]/60' : 'border-[#c8ff00]/10'
-      }`} />
-      <div className={`absolute top-1 right-1 w-2.5 h-2.5 border-r border-t transition-colors duration-300 ${
-        active ? 'border-[#c8ff00]/60' : 'border-[#c8ff00]/10'
-      }`} />
-      <div className={`absolute bottom-1 left-1 w-2.5 h-2.5 border-l border-b transition-colors duration-300 ${
-        active ? 'border-[#c8ff00]/60' : 'border-[#c8ff00]/10'
-      }`} />
-      <div className={`absolute bottom-1 right-1 w-2.5 h-2.5 border-r border-b transition-colors duration-300 ${
-        active ? 'border-[#c8ff00]/60' : 'border-[#c8ff00]/10'
-      }`} />
+      {/* Corner brackets — rarity colored */}
+      <div className="absolute top-1 left-1 w-2.5 h-2.5 border-l border-t transition-colors duration-300"
+        style={{ borderColor: active ? `${rarityColor}90` : `${rarityColor}25` }} />
+      <div className="absolute top-1 right-1 w-2.5 h-2.5 border-r border-t transition-colors duration-300"
+        style={{ borderColor: active ? `${rarityColor}90` : `${rarityColor}25` }} />
+      <div className="absolute bottom-1 left-1 w-2.5 h-2.5 border-l border-b transition-colors duration-300"
+        style={{ borderColor: active ? `${rarityColor}90` : `${rarityColor}25` }} />
+      <div className="absolute bottom-1 right-1 w-2.5 h-2.5 border-r border-b transition-colors duration-300"
+        style={{ borderColor: active ? `${rarityColor}90` : `${rarityColor}25` }} />
 
       {/* Selected top bar glow */}
       {isSelected && (
