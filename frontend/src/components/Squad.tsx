@@ -157,10 +157,10 @@ function SquadCard({ mate, rank, isSelected, onClick }: {
 }) {
   const rankStr = String(rank).padStart(2, '0')
   const [hovered, setHovered] = useState(false)
-  const active = isSelected || hovered
+  const active = isSelected
 
   // Rarity colors based on rank: 1=gold, 2=purple, 3=blue, 4=green, 5-7=gray
-  const rarityColor = rank === 1 ? '#FFD700' : rank === 2 ? '#A855F7' : rank === 3 ? '#3B82F6' : rank === 4 ? '#22C55E' : '#555'
+  const rarityColor = rank === 1 ? '#FFD700' : rank === 2 ? '#A855F7' : rank === 3 ? '#3B82F6' : rank === 4 ? '#22C55E' : '#333'
   const rarityGlow = rank <= 4 ? `0 0 12px ${rarityColor}40` : 'none'
 
   return (
@@ -184,15 +184,9 @@ function SquadCard({ mate, rank, isSelected, onClick }: {
           boxShadow: active ? rarityGlow : 'none',
         }} />
 
-      {/* Scan line on hover/select — slow, random duration like detect feed */}
-      {active && (
-        <div className="absolute inset-0 overflow-hidden pointer-events-none z-[2]">
-          <div className="absolute top-0 left-0 right-0 h-[30px]"
-            style={{
-              background: `linear-gradient(to bottom, ${rarityColor}10, transparent)`,
-              animation: `scanDown ${5 + Math.random() * 6}s linear infinite`,
-            }} />
-        </div>
+      {/* Scan line — only on selected, not hover */}
+      {isSelected && (
+        <ScanEffect color={rarityColor} />
       )}
 
       {/* Corner brackets — exact same as ShellCard (1.5 inset, 3px size) */}
@@ -289,6 +283,34 @@ function SquadCard({ mate, rank, isSelected, onClick }: {
       </div>
 
     </button>
+  )
+}
+
+/* ── Scan effect — full top-to-bottom, random speed each cycle ── */
+function ScanEffect({ color }: { color: string }) {
+  const [duration, setDuration] = useState(() => 5 + Math.random() * 6)
+  const [key, setKey] = useState(0)
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDuration(5 + Math.random() * 6)
+      setKey(k => k + 1)
+    }, duration * 1000)
+    return () => clearTimeout(timer)
+  }, [key, duration])
+
+  return (
+    <div className="absolute inset-0 overflow-hidden pointer-events-none z-[2]">
+      <div
+        key={key}
+        className="absolute left-0 right-0 h-[30px]"
+        style={{
+          background: `linear-gradient(to bottom, ${color}12, transparent)`,
+          animation: `scanDown ${duration}s linear`,
+          top: 0,
+        }}
+      />
+    </div>
   )
 }
 
