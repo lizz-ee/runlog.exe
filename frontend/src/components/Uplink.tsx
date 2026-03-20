@@ -345,20 +345,17 @@ function TrendPanel({ title, data, domain, suffix, prefix }: {
 }) {
   const hasData = data.length > 1
   return (
-    <div className="relative overflow-hidden border border-m-green/10" style={{ background: CRT_BG }}>
-      <div className="absolute inset-0 pointer-events-none" style={CRT_SCANLINES} />
-      <div className="absolute inset-0 pointer-events-none" style={CRT_VIGNETTE} />
-
-      <div className="px-4 py-2.5 flex justify-between items-center relative z-10 border-b border-m-green/8">
-        <span className="text-[8px] font-mono text-m-green/40 tracking-[0.2em]">{title}</span>
+    <div className="bg-m-card border border-m-border relative overflow-hidden">
+      <div className="px-4 py-2.5 flex justify-between items-center border-b border-m-border">
+        <span className="label-tag text-m-text-muted">{title}</span>
         {hasData && (
-          <span className="text-[7px] font-mono text-m-green/20 tracking-wider">
+          <span className="text-[7px] font-mono text-m-text-muted/40 tracking-wider">
             {data.length} DATAPOINTS
           </span>
         )}
       </div>
 
-      <div className="px-3 py-3 relative z-10" style={{ height: 180 }}>
+      <div className="px-3 py-3" style={{ height: 180 }}>
         {hasData ? (
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={data}>
@@ -368,13 +365,13 @@ function TrendPanel({ title, data, domain, suffix, prefix }: {
                   <stop offset="100%" stopColor="#c8ff00" stopOpacity={0.02} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(200,255,0,0.06)" />
-              <XAxis dataKey="label" tick={{ fontSize: 8, fill: 'rgba(200,255,0,0.25)', fontFamily: 'monospace' }} axisLine={{ stroke: 'rgba(200,255,0,0.1)' }} tickLine={false} />
-              <YAxis domain={domain} tick={{ fontSize: 8, fill: 'rgba(200,255,0,0.25)', fontFamily: 'monospace' }} axisLine={{ stroke: 'rgba(200,255,0,0.1)' }} tickLine={false}
+              <CartesianGrid strokeDasharray="3 3" stroke="#1a1a2e" />
+              <XAxis dataKey="label" tick={{ fontSize: 8, fill: '#555', fontFamily: 'monospace' }} axisLine={{ stroke: '#1a1a2e' }} tickLine={false} />
+              <YAxis domain={domain} tick={{ fontSize: 8, fill: '#555', fontFamily: 'monospace' }} axisLine={{ stroke: '#1a1a2e' }} tickLine={false}
                 tickFormatter={v => `${prefix || ''}${v}${suffix || ''}`} />
               <Tooltip
-                contentStyle={{ background: '#050508', border: '1px solid rgba(200,255,0,0.2)', fontSize: 10, fontFamily: 'monospace', color: '#c8ff00' }}
-                labelStyle={{ color: 'rgba(200,255,0,0.5)' }}
+                contentStyle={{ background: '#0a0a0f', border: '1px solid #1a1a2e', fontSize: 10, fontFamily: 'monospace' }}
+                labelStyle={{ color: '#777' }}
                 formatter={(v: number) => [`${prefix || ''}${v}${suffix || ''}`, '']}
               />
               <Area type="monotone" dataKey="value" stroke="#c8ff00" strokeWidth={2} fill={`url(#grad-${title.replace(/\s/g, '')})`}
@@ -390,12 +387,12 @@ function TrendPanel({ title, data, domain, suffix, prefix }: {
             }} />
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="text-center space-y-2">
-                <p className="text-[8px] font-mono text-m-green/15 tracking-[0.3em]">// AWAITING SIGNAL //</p>
-                <p className="text-[7px] font-mono text-m-green/8 tracking-widest">0x4E554C4C // DATA.STREAM.PENDING</p>
+                <p className="text-[8px] font-mono text-m-text-muted/20 tracking-[0.3em]">// AWAITING SIGNAL //</p>
+                <p className="text-[7px] font-mono text-m-text-muted/10 tracking-widest">0x4E554C4C // DATA.STREAM.PENDING</p>
               </div>
             </div>
-            <div className="absolute left-3 top-2 text-[7px] font-mono text-m-green/10">100%</div>
-            <div className="absolute left-3 bottom-2 text-[7px] font-mono text-m-green/10">0%</div>
+            <div className="absolute left-3 top-2 text-[7px] font-mono text-m-text-muted/15">100%</div>
+            <div className="absolute left-3 bottom-2 text-[7px] font-mono text-m-text-muted/15">0%</div>
           </div>
         )}
       </div>
