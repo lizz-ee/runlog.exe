@@ -204,11 +204,11 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
               style={{ left: '1%', top: '1%', width: `${bracketWidth}%` }}
             >
               {/* Bracket — top-left + bottom-right corners hugging the dots */}
-              <div className="relative flex items-center justify-center gap-[8px] px-3 py-2.5">
-                {/* Top-left bracket — top+left lines hug top-left of first dot */}
-                <div className="absolute -top-1.5 -left-1.5 w-3 h-3 border-t-2 border-l-2 border-m-cyan/60" />
-                {/* Bottom-right bracket — bottom+right lines hug bottom-right of last dot */}
-                <div className="absolute -bottom-1.5 -right-1.5 w-3 h-3 border-b-2 border-r-2 border-m-cyan/60" />
+              <div className="relative flex items-center justify-center gap-[8px] px-2">
+                {/* Top-left bracket */}
+                <div className="absolute -top-2 -left-2 w-3 h-3 border-t-2 border-l-2 border-m-cyan/60" />
+                {/* Bottom-right bracket */}
+                <div className="absolute -bottom-2 -right-2 w-3 h-3 border-b-2 border-r-2 border-m-cyan/60" />
                 {/* Invisible spacers — actual pins render via spawn system */}
                 {unchartedSpawns.map((_, i) => (
                   <div key={i} className="w-4 h-4" />
