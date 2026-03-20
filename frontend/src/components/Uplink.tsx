@@ -150,6 +150,8 @@ export default function Uplink() {
       setMessages([...newMessages, { role: 'assistant', content: 'UPLINK ERROR — Connection lost.' }])
     }
     setStreaming(false)
+    // Refocus input so user can keep typing
+    setTimeout(() => inputRef.current?.focus(), 50)
   }, [input, messages, streaming])
 
   // Auto-scroll chat
