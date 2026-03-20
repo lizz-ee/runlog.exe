@@ -37,6 +37,7 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
   const [mapStats, setMapStats] = useState<MapStats[]>([])
   const [heatmap, setHeatmap] = useState<SpawnHeatmap[]>([])
   const [hoveredSpawn, setHoveredSpawn] = useState<string | null>(null)
+  const [lockedSpawn, setLockedSpawn] = useState<string | null>(null)  // click-locked tooltip
   const { runs } = useStore()
   const [spawns, setSpawns] = useState<SpawnRef[]>([])
   const [dragState, setDragState] = useState<DragState | null>(null)
@@ -116,9 +117,25 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
     setDirty(prev => new Set(prev).add(dragState.spawnId))
   }, [dragState, toPercent])
 
-  const onMouseUp = useCallback(() => {
+  const onMouseUp = useCallback((e?: React.MouseEvent) => {
+    if (dragState && e) {
+      const dx = Math.abs(e.clientX - dragState.startMouseX)
+      const dy = Math.abs(e.clientY - dragState.startMouseY)
+      // If barely moved, treat as click — lock tooltip for renaming
+      if (dx < 3 && dy < 3) {
+        setLockedSpawn(prev => prev === dragState.spawnId ? null : dragState.spawnId)
+      } else {
+        // Actually dragged — auto-open rename if it's an uncharted spawn
+        const spawn = spawns.find(s => s.id === dragState.spawnId)
+        if (spawn && spawn.zone.startsWith('//VCTR.RDCT//') && dirty.has(spawn.id)) {
+          setLockedSpawn(spawn.id)
+          setRenameValue(spawn.zone)
+          setRenamingSpawn(spawn.id)
+        }
+      }
+    }
     setDragState(null)
-  }, [])
+  }, [dragState, spawns, dirty])
 
   const saveToDb = async () => {
     setSaving(true)
@@ -179,6 +196,13 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
         onMouseMove={onMouseMove}
         onMouseUp={onMouseUp}
         onMouseLeave={onMouseUp}
+        onClick={(e) => {
+          // Click on map background dismisses locked tooltip
+          if (e.target === mapRef.current || (e.target as HTMLElement)?.tagName === 'IMG') {
+            setLockedSpawn(null)
+            setRenamingSpawn(null)
+          }
+        }}
       >
         {mapImage ? (
           <img
@@ -242,11 +266,11 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
                 left: `${spawn.x}%`,
                 top: `${spawn.y}%`,
                 cursor: isDragging ? 'grabbing' : 'grab',
-                zIndex: isDragging ? 50 : isHovered ? 40 : 10,
+                zIndex: isDragging ? 50 : (isHovered || lockedSpawn === spawn.id) ? 40 : 10,
               }}
               onMouseDown={(e) => onMouseDown(e, spawn)}
               onMouseEnter={() => !dragState && setHoveredSpawn(spawn.id)}
-              onMouseLeave={() => !dragState && setHoveredSpawn(null)}
+              onMouseLeave={() => !dragState && !lockedSpawn && setHoveredSpawn(null)}
             >
               <motion.div
                 className={`absolute rounded-full border ${borderClass}`}
@@ -254,12 +278,12 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
                 animate={{ opacity: [0.3, 0.6, 0.3], scale: [1, 1.2, 1] }}
                 transition={{ duration: 2.5, repeat: Infinity }}
               />
-              <div className={`relative w-4 h-4 -ml-2 -mt-2 rounded-full border-2 flex items-center justify-center transition-all ${bgClass} ${isHovered || isDragging ? 'scale-150' : ''}`}>
+              <div className={`relative w-4 h-4 -ml-2 -mt-2 rounded-full border-2 flex items-center justify-center transition-all ${bgClass} ${isHovered || isDragging || lockedSpawn === spawn.id ? 'scale-150' : ''}`}>
                 <div className={`w-1.5 h-1.5 rounded-full ${dotClass}`} />
               </div>
 
               {/* Tooltip */}
-              {(isHovered || isDragging) && (() => {
+              {(isHovered || isDragging || lockedSpawn === spawn.id) && (() => {
                 const loc = currentHeatmap?.locations.find(l => l.location === spawn.zone)
                 const totalRuns = loc ? loc.runs_survived + loc.runs_died : 0
                 const survRate = totalRuns > 0 ? Math.round(loc!.runs_survived / totalRuns * 100) : null
