@@ -62,11 +62,11 @@ export default function Shells() {
     }).catch(console.error)
   }, [])
 
-  // Build shell map and sort: shells with data sorted by runs (best first), then shells with no data
+  // Build shell map and sort: shells with data sorted by score (best first), then shells with no data
   const shellMap = new Map(shells.map((s) => [s.runner_name.toLowerCase(), s]))
   const withData = ALL_SHELLS
     .filter((name) => shellMap.has(name))
-    .sort((a, b) => (shellMap.get(b)?.runs ?? 0) - (shellMap.get(a)?.runs ?? 0))
+    .sort((a, b) => ((shellMap.get(b) as any)?.score ?? 0) - ((shellMap.get(a) as any)?.score ?? 0))
   const withoutData = ALL_SHELLS.filter((name) => !shellMap.has(name))
   // Also include any unknown shells from data
   const unknown = shells
