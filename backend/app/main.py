@@ -69,16 +69,25 @@ if _seed_db.query(SpawnPoint).count() == 0:
         print(f"[seed] Loaded {len(_seed_spawns)} reference spawn points")
 _seed_db.close()
 
-# Auto-create session on startup — every app lifecycle = one session
-from .models import Session as SessionModel
-_session_db = SessionLocal()
-_current_session = SessionModel(started_at=datetime.utcnow())
-_session_db.add(_current_session)
-_session_db.commit()
-_session_db.refresh(_current_session)
-current_session_id = _current_session.id
-print(f"[session] Started session #{current_session_id}")
-_session_db.close()
+# Session tracking — created on first run, not on startup (Option B)
+# This avoids empty sessions from app open/close without playing
+current_session_id = None  # Set when first run is processed
+
+def get_or_create_session() -> int:
+    """Get current session ID, creating one if needed."""
+    global current_session_id
+    if current_session_id is not None:
+        return current_session_id
+    from .models import Session as SessionModel
+    db = SessionLocal()
+    session = SessionModel(started_at=datetime.utcnow())
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    current_session_id = session.id
+    db.close()
+    print(f"[session] Created session #{current_session_id}")
+    return current_session_id
 
 app = FastAPI(
     title="Marathon RunLog",

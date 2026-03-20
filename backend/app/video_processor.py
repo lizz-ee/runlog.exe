@@ -1323,9 +1323,10 @@ def save_run_to_db(analysis: dict, run_date: datetime | None = None) -> int | No
                 runner_id = runner.id
                 print(f"[processor] New shell created: {shell_name} (#{runner.id})")
 
-        # Get current session ID
+        # Get or create session on first run
         try:
-            from .main import current_session_id as _sid
+            from .main import get_or_create_session
+            _sid = get_or_create_session()
         except ImportError:
             _sid = None
 

@@ -27,6 +27,45 @@ from ..config import settings
 
 router = APIRouter()
 
+# ── Session code formatter ──────────────────────────────────────
+def format_session_code(session_index: int) -> str:
+    """Convert a 1-based session index to :NNA: format.
+
+    :01A: through :99A: (1-99)
+    :01B: through :99B: (100-198)
+    ...
+    :01Z: through :99Z: (2475-2574)
+    :01AA: through :99AA: (2575+)
+    """
+    if session_index <= 0:
+        return ":??:"
+    idx = session_index - 1  # 0-based
+
+    if idx < 26 * 99:
+        # Single letter suffix: A-Z
+        letter_idx = idx // 99
+        num = (idx % 99) + 1
+        return f":{num:02d}{chr(65 + letter_idx)}:"
+    else:
+        # Double letter suffix: AA, AB, etc.
+        remaining = idx - (26 * 99)
+        first = remaining // (99 * 26)
+        second = (remaining // 99) % 26
+        num = (remaining % 99) + 1
+        return f":{num:02d}{chr(65 + first)}{chr(65 + second)}:"
+
+
+def get_session_index(db: Session, session_id: int) -> int:
+    """Get the 1-based index of a session among sessions that have runs."""
+    sessions_with_runs = db.query(SessionModel.id).join(
+        Run, Run.session_id == SessionModel.id
+    ).distinct().order_by(SessionModel.id.asc()).all()
+    for i, (sid,) in enumerate(sessions_with_runs):
+        if sid == session_id:
+            return i + 1
+    return 0
+
+
 # ── Briefing cache ──────────────────────────────────────────────
 _briefing_cache = {"session_id": None, "run_count": 0, "text": None}
 
@@ -67,12 +106,16 @@ def tool_get_session_summary(db: Session, session_id: int = None, **kwargs) -> d
     else:
         session = db.query(SessionModel).order_by(SessionModel.id.desc()).first()
     if not session:
-        return {"error": "No session found"}
+        return {"error": "No session found", "session_code": ":??:"}
+
+    session_idx = get_session_index(db, session.id)
+    session_code = format_session_code(session_idx) if session_idx > 0 else ":??:"
 
     runs = db.query(Run).filter(Run.session_id == session.id).all()
     total = len(runs)
     if total == 0:
-        return {"session_id": session.id, "date": str(session.started_at), "run_count": 0,
+        return {"session_id": session.id, "session_code": session_code,
+                "date": str(session.started_at), "run_count": 0,
                 "message": "No runs in this session yet."}
     survived = sum(1 for r in runs if r.survived)
     pvp = sum(r.runner_eliminations or 0 for r in runs)
@@ -86,6 +129,7 @@ def tool_get_session_summary(db: Session, session_id: int = None, **kwargs) -> d
     best = max(runs, key=lambda r: (r.grade or 'Z', r.loot_value_total or 0))
     return {
         "session_id": session.id,
+        "session_code": session_code,
         "date": str(session.started_at)[:10] if session.started_at else None,
         "run_count": total,
         "survived": survived,
@@ -273,7 +317,17 @@ def tool_get_performance_trend(db: Session, stat: str = "survival", range: str =
                 groups[key] = []
             groups[key].append(r)
         result = []
-        for i, (sid, grp) in enumerate(sorted(groups.items())):
+        sorted_groups = sorted(groups.items())
+        # Build session code mapping for sessions with runs
+        session_codes = {}
+        code_idx = 1
+        for sid, _ in sorted_groups:
+            if sid:
+                session_codes[sid] = format_session_code(code_idx)
+                code_idx += 1
+            else:
+                session_codes[sid] = ":??:"
+        for i, (sid, grp) in enumerate(sorted_groups):
             total = len(grp)
             survived = sum(1 for r in grp if r.survived)
             pvp = sum(r.runner_eliminations or 0 for r in grp)
@@ -288,7 +342,7 @@ def tool_get_performance_trend(db: Session, stat: str = "survival", range: str =
                 "revives": round(revives / total, 1) if total else 0,
             }.get(stat, 0)
             result.append({
-                "label": f"S.{i + 1:02d}",
+                "label": session_codes.get(sid, f"S.{i + 1:02d}"),
                 "value": val,
                 "run_count": total,
                 "date": str(grp[0].date)[:10] if grp[0].date else None,

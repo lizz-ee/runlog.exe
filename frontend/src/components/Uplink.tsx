@@ -210,7 +210,7 @@ export default function Uplink() {
 
             <div className="px-4 py-3 border-b border-m-border flex justify-between relative z-10">
               <span className="label-tag text-m-text-muted">
-                BRIEFING // SESSION.{summary?.session_id ? String(summary.session_id).padStart(2, '0') : '??'}
+                BRIEFING // {(summary as any)?.session_code || ':??:'}
               </span>
               <span className="label-tag text-m-text-muted">
                 {summary?.date ? summary.date.replace(/-/g, '.').toUpperCase() : ''}
