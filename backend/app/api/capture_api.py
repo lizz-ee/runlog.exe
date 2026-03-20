@@ -39,7 +39,7 @@ def _get_engine() -> AutoCapture:
 
 @router.post("/start")
 def capture_start():
-    """Create and start the AutoCapture engine (singleton)."""
+    """Create and start the AutoCapture engine (singleton). Restarts recorder if no window found."""
     global _engine
     if _engine is None:
         _engine = AutoCapture(
@@ -47,6 +47,13 @@ def capture_start():
             clips_dir=CLIPS_DIR,
         )
     status = _engine.start()
+    # If recorder is running but has no window, restart it to re-search
+    if _engine._running and not _engine._recorder.window_name and _engine._recorder.is_running:
+        _engine._recorder.stop()
+        _engine._recorder.start()
+        if _engine._recorder.window_name:
+            print(f"[capture] Recorder re-found window: {_engine._recorder.window_name}")
+            status = _engine.get_status()
     return JSONResponse(content=status)
 
 
