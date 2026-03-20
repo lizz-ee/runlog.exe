@@ -114,7 +114,7 @@ export default function Dashboard() {
       {/* Recent Runs */}
       <div>
         <div className="flex items-center justify-between mb-3">
-          <p className="label-tag text-m-text-muted">RECENT.OPERATIONS</p>
+          <p className="label-tag text-m-text-muted">RECENT.RUNS</p>
           <div className="flex items-center gap-3">
             {runs.some(r => !r.viewed) && (
               <button
