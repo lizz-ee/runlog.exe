@@ -20,7 +20,7 @@ router = APIRouter()
 
 _engine: AutoCapture | None = None
 
-# All data lives under AppData/marathon-runlog/data/ — same as the DB
+# All data lives under AppData/runlog/marathon/data/ — same as the DB
 RECORDINGS_DIR = os.path.join(_DATA_DIR, "recordings")
 CLIPS_DIR = os.path.join(_DATA_DIR, "clips")
 
