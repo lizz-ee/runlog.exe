@@ -206,7 +206,7 @@ export default function Uplink() {
                 <div className="text-xs font-mono text-m-text leading-relaxed whitespace-pre-wrap">
                   {briefing.split('\n').map((line, i) => {
                     if (!line.trim()) return <div key={i} className="h-2" />
-                    if (line.includes('TREND:')) return <p key={i} className="text-m-green mt-2">{line}</p>
+                    if (line.includes('TREND:')) return <p key={i} className="text-m-cyan mt-2">{line}</p>
                     if (line.includes('ALERT:')) return <p key={i} className="text-m-yellow mt-2">{line}</p>
                     return <p key={i}>{line}</p>
                   })}

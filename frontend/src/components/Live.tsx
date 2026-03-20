@@ -191,7 +191,7 @@ export default function Live() {
     <div className="max-w-7xl mx-auto space-y-4">
       {/* Header */}
       <div>
-        <p className="label-tag text-m-text-muted">CAPTURE // DETECT.EXE</p>
+        <p className="label-tag text-m-green">CAPTURE // DETECT.EXE</p>
         <h2 className="text-xl font-display font-black tracking-wider text-m-text mt-1">
           DETECTION SYSTEM
         </h2>
