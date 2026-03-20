@@ -133,16 +133,12 @@ export default function Uplink() {
 
   return (
     <div className="max-w-7xl mx-auto h-full flex flex-col">
-      {/* ═══ HEADER — glitch-style ═══ */}
-      <div className="mb-4 relative">
-        <p className="text-[9px] font-mono text-m-green/60 tracking-[0.3em]">LIVE // UPLINK</p>
-        <h2 className="text-2xl font-display font-black tracking-[0.15em] text-m-text mt-1">
+      {/* ═══ HEADER ═══ */}
+      <div className="mb-4">
+        <p className="label-tag text-m-green">LIVE // UPLINK</p>
+        <h2 className="text-xl font-display font-black tracking-wider text-m-text mt-1">
           UPLINK
         </h2>
-        <div className="absolute top-0 right-0 text-[7px] font-mono text-m-green/20 tracking-wider text-right">
-          SYS.STATUS: ONLINE<br/>
-          {summary?.session_code || ':??:'} // {summary?.date?.replace(/-/g, '.') || '—'}
-        </div>
       </div>
 
       {/* ═══ TWO-COLUMN LAYOUT ═══ */}

@@ -162,7 +162,17 @@ def stats_by_runner(db: Session = Depends(get_db)):
         s["avg_time"] = round(s["time"] / s["runs"]) if s["runs"] else 0
         wc = s.pop("weapon_counts")
         s["favorite_weapon"] = max(wc, key=wc.get) if wc else None
-    return list(runners.values())
+
+    # Weighted performance score: 10% base + 35% survival + 25% rkills + 5% pve + 10% revives + 15% loot
+    for s in runners.values():
+        surv_factor = s["survival_rate"] / 100
+        rkill_factor = min((s["pvp_kills"] / s["runs"]) / 5, 1.0) if s["runs"] else 0  # cap at 5 kills/run
+        pve_factor = min((s["pve_kills"] / s["runs"]) / 10, 1.0) if s["runs"] else 0  # cap at 10 kills/run
+        revive_factor = min((s["revives"] / s["runs"]) / 3, 1.0) if s["runs"] else 0  # cap at 3 revives/run
+        loot_factor = min(s["avg_loot"] / 5000, 1.0) if s["avg_loot"] > 0 else 0  # cap at $5k
+        s["score"] = round(s["runs"] * (0.10 + 0.35 * surv_factor + 0.25 * rkill_factor + 0.05 * pve_factor + 0.10 * revive_factor + 0.15 * loot_factor), 2)
+
+    return sorted(runners.values(), key=lambda x: x["score"], reverse=True)
 
 
 @router.get("/trends")
