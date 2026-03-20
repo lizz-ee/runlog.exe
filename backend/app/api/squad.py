@@ -8,7 +8,7 @@ router = APIRouter()
 
 
 @router.get("/stats")
-def get_squad_stats(limit: int = Query(7, ge=1, le=20), db: Session = Depends(get_db)):
+def get_squad_stats(limit: int = Query(20, ge=1, le=50), db: Session = Depends(get_db)):
     """Top squad mates by runs together, with per-mate stats."""
     runs = db.query(Run).all()
     if not runs:
