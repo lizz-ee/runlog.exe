@@ -1,5 +1,5 @@
 {
-  "name": "marathon-runlog",
+  "name": "runlog",
   "private": true,
   "version": "1.0.0",
   "description": "Marathon run tracker - screenshot powered stats",

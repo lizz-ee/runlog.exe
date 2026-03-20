@@ -6,7 +6,8 @@ from pydantic_settings import BaseSettings
 # Data location: AppData/Roaming/runlog/marathon/data/
 # Structure: runlog/<game>/data/ — supports future multi-game expansion
 _APPDATA = os.environ.get("APPDATA", os.path.expanduser("~"))
-_DATA_DIR = os.path.join(_APPDATA, "runlog", "marathon", "data")
+_RUNLOG_ROOT = os.path.join(_APPDATA, "runlog")
+_DATA_DIR = os.path.join(_RUNLOG_ROOT, "marathon", "data")
 
 # Migrate from old location (marathon-runlog/data/) if it exists
 _OLD_DATA_DIR = os.path.join(_APPDATA, "marathon-runlog", "data")
@@ -22,9 +23,29 @@ if os.path.isdir(_OLD_DATA_DIR) and not os.path.isdir(_DATA_DIR):
     except Exception:
         pass
 
+    # Update any absolute paths stored in the database
+    _migrated_db = os.path.join(_DATA_DIR, "runlog.db")
+    if os.path.exists(_migrated_db):
+        try:
+            import sqlite3
+            _conn = sqlite3.connect(_migrated_db)
+            _old_str = os.path.join(_APPDATA, "marathon-runlog", "data").replace("/", "\\")
+            _new_str = _DATA_DIR.replace("/", "\\")
+            _conn.execute(
+                "UPDATE runs SET recording_path = REPLACE(recording_path, ?, ?) WHERE recording_path LIKE ?",
+                (_old_str, _new_str, f"%{_old_str}%")
+            )
+            _conn.commit()
+            rows = _conn.total_changes
+            _conn.close()
+            if rows:
+                print(f"[config] Updated {rows} recording path(s) in database")
+        except Exception as e:
+            print(f"[config] Path migration warning: {e}")
+
 os.makedirs(_DATA_DIR, exist_ok=True)
 _DB_PATH = os.path.join(_DATA_DIR, "runlog.db").replace("\\", "/")
-_SETTINGS_FILE = os.path.join(_DATA_DIR, "settings.json")
+_SETTINGS_FILE = os.path.join(_RUNLOG_ROOT, "settings.json")  # Global settings, not per-game
 
 
 def _load_saved_api_key() -> str:

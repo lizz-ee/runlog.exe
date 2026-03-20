@@ -5,11 +5,9 @@ import anthropic
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from ..config import _DATA_DIR, settings
+from ..config import _DATA_DIR, _SETTINGS_FILE, settings
 
 router = APIRouter()
-
-_SETTINGS_FILE = os.path.join(_DATA_DIR, "settings.json")
 
 
 def _load_settings() -> dict:
