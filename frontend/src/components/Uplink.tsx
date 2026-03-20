@@ -68,13 +68,19 @@ export default function Uplink() {
     }).catch(() => {})
   }, [])
 
-  // Auto-generate briefing on mount
+  // Auto-generate briefing when session data changes
+  const briefingRunCount = useRef(0)
   useEffect(() => {
-    if (briefing || briefingLoading) return
+    const currentRuns = summary?.run_count ?? 0
+    // Skip if already have briefing for this run count, or loading
+    if (briefingLoading) return
+    if (briefing && currentRuns === briefingRunCount.current) return
+    // Update tracking
+    briefingRunCount.current = currentRuns
+    if (currentRuns === 0 && briefing) return  // Don't re-fetch if no new runs
     setBriefingLoading(true)
+    setBriefing(null)  // Clear old briefing
 
-    const evtSource = new EventSource(`${apiBase}/api/uplink/briefing`, )
-    // SSE via POST needs fetch, not EventSource
     fetch(`${apiBase}/api/uplink/briefing`, { method: 'POST' })
       .then(async (response) => {
         const reader = response.body?.getReader()
@@ -102,9 +108,7 @@ export default function Uplink() {
         setBriefingLoading(false)
       })
       .catch(() => setBriefingLoading(false))
-
-    evtSource.close()
-  }, [])
+  }, [summary?.run_count])
 
   // Send chat message
   const sendMessage = useCallback(async () => {
