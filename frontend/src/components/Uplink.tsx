@@ -181,7 +181,7 @@ export default function Uplink() {
         {/* LEFT COLUMN — 60% scrollable */}
         <div className="w-[60%] overflow-y-auto space-y-4 pr-2">
           {/* Session debrief — hero stats */}
-          <div className="grid grid-cols-5 gap-[1px] bg-m-border">
+          <div className="grid grid-cols-6 gap-[1px] bg-m-border">
             {hasSessionData ? (
               <>
                 <StatBlock label="RUNS" value={String(summary!.run_count)} sub="session" />
@@ -192,6 +192,8 @@ export default function Uplink() {
                   sub={`${summary!.avg_runner_kills_per_run ?? 0}/run`} />
                 <StatBlock label="PVE" value={String(summary!.total_pve_kills ?? 0)}
                   sub={`${summary!.avg_pve_kills_per_run ?? 0}/run`} />
+                <StatBlock label="REVIVES" value={String(summary!.total_revives ?? 0)}
+                  sub="crew" color="green" />
                 <StatBlock label="LOOT" value={`$${(summary!.total_loot ?? 0).toLocaleString()}`}
                   sub="extracted" color="yellow" />
               </>
@@ -201,6 +203,7 @@ export default function Uplink() {
                 <StatBlock label="SURVIVAL" value="—%" sub="— of —" />
                 <StatBlock label="R.KILLS" value="—" sub="—/run" />
                 <StatBlock label="PVE" value="—" sub="—/run" />
+                <StatBlock label="REVIVES" value="—" sub="crew" />
                 <StatBlock label="LOOT" value="$—" sub="awaiting" />
               </>
             )}
@@ -340,14 +343,18 @@ export default function Uplink() {
         </div>
 
         {/* RIGHT COLUMN — 40% chat */}
-        <div className="w-[40%] bg-m-card border border-m-border flex flex-col">
+        <div className="w-[40%] bg-m-card border border-m-border flex flex-col relative overflow-hidden">
+          {/* Scanline effect */}
+          <div className="absolute inset-0 opacity-[0.015] pointer-events-none z-10"
+            style={{ backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(200,255,0,0.4) 2px, rgba(200,255,0,0.4) 3px)' }} />
+
           {/* Chat header */}
-          <div className="px-4 py-3 border-b border-m-border">
+          <div className="px-4 py-3 border-b border-m-border relative z-20">
             <span className="label-tag text-m-green">COMMS // UPLINK</span>
           </div>
 
           {/* Messages */}
-          <div ref={chatRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
+          <div ref={chatRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-4 relative z-20">
             {messages.length === 0 && !streaming && (
               <div className="flex items-center justify-center h-full">
                 <div className="text-center space-y-2">
