@@ -280,24 +280,58 @@ class AutoCapture:
 
         print("[capture] OCR loop stopped.")
 
-    # Map detection phases to screenshot slots (1 per phase, guaranteed)
-    _PHASE_SLOTS = {'ready_up': 1, 'run': 2, 'deploying': 3}
+    # Map detection phases to descriptive filenames
+    _PHASE_NAMES = {'ready_up': 'readyup', 'run': 'run', 'deploying': 'deploying'}
 
     def _save_phase_screenshot(self, name: str, phase: str, frame_jpeg: bytes):
-        """Save one screenshot per phase (overwrites within same phase, keeps latest)."""
-        slot = self._PHASE_SLOTS.get(phase)
-        if not slot:
+        """Save one screenshot per phase — full + center crop. Overwrites within same phase."""
+        phase_name = self._PHASE_NAMES.get(phase)
+        if not phase_name:
             return 0
-        path = os.path.join(self.recordings_dir, f"{name}_buf_{slot}.jpg")
-        with open(path, "wb") as f:
+
+        # Save full screenshot
+        full_path = os.path.join(self.recordings_dir, f"{name}_buf_{phase_name}.jpg")
+        with open(full_path, "wb") as f:
             f.write(frame_jpeg)
-        count = sum(1 for i in range(1, 4) if os.path.exists(os.path.join(self.recordings_dir, f"{name}_buf_{i}.jpg")))
+
+        # Save center-cropped version (middle 40% of frame — captures loadout/shell/HUD)
+        try:
+            img = Image.open(io.BytesIO(frame_jpeg))
+            w, h = img.size
+            crop_w, crop_h = int(w * 0.4), int(h * 0.5)
+            left = (w - crop_w) // 2
+            top = (h - crop_h) // 2
+            crop = img.crop((left, top, left + crop_w, top + crop_h))
+            crop_path = os.path.join(self.recordings_dir, f"{name}_buf_{phase_name}_crop.jpg")
+            crop.save(crop_path, "JPEG", quality=85)
+        except Exception as e:
+            print(f"[capture] Crop failed for {phase_name}: {e}")
+
+        phases = ['readyup', 'run', 'deploying']
+        count = sum(1 for p in phases if os.path.exists(os.path.join(self.recordings_dir, f"{name}_buf_{p}.jpg")))
         return count
 
     def _move_buffer(self, name: str, screenshots_dir: str):
-        """Move all phase screenshots to the run screenshots folder."""
+        """Move all phase screenshots (full + crop) to the run screenshots folder."""
         import shutil
         moved = 0
+        for phase_name in ['readyup', 'run', 'deploying']:
+            # Move full screenshot
+            buf_path = os.path.join(self.recordings_dir, f"{name}_buf_{phase_name}.jpg")
+            if os.path.exists(buf_path):
+                try:
+                    shutil.move(buf_path, os.path.join(screenshots_dir, f"{phase_name}.jpg"))
+                    moved += 1
+                except Exception:
+                    pass
+            # Move crop
+            crop_path = os.path.join(self.recordings_dir, f"{name}_buf_{phase_name}_crop.jpg")
+            if os.path.exists(crop_path):
+                try:
+                    shutil.move(crop_path, os.path.join(screenshots_dir, f"{phase_name}_crop.jpg"))
+                except Exception:
+                    pass
+        # Also move legacy numbered files if they exist
         for i in range(1, 4):
             buf_path = os.path.join(self.recordings_dir, f"{name}_buf_{i}.jpg")
             if os.path.exists(buf_path):

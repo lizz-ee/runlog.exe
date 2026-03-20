@@ -288,6 +288,9 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
                             .then(() => {
                               setSpawns(prev => prev.map(s => s.id === spawn.id ? { ...s, zone: renameValue.trim() } : s))
                               setRenamingSpawn(null)
+                              setLockedSpawn(null)
+                              // Refresh heatmap so stats follow the renamed spawn
+                              getSpawnHeatmap().then(setHeatmap).catch(() => {})
                             })
                         }}
                       >

@@ -471,13 +471,22 @@ def _analyze_with_screenshots(deploy_jpg: str, readyup_jpg: str, frames_dir: str
     # Single deploy screenshot
     if os.path.exists(deploy_jpg):
         screenshots.append(os.path.abspath(deploy_jpg).replace("\\", "/"))
-    # Add all readyup buffer screenshots (up to 3)
-    for i in range(1, 4):
-        buf_path = os.path.join(screenshot_dir, f"readyup_{i}.jpg")
-        if os.path.exists(buf_path):
-            screenshots.append(os.path.abspath(buf_path).replace("\\", "/"))
+    # Add phase screenshots (new naming: readyup.jpg, run.jpg, deploying.jpg + crops)
+    for phase in ['readyup', 'run', 'deploying']:
+        full = os.path.join(screenshot_dir, f"{phase}.jpg")
+        crop = os.path.join(screenshot_dir, f"{phase}_crop.jpg")
+        if os.path.exists(full):
+            screenshots.append(os.path.abspath(full).replace("\\", "/"))
+        if os.path.exists(crop):
+            screenshots.append(os.path.abspath(crop).replace("\\", "/"))
+    # Legacy fallback: numbered readyup_1/2/3.jpg
+    if not any(p in s for s in screenshots for p in ['readyup.jpg', 'run.jpg', 'deploying.jpg']):
+        for i in range(1, 4):
+            buf_path = os.path.join(screenshot_dir, f"readyup_{i}.jpg")
+            if os.path.exists(buf_path):
+                screenshots.append(os.path.abspath(buf_path).replace("\\", "/"))
     # Legacy fallback: single readyup.jpg
-    if os.path.exists(readyup_jpg) and not any("readyup_" in s for s in screenshots):
+    if os.path.exists(readyup_jpg) and not any("readyup" in s for s in screenshots):
         screenshots.append(os.path.abspath(readyup_jpg).replace("\\", "/"))
 
     if screenshots:
@@ -504,7 +513,7 @@ def _analyze_with_screenshots(deploy_jpg: str, readyup_jpg: str, frames_dir: str
         image_list = "\n".join(f"- {p}" for p in screenshots)
         prompt1 = f"""Read these Marathon (2026 extraction shooter) screenshots. You may receive multiple images:
 1. **deploy.jpg** — the deployment loading screen with map name and spawn coordinates.
-2. **readyup_1.jpg** (READY UP screen), **readyup_2.jpg** (RUN screen), **readyup_3.jpg** (DEPLOYING screen) — one screenshot from each pre-deployment phase. Some may be black/loading screens — IGNORE those and use the ones with actual game content (shell visible, loadout grid, weapons, map name, crew size, gamertag). Pick the BEST image for each piece of data.
+2. **readyup.jpg** (READY UP screen), **run.jpg** (RUN screen), **deploying.jpg** (DEPLOYING screen) — one screenshot from each pre-deployment phase. Each may also have a **_crop.jpg** version (center-cropped to focus on loadout/shell/HUD). Some may be black/loading screens — IGNORE those and use the ones with actual game content (shell visible, loadout grid, weapons, map name, crew size, gamertag). Pick the BEST image for each piece of data.
 
 {image_list}
 {f'{chr(10)}Shell reference images — use these to identify the shell:{shell_refs}' if shell_refs else ''}
