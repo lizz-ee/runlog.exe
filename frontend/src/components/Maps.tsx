@@ -117,25 +117,9 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
     setDirty(prev => new Set(prev).add(dragState.spawnId))
   }, [dragState, toPercent])
 
-  const onMouseUp = useCallback((e?: React.MouseEvent) => {
-    if (dragState && e) {
-      const dx = Math.abs(e.clientX - dragState.startMouseX)
-      const dy = Math.abs(e.clientY - dragState.startMouseY)
-      // If barely moved, treat as click — lock tooltip for renaming
-      if (dx < 3 && dy < 3) {
-        setLockedSpawn(prev => prev === dragState.spawnId ? null : dragState.spawnId)
-      } else {
-        // Actually dragged — auto-open rename if it's an uncharted spawn
-        const spawn = spawns.find(s => s.id === dragState.spawnId)
-        if (spawn && spawn.zone.startsWith('//VCTR.RDCT//') && dirty.has(spawn.id)) {
-          setLockedSpawn(spawn.id)
-          setRenameValue(spawn.zone)
-          setRenamingSpawn(spawn.id)
-        }
-      }
-    }
+  const onMouseUp = useCallback(() => {
     setDragState(null)
-  }, [dragState, spawns, dirty])
+  }, [])
 
   const saveToDb = async () => {
     setSaving(true)
@@ -269,6 +253,12 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
                 zIndex: isDragging ? 50 : (isHovered || lockedSpawn === spawn.id) ? 40 : 10,
               }}
               onMouseDown={(e) => onMouseDown(e, spawn)}
+              onDoubleClick={(e) => {
+                e.stopPropagation()
+                setLockedSpawn(spawn.id)
+                setRenameValue(spawn.zone)
+                setRenamingSpawn(spawn.id)
+              }}
               onMouseEnter={() => !dragState && setHoveredSpawn(spawn.id)}
               onMouseLeave={() => !dragState && !lockedSpawn && setHoveredSpawn(null)}
             >
@@ -325,7 +315,7 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
                       </p>
                     )}
                     {spawn.gameCoords && (
-                      <p className="text-[8px] font-mono text-m-text-muted/60 mt-0.5">
+                      <p className={`text-[9px] font-mono mt-0.5 ${isUncharted ? 'text-m-cyan/70' : 'text-m-cyan/50'}`}>
                         {spawn.gameCoords[0].toFixed(2)}, {spawn.gameCoords[1].toFixed(2)}
                       </p>
                     )}

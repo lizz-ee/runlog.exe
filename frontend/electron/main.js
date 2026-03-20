@@ -38,9 +38,9 @@ let recordingManager = null
 const overlaySettingsFile = path.join(app.getPath('userData'), 'overlay-settings.json')
 
 const OVERLAY_SIZES = {
-  small: { width: 220, height: 24, fontSize: 9 },
-  medium: { width: 280, height: 30, fontSize: 11 },
-  large: { width: 350, height: 38, fontSize: 14 },
+  small: { width: 250, height: 24, fontSize: 9 },
+  medium: { width: 290, height: 30, fontSize: 11 },
+  large: { width: 360, height: 38, fontSize: 14 },
 }
 
 function loadOverlaySettings() {
