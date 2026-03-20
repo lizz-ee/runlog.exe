@@ -296,8 +296,8 @@ export default function Settings() {
                 <div className="flex">
                   {CORNERS.map((c, i) => {
                     const posMap: Record<string, { x: number; y: number }> = {
-                      'top-left': { x: 0, y: 0 }, 'top-center': { x: 35, y: 0 }, 'top-right': { x: 70, y: 0 },
-                      'bottom-left': { x: 0, y: 88 }, 'bottom-center': { x: 35, y: 88 }, 'bottom-right': { x: 70, y: 88 },
+                      'top-left': { x: 2, y: 4 }, 'top-center': { x: 50, y: 4 }, 'top-right': { x: 98, y: 4 },
+                      'bottom-left': { x: 2, y: 92 }, 'bottom-center': { x: 50, y: 92 }, 'bottom-right': { x: 98, y: 92 },
                     }
                     return (
                       <button
@@ -376,8 +376,8 @@ export default function Settings() {
                 <div
                   className="absolute pointer-events-none"
                   style={{
-                    left: `${Math.max(0, Math.min(overlayPos.x - 15, 70))}%`,
-                    top: `${Math.max(0, Math.min(overlayPos.y - 4, 92))}%`,
+                    left: `clamp(0%, ${overlayPos.x}% - 15%, 70%)`,
+                    top: `clamp(0%, ${overlayPos.y}% - 4%, 92%)`,
                     width: '30%',
                     height: '8%',
                   }}

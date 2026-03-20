@@ -205,10 +205,10 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
             >
               {/* Bracket — top-left + bottom-right corners hugging the dots */}
               <div className="relative flex items-center justify-center gap-[8px] px-3 py-2.5">
-                {/* Top-left bracket — top+left lines hug top of first dot */}
-                <div className="absolute -top-1 -left-1 w-3 h-3 border-t-2 border-l-2 border-m-cyan/60" />
-                {/* Bottom-right bracket — bottom+right lines hug bottom of last dot */}
-                <div className="absolute -bottom-1 -right-1 w-3 h-3 border-b-2 border-r-2 border-m-cyan/60" />
+                {/* Top-left bracket — top+left lines hug top-left of first dot */}
+                <div className="absolute -top-1.5 -left-1.5 w-3 h-3 border-t-2 border-l-2 border-m-cyan/60" />
+                {/* Bottom-right bracket — bottom+right lines hug bottom-right of last dot */}
+                <div className="absolute -bottom-1.5 -right-1.5 w-3 h-3 border-b-2 border-r-2 border-m-cyan/60" />
                 {/* Invisible spacers — actual pins render via spawn system */}
                 {unchartedSpawns.map((_, i) => (
                   <div key={i} className="w-4 h-4" />
