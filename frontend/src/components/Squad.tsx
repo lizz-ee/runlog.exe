@@ -179,8 +179,7 @@ function SquadCard({ mate, rank, isSelected, onClick }: {
       {/* Border — identical for all cards, only rarityColor differs */}
       <div className="absolute inset-0 transition-all duration-300"
         style={{
-          border: isSelected ? `2px solid ${rarityColor}80` : `1px solid ${rarityColor}20`,
-          boxShadow: isSelected ? rarityGlow : 'none',
+          border: isSelected ? `1px solid ${rarityColor}60` : `1px solid ${rarityColor}20`,
         }} />
 
 
