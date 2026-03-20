@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import axios from 'axios'
 import { apiBase } from '../lib/api'
+import { useStore } from '../lib/store'
 import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts'
 
 interface SessionSummary {
@@ -36,12 +37,11 @@ interface ChatMsg {
 
 export default function Uplink() {
   const [summary, setSummary] = useState<SessionSummary | null>(null)
-  const [briefing, setBriefing] = useState<string | null>(null)
+  const { uplinkMessages: messages, setUplinkMessages: setMessages, uplinkBriefing: briefing, setUplinkBriefing: setBriefing } = useStore()
   const [briefingLoading, setBriefingLoading] = useState(false)
   const [survivalTrend, setSurvivalTrend] = useState<TrendPoint[]>([])
   const [lootTrend, setLootTrend] = useState<TrendPoint[]>([])
   const [trendMap, setTrendMap] = useState('all')
-  const [messages, setMessages] = useState<ChatMsg[]>([])
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [totalRuns, setTotalRuns] = useState(0)

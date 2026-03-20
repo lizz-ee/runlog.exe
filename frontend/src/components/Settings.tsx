@@ -476,19 +476,34 @@ export default function Settings() {
 
             {/* Right — Model + Claude CLI */}
             <div className="flex-1 pl-5 space-y-4">
-              {/* Model selector at top */}
-              <div>
-                <div className="flex items-center justify-between">
-                  <span className="label-tag text-m-text-muted">MODEL</span>
-                  <ToggleButton
-                    options={[{ value: 'sonnet', label: 'SONNET' }, { value: 'haiku', label: 'HAIKU' }]}
-                    value={config.model}
-                    onChange={v => saveConfig('model', v)}
-                  />
+              {/* Model selectors */}
+              <div className="space-y-3">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="label-tag text-m-green">CAPTURE MODEL</span>
+                      <p className="text-[7px] font-mono text-m-text-muted/30 tracking-wider mt-0.5">RUN ANALYSIS + STATS</p>
+                    </div>
+                    <ToggleButton
+                      options={[{ value: 'sonnet', label: 'SONNET' }, { value: 'haiku', label: 'HAIKU' }]}
+                      value={config.model}
+                      onChange={v => saveConfig('model', v)}
+                    />
+                  </div>
                 </div>
-                <p className="text-[8px] font-mono text-m-text-muted/30 tracking-wider mt-1.5">
-                  SONNET = HIGHER ACCURACY — HAIKU = LOWER COST
-                </p>
+                <div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="label-tag text-m-cyan">UPLINK MODEL</span>
+                      <p className="text-[7px] font-mono text-m-text-muted/30 tracking-wider mt-0.5">CHAT + BRIEFINGS</p>
+                    </div>
+                    <ToggleButton
+                      options={[{ value: 'haiku', label: 'HAIKU' }, { value: 'sonnet', label: 'SONNET' }]}
+                      value={(config as any).uplink_model || 'haiku'}
+                      onChange={v => saveConfig('uplink_model', v)}
+                    />
+                  </div>
+                </div>
               </div>
 
               {/* Divider */}

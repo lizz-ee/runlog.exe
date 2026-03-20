@@ -53,18 +53,16 @@ function getStageIndex(status: string): number {
   return idx >= 0 ? idx : -1
 }
 
-function PipelineProgress({ status, detail, p1Failed, p1Flags }: {
+function PipelineProgress({ status, detail, p1Failed }: {
   status: string
   detail?: string | null
   p1Failed?: boolean
-  p1Flags?: { loading?: boolean; stats?: boolean; loadout?: boolean }
 }) {
   const currentIdx = getStageIndex(status)
   if (currentIdx < 0) return null
 
   const isP1Failed = status === 'phase1_failed' || !!p1Failed
   const p1EndIdx = PIPELINE_STAGES.findIndex(s => s.key === 'phase1_done')
-  const showFlags = p1Flags && (status === 'phase1_done' || status === 'done' || status === 'analyzing_gameplay' || status === 'cutting_clips')
 
   // Shape per stage: P0 (circle), P1 (triangle, square, circle), P2 (triangle, square, circle)
   const SHAPES = ['circle', 'triangle', 'square', 'circle', 'triangle', 'square', 'circle'] as const
@@ -82,19 +80,6 @@ function PipelineProgress({ status, detail, p1Failed, p1Flags }: {
           <span className="text-[8px] font-mono text-m-text-muted/60 tracking-wider truncate max-w-[150px]">
             {detail}
           </span>
-        )}
-        {showFlags && (
-          <div className="flex gap-1.5">
-            <span className={`text-[7px] font-mono tracking-wider ${p1Flags!.loading ? 'text-m-green/70' : 'text-m-red/50'}`}>
-              {p1Flags!.loading ? '✓' : '✗'}MAP
-            </span>
-            <span className={`text-[7px] font-mono tracking-wider ${p1Flags!.stats ? 'text-m-green/70' : 'text-m-red/50'}`}>
-              {p1Flags!.stats ? '✓' : '✗'}STATS
-            </span>
-            <span className={`text-[7px] font-mono tracking-wider ${p1Flags!.loadout ? 'text-m-green/70' : 'text-m-red/50'}`}>
-              {p1Flags!.loadout ? '✓' : '✗'}LOADOUT
-            </span>
-          </div>
         )}
       </div>
       {PIPELINE_STAGES.map((stage, i) => {
@@ -559,7 +544,7 @@ export default function Live() {
                           </div>
                           <span className="text-[8px] font-mono text-m-text-muted/50 tracking-wider">FULL RECORDING</span>
                         </div>
-                        <PipelineProgress status={item.status} detail={item.detail} p1Failed={item.p1_failed} p1Flags={{ loading: item.loading_screen_found, stats: item.stats_tab_found, loadout: item.loadout_tab_found }} />
+                        <PipelineProgress status={item.status} detail={item.detail} p1Failed={item.p1_failed} />
                       </>
                     ) : item.status === 'error' ? (
                       <div className="flex items-center gap-3">
@@ -607,7 +592,7 @@ export default function Live() {
                         </div>
                       </div>
                     ) : (
-                      <PipelineProgress status={item.status} detail={item.detail} p1Failed={item.p1_failed} p1Flags={{ loading: item.loading_screen_found, stats: item.stats_tab_found, loadout: item.loadout_tab_found }} />
+                      <PipelineProgress status={item.status} detail={item.detail} p1Failed={item.p1_failed} />
                     )}
                   </div>
                 </div>

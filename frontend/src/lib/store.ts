@@ -58,6 +58,12 @@ interface AppState {
   setCaptureStatus: (status: CaptureStatus | null) => void
   captureError: string | null
   setCaptureError: (error: string | null) => void
+
+  // UPLINK chat (persists across page navigation)
+  uplinkMessages: { role: 'user' | 'assistant'; content: string }[]
+  setUplinkMessages: (msgs: { role: 'user' | 'assistant'; content: string }[]) => void
+  uplinkBriefing: string | null
+  setUplinkBriefing: (text: string | null) => void
 }
 
 export const useStore = create<AppState>((set) => ({
@@ -118,4 +124,9 @@ export const useStore = create<AppState>((set) => ({
   setCaptureStatus: (captureStatus) => set({ captureStatus }),
   captureError: null,
   setCaptureError: (captureError) => set({ captureError }),
+
+  uplinkMessages: [],
+  setUplinkMessages: (uplinkMessages) => set({ uplinkMessages }),
+  uplinkBriefing: null,
+  setUplinkBriefing: (uplinkBriefing) => set({ uplinkBriefing }),
 }))

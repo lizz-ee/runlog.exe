@@ -85,6 +85,7 @@ def get_settings():
         "p2_workers": saved.get("p2_workers", DEFAULTS["p2_workers"]),
         "auth_mode": saved.get("auth_mode", DEFAULTS["auth_mode"]),
         "model": saved.get("model", DEFAULTS["model"]),
+        "uplink_model": saved.get("uplink_model", DEFAULTS["uplink_model"]),
     }
 
 
