@@ -105,6 +105,7 @@ export default function Settings() {
 
   useEffect(() => {
     getSettings().then(setConfig).catch(console.error)
+    checkCli()
 
     const runlog = (window as any).runlog
     if (runlog?.getOverlaySettings) {
