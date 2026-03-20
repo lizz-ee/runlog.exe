@@ -64,7 +64,7 @@ class BackendManager {
 
     // Resolve paths
     this.backendPath = path.join(process.resourcesPath, 'backend')
-    this.userDataPath = path.join(app.getPath('userData'), 'data')
+    this.userDataPath = path.join(app.getPath('userData'), 'marathon', 'data')
 
     // Ensure user data directory exists
     fs.mkdirSync(this.userDataPath, { recursive: true })
