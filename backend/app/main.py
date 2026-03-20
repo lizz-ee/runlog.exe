@@ -69,6 +69,17 @@ if _seed_db.query(SpawnPoint).count() == 0:
         print(f"[seed] Loaded {len(_seed_spawns)} reference spawn points")
 _seed_db.close()
 
+# Auto-create session on startup — every app lifecycle = one session
+from .models import Session as SessionModel
+_session_db = SessionLocal()
+_current_session = SessionModel(started_at=datetime.utcnow())
+_session_db.add(_current_session)
+_session_db.commit()
+_session_db.refresh(_current_session)
+current_session_id = _current_session.id
+print(f"[session] Started session #{current_session_id}")
+_session_db.close()
+
 app = FastAPI(
     title="Marathon RunLog",
     description="Track your Marathon extraction runs with screenshot parsing",

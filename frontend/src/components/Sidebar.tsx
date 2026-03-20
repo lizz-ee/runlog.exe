@@ -36,10 +36,11 @@ const sections: NavSection[] = [
     ],
   },
   {
-    title: 'CAPTURE',
+    title: 'LIVE',
     items: [
       { view: 'live' as View, label: 'DETECT.EXE', tag: '09' },
       { view: 'highlights' as View, label: 'RUN REPORTS', tag: '10' },
+      { view: 'uplink' as View, label: 'UPLINK', tag: '11' },
     ],
   },
 ]

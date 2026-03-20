@@ -1323,9 +1323,16 @@ def save_run_to_db(analysis: dict, run_date: datetime | None = None) -> int | No
                 runner_id = runner.id
                 print(f"[processor] New shell created: {shell_name} (#{runner.id})")
 
+        # Get current session ID
+        try:
+            from .main import current_session_id as _sid
+        except ImportError:
+            _sid = None
+
         run = Run(
             map_name=analysis.get("map_name"),
             date=run_date or datetime.utcnow(),
+            session_id=_sid,
             survived=analysis.get("survived"),
             kills=analysis.get("kills", 0),
             combatant_eliminations=analysis.get("combatant_eliminations", 0),

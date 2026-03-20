@@ -279,4 +279,4 @@ export interface ShellStats {
   favorite_weapon: string | null
 }
 
-export type View = 'dashboard' | 'history' | 'shells' | 'squad' | 'map-perimeter' | 'map-dire-marsh' | 'map-outpost' | 'map-cryo-archive' | 'live' | 'highlights' | 'settings'
+export type View = 'dashboard' | 'history' | 'shells' | 'squad' | 'map-perimeter' | 'map-dire-marsh' | 'map-outpost' | 'map-cryo-archive' | 'live' | 'highlights' | 'uplink' | 'settings'

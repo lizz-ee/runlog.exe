@@ -40,6 +40,7 @@ DEFAULTS = {
     "p2_workers": 2,
     "auth_mode": "api",    # "api" or "cli"
     "model": "sonnet",     # "sonnet" or "haiku"
+    "uplink_model": "haiku",  # "haiku" or "sonnet" for UPLINK chat/briefing
 }
 
 

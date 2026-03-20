@@ -11,6 +11,7 @@ from .spawns import router as spawns_router
 from .capture_api import router as capture_router
 from .settings_api import router as settings_router
 from .squad import router as squad_router
+from .uplink import router as uplink_router
 
 api_router = APIRouter(prefix="/api")
 
@@ -25,3 +26,4 @@ api_router.include_router(sessions_router, prefix="/sessions", tags=["sessions"]
 api_router.include_router(spawns_router, prefix="/spawns", tags=["spawns"])
 api_router.include_router(capture_router, prefix="/capture", tags=["capture"])
 api_router.include_router(squad_router, prefix="/squad", tags=["squad"])
+api_router.include_router(uplink_router, prefix="/uplink", tags=["uplink"])
