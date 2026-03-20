@@ -414,7 +414,42 @@ export default function Settings() {
       {/* ═══ AUTHENTICATION ═══ */}
       <div className="border border-m-border bg-m-card">
         <SectionHeader tag="AUTH.CONFIG" title="AUTHENTICATION" desc="Connect to Claude for AI-powered analysis." />
-        <div className="px-5 py-4">
+        <div className="px-5 py-4 space-y-4">
+          {/* Model selectors — side by side at top */}
+          <div className="flex gap-0">
+            <div className="flex-1 pr-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="label-tag text-m-green">CAPTURE MODEL</span>
+                  <p className="text-[7px] font-mono text-m-text-muted/30 tracking-wider mt-0.5">RUN ANALYSIS + STATS</p>
+                </div>
+                <ToggleButton
+                  options={[{ value: 'sonnet', label: 'SONNET' }, { value: 'haiku', label: 'HAIKU' }]}
+                  value={config.model}
+                  onChange={v => saveConfig('model', v)}
+                />
+              </div>
+            </div>
+            <div className="w-px bg-m-border/30" />
+            <div className="flex-1 pl-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="label-tag text-m-cyan">UPLINK MODEL</span>
+                  <p className="text-[7px] font-mono text-m-text-muted/30 tracking-wider mt-0.5">CHAT + BRIEFINGS</p>
+                </div>
+                <ToggleButton
+                  options={[{ value: 'haiku', label: 'HAIKU' }, { value: 'sonnet', label: 'SONNET' }]}
+                  value={(config as any).uplink_model || 'haiku'}
+                  onChange={v => saveConfig('uplink_model', v)}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Divider */}
+          <div className="border-t border-m-border/20" />
+
+          {/* API Key + Claude CLI side by side */}
           <div className="flex gap-0">
             {/* Left — API Key */}
             <div className="flex-1 pr-5 space-y-3">
@@ -474,43 +509,8 @@ export default function Settings() {
             {/* Divider */}
             <div className="w-px bg-m-border/30" />
 
-            {/* Right — Model + Claude CLI */}
-            <div className="flex-1 pl-5 space-y-4">
-              {/* Model selectors */}
-              <div className="space-y-3">
-                <div>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <span className="label-tag text-m-green">CAPTURE MODEL</span>
-                      <p className="text-[7px] font-mono text-m-text-muted/30 tracking-wider mt-0.5">RUN ANALYSIS + STATS</p>
-                    </div>
-                    <ToggleButton
-                      options={[{ value: 'sonnet', label: 'SONNET' }, { value: 'haiku', label: 'HAIKU' }]}
-                      value={config.model}
-                      onChange={v => saveConfig('model', v)}
-                    />
-                  </div>
-                </div>
-                <div>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <span className="label-tag text-m-cyan">UPLINK MODEL</span>
-                      <p className="text-[7px] font-mono text-m-text-muted/30 tracking-wider mt-0.5">CHAT + BRIEFINGS</p>
-                    </div>
-                    <ToggleButton
-                      options={[{ value: 'haiku', label: 'HAIKU' }, { value: 'sonnet', label: 'SONNET' }]}
-                      value={(config as any).uplink_model || 'haiku'}
-                      onChange={v => saveConfig('uplink_model', v)}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Divider */}
-              <div className="border-t border-m-border/20" />
-
-              {/* Claude CLI below model */}
-              <div className="space-y-3">
+            {/* Right — Claude CLI */}
+            <div className="flex-1 pl-5 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="label-tag text-m-cyan">CLAUDE CLI</span>
                   {cliStatus === null ? (
@@ -554,7 +554,6 @@ export default function Settings() {
                     <span className="text-m-text-muted/20">NO API TOKENS REQUIRED</span>
                   </p>
                 </div>
-              </div>
             </div>
           </div>
         </div>
