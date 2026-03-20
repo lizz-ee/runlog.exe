@@ -91,7 +91,7 @@ export default function Shells() {
       </div>
 
       {/* Shell cards */}
-      <div className="grid grid-cols-6 gap-3">
+      <div className="grid grid-cols-7 gap-3">
         {orderedNames.map((name, i) => {
           const shell = shellMap.get(name)
           const img = getShellImage(name)

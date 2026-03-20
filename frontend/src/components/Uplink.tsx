@@ -237,8 +237,8 @@ export default function Uplink() {
           <div className="absolute inset-0 pointer-events-none z-10" style={CRT_SCANLINES} />
           <div className="absolute inset-0 pointer-events-none z-10" style={CRT_VIGNETTE} />
 
-          {/* Terminal header bar */}
-          <div className="px-4 py-2 border-b border-m-green/10 relative z-20 flex items-center justify-between">
+          {/* Terminal header bar — grey card */}
+          <div className="px-4 py-2 bg-m-card border-b border-m-border relative z-20 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className={`w-1.5 h-1.5 rounded-full ${streaming ? 'bg-m-green animate-pulse' : 'bg-m-green/40'}`} />
               <span className="text-[8px] font-mono text-m-green/60 tracking-[0.25em]">COMMS.UPLINK</span>
@@ -295,8 +295,8 @@ export default function Uplink() {
             )}
           </div>
 
-          {/* Terminal input */}
-          <div className="px-4 py-2.5 border-t border-m-green/10 relative z-20">
+          {/* Terminal input — grey card */}
+          <div className="px-4 py-2.5 bg-m-card border-t border-m-border relative z-20">
             <div className="flex items-center gap-2">
               <span className="text-m-green/40 font-mono text-[10px]">&gt;&gt;</span>
               <input
