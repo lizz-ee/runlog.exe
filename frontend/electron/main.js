@@ -38,9 +38,9 @@ let recordingManager = null
 const overlaySettingsFile = path.join(app.getPath('userData'), 'overlay-settings.json')
 
 const OVERLAY_SIZES = {
-  small: { width: 260, height: 24, fontSize: 9 },
-  medium: { width: 260, height: 30, fontSize: 11 },
-  large: { width: 260, height: 38, fontSize: 14 },
+  small: { width: 220, height: 24, fontSize: 9 },
+  medium: { width: 280, height: 30, fontSize: 11 },
+  large: { width: 350, height: 38, fontSize: 14 },
 }
 
 function loadOverlaySettings() {
@@ -619,6 +619,9 @@ ipcMain.on('overlay-set-size', (_event, size) => {
   if (overlayWindow) {
     const dims = OVERLAY_SIZES[size] || OVERLAY_SIZES.medium
     const bounds = overlayWindow.getBounds()
+    // Update constraints then resize
+    overlayWindow.setMinimumSize(dims.width, dims.height)
+    overlayWindow.setMaximumSize(dims.width, dims.height)
     overlayWindow.setBounds({ x: bounds.x, y: bounds.y, width: dims.width, height: dims.height })
     overlayWindow.webContents.executeJavaScript(
       `document.getElementById('bar').style.font = '700 ${dims.fontSize}px "JetBrains Mono", monospace';
