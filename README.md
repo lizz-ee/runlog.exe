@@ -8,7 +8,7 @@ A local-first desktop app for **Marathon** (Bungie, 2026). Play your runs, stats
 
 runlog.exe is a desktop companion app that **automatically records and analyzes** your Marathon extraction runs. No manual data entry, no accounts. Just play — runlog.exe captures your gameplay, extracts your stats with AI, grades your performance, generates highlight clips, and builds a comprehensive stats dashboard over time.
 
-**Powered by Claude Vision** — runlog.exe records your Marathon gameplay using a dedicated Rust capture engine (WGC + MediaFoundation H.264, zero-copy GPU pipeline), then sends key frames to Claude's vision API to extract structured match data, write narrative run reports, and identify highlight moments.
+**Powered by Claude** — runlog.exe records your Marathon gameplay using a dedicated Rust capture engine (WGC + MediaFoundation HEVC/H.264, zero-copy GPU pipeline), then sends key frames to Claude for stat extraction, narrative run reports, highlight clips, and an AI tactical advisor (UPLINK) that analyzes your gameplay data in real-time.
 
 ---
 
@@ -48,7 +48,9 @@ runlog.exe is a desktop companion app that **automatically records and analyzes*
 
 ### Highlight Clips
 - **Auto-generated** from Phase 2 analysis at highlight timestamps
-- **Types:** Kill, Death, Extraction, Loot, Close Call, Funny
+- **Priority system:** PvP kills > deaths > close calls > extractions > combat > loot
+- **Visual verification** — AI must confirm on-screen action before clipping (no menus, no empty rooms)
+- **Multi-kill combining** — consecutive PvP kills within 20s merged into one clip
 - **Stream copy** — instant cuts from original 4K footage, no re-encoding
 - **Keep or delete** from the Live monitor
 - **Delete individual clips** from Run Reports with confirmation dialog
@@ -64,15 +66,17 @@ runlog.exe is a desktop companion app that **automatically records and analyzes*
 - **New spawn discovery** — auto-detected spawns named `VCTR//X:Y` (coordinate reference), staged in bracket area for user to position and rename
 - **Double-click to rename** any spawn point, bracket shrinks as spawns are named
 
-### Run History & Archive
-- Chronological log of all extraction runs with pagination
+### Run Records
+- Chronological log of all extraction runs with pagination (21 per page)
 - Filter by outcome (Exfiltrated / KIA) and map
 - Expandable rows showing full combat, loot, and squad details
+- Unviewed run indicator (cyan accent)
 
 ### Run Reports
 - **Letter grades** (S through F) with color coding
 - **AI-generated narrative summaries** — story-style run reports
 - **Highlight gallery** — thumbnail grid of all clips for each run with inline video player
+- **Unviewed badge** — cyan sidebar indicator + left border accent on unread reports
 - Paginated grid view (21 per page)
 
 ### Stats Dashboard
@@ -83,33 +87,47 @@ runlog.exe is a desktop companion app that **automatically records and analyzes*
 - **Time by map:** Breakdown of play time across all maps
 - **Recent runs:** Last 7 runs with expandable details
 
-### Shells Page
-- **Cyberpunk HUD cards** — shell artwork with corner brackets, scan line animations, glow effects, survival micro-bars
-- **Ranked by performance** — sorted best to worst by run count, all shells selectable (unused shells show zeroed stats)
+### NEURAL.LINK (Shells + Runners)
+Combined page for your combat assets and squad network.
+
+**Shells:**
+- **7 shells** — Triage, Assassin, Recon, Vandal, Destroyer, Thief, Rook (with profile + action pose reference images)
+- **Cyberpunk HUD cards** — shell artwork with corner brackets, scan line animations, survival micro-bars
+- **Weighted performance scoring** — 10% base + 35% survival + 25% runner kills + 5% PvE + 10% revives + 15% loot
 - **Hero stats:** Runs, survival rate, K/D, avg loot, total time per shell
 - **Combat detail:** PVE kills, runner kills, deaths, revives
 - **Economy:** Total loot, avg loot per run, exfil vs KIA count
-- **Info:** Favorite weapon, avg run time
 
-### Squad Page
-- **Top 7 squad mates** ranked by runs together (rule of 7)
-- **Cyberpunk HUD cards** — gamertag, run count, survival rate, animated scan lines, corner brackets
+**Runners (Squad):**
+- **Top 7 squad mates** ranked by weighted score (20% frequency + 50% survival + 30% loot)
+- **Loot rarity borders** — #1 gold, #2 purple, #3 blue, #4 green, #5-7 gray
 - **VS Overall** — shows how your survival rate changes with each squad mate
 - **Per-mate breakdowns:** Operations (runs, exfil/KIA, time), Combat (PVE/PVP kills, deaths, revives), Economy (loot, avg loot)
+
+### UPLINK (AI Tactical Advisor)
+Living AI intel page — auto-generated briefings, trend charts, and conversational chat with your gameplay data.
+
+- **Session hero stats** — runs, survival, kills, PvE, revives, loot (real-time from DB)
+- **AI briefing** — auto-generated session summary with trends and alerts (Haiku)
+- **Trend charts** — survival % and loot extracted over sessions (recharts)
+- **Terminal chat** — CRT-style interface with scanlines, ask UPLINK anything about your stats
+- **11 AI tools** — read-only DB queries for overview, maps, shells, spawns, squads, weapons, deaths, trends
+- **Session tracking** — sessions created on first run (:01A: format), empty sessions don't count
+- **Dual model support** — separate model selection for capture (Sonnet) and UPLINK (Haiku)
+- **Tactical AI personality** — terse, data-first, addresses you as "Runner"
 
 ### SYS.CONFIG Settings
 - **Recording config** — encoder (HEVC/H.264), bitrate (10-100 Mbps), framerate (30/60 FPS)
 - **Processing config** — P1 worker count (1-8), P2 worker count (1-4)
 - **HUD overlay** — enable/disable, size (SM/MD/LG), opacity, draggable position preview
 - **Authentication** — dual mode: API Key or Claude CLI (uses your Claude subscription, no API tokens)
-- **Model selection** — Sonnet (accuracy) or Haiku (cost)
+- **Dual model selectors** — Capture Model (Sonnet/Haiku) + UPLINK Model (Haiku/Sonnet)
 - **Auto-detect Claude CLI** — shows install status and path
 
 ### Live Capture Monitor
 - **Engine status cards:** Engine state, recording state, duration, queue size
 - **Detection feed:** Live frame from WGC capture for debugging
 - **Processing queue:** Real-time view of all videos being processed with pipeline progress (geometric shapes, color-coded stages)
-- **P1 detection flags** — shows what Phase 1 found vs missed (MAP/STATS/LOADOUT indicators)
 - **Error detail** — failed items show actual error reason, not just "FAILED"
 - **Sub-status text** — shows current processing detail (e.g., "Retry: searching forward +45s")
 - **Thumbnails and metadata** for each recording
@@ -119,8 +137,9 @@ runlog.exe is a desktop companion app that **automatically records and analyzes*
 - **Auto-resume toast** for recordings carried over from previous sessions
 
 ### Session Tracking
-- Group runs into play sessions
-- Session start/end timestamps with notes
+- Sessions created automatically on first run (not on app launch)
+- Session codes: `:01A:` through `:99A:`, `:01B:`, etc.
+- Empty sessions don't count — no noise from app open/close without playing
 
 ---
 
