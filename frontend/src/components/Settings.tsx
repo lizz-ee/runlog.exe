@@ -188,57 +188,60 @@ export default function Settings() {
         </h2>
       </div>
 
-      {/* ═══ RECORDING ═══ */}
-      <div className="border border-m-border bg-m-card">
-        <SectionHeader tag="REC.CONFIG" title="RECORDING" desc="Video capture format, quality, and performance." />
-        <div className="px-5 py-4 space-y-4">
-          <SettingRow label="ENCODER">
-            <ToggleButton
-              options={[{ value: 'hevc', label: 'HEVC' }, { value: 'h264', label: 'H.264' }]}
-              value={config.encoder}
-              onChange={v => saveConfig('encoder', v)}
-            />
-          </SettingRow>
+      {/* ═══ RECORDING + PROCESSING — side by side ═══ */}
+      <div className="flex gap-5">
+        {/* Recording */}
+        <div className="flex-1 border border-m-border bg-m-card">
+          <SectionHeader tag="REC.CONFIG" title="RECORDING" desc="Video capture format, quality, and performance." />
+          <div className="px-5 py-4 space-y-4">
+            <SettingRow label="ENCODER">
+              <ToggleButton
+                options={[{ value: 'hevc', label: 'HEVC' }, { value: 'h264', label: 'H.264' }]}
+                value={config.encoder}
+                onChange={v => saveConfig('encoder', v)}
+              />
+            </SettingRow>
 
-          <SettingRow label="BITRATE">
-            <Slider min={10} max={100} step={5} value={config.bitrate} unit=" MBPS"
-              onChange={v => saveConfig('bitrate', v)} />
-          </SettingRow>
+            <SettingRow label="BITRATE">
+              <Slider min={10} max={100} step={5} value={config.bitrate} unit=" MBPS"
+                onChange={v => saveConfig('bitrate', v)} />
+            </SettingRow>
 
-          <SettingRow label="FRAMERATE">
-            <ToggleButton
-              options={[{ value: 30, label: '30 FPS' }, { value: 60, label: '60 FPS' }]}
-              value={config.fps}
-              onChange={v => saveConfig('fps', v)}
-            />
-          </SettingRow>
+            <SettingRow label="FRAMERATE">
+              <ToggleButton
+                options={[{ value: 30, label: '30 FPS' }, { value: 60, label: '60 FPS' }]}
+                value={config.fps}
+                onChange={v => saveConfig('fps', v)}
+              />
+            </SettingRow>
 
-          <div className="pt-1 border-t border-m-border/30">
-            <p className="text-[9px] font-mono text-m-text-muted/40 tracking-wider">
-              RESOLUTION // NATIVE WINDOW — CHANGES TAKE EFFECT ON NEXT RECORDING
-            </p>
+            <div className="pt-1 border-t border-m-border/30">
+              <p className="text-[9px] font-mono text-m-text-muted/40 tracking-wider">
+                NATIVE WINDOW — NEXT RECORDING
+              </p>
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* ═══ PROCESSING ═══ */}
-      <div className="border border-m-border bg-m-card">
-        <SectionHeader tag="PROC.CONFIG" title="PROCESSING" desc="Concurrent analysis worker limits. Higher = faster but more CPU/API usage." />
-        <div className="px-5 py-4 space-y-4">
-          <SettingRow label="P1 WORKERS // STATS">
-            <Slider min={1} max={8} step={1} value={config.p1_workers}
-              onChange={v => saveConfig('p1_workers', v)} />
-          </SettingRow>
+        {/* Processing */}
+        <div className="flex-1 border border-m-border bg-m-card">
+          <SectionHeader tag="PROC.CONFIG" title="PROCESSING" desc="Concurrent analysis worker limits." />
+          <div className="px-5 py-4 space-y-4">
+            <SettingRow label="P1 // STATS">
+              <Slider min={1} max={8} step={1} value={config.p1_workers}
+                onChange={v => saveConfig('p1_workers', v)} />
+            </SettingRow>
 
-          <SettingRow label="P2 WORKERS // NARRATIVE">
-            <Slider min={1} max={4} step={1} value={config.p2_workers}
-              onChange={v => saveConfig('p2_workers', v)} />
-          </SettingRow>
+            <SettingRow label="P2 // NARRATIVE">
+              <Slider min={1} max={4} step={1} value={config.p2_workers}
+                onChange={v => saveConfig('p2_workers', v)} />
+            </SettingRow>
 
-          <div className="pt-1 border-t border-m-border/30">
-            <p className="text-[9px] font-mono text-m-text-muted/40 tracking-wider">
-              P1 = FRAME EXTRACTION + STAT ANALYSIS — P2 = VIDEO NARRATIVE + CLIP GENERATION
-            </p>
+            <div className="pt-1 border-t border-m-border/30">
+              <p className="text-[9px] font-mono text-m-text-muted/40 tracking-wider">
+                P1 = FRAMES + STATS — P2 = NARRATIVE + CLIPS
+              </p>
+            </div>
           </div>
         </div>
       </div>
