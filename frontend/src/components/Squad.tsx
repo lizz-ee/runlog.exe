@@ -160,8 +160,8 @@ function SquadCard({ mate, rank, isSelected, onClick }: {
   const active = isSelected
 
   // Rarity colors based on rank: 1=gold, 2=purple, 3=blue, 4=green, 5-7=gray
-  const rarityColor = rank === 1 ? '#FFD700' : rank === 2 ? '#A855F7' : rank === 3 ? '#3B82F6' : rank === 4 ? '#22C55E' : '#333'
-  const rarityGlow = rank <= 4 ? `0 0 12px ${rarityColor}40` : 'none'
+  const rarityColor = rank === 1 ? '#FFD700' : rank === 2 ? '#A855F7' : rank === 3 ? '#3B82F6' : rank === 4 ? '#22C55E' : '#888888'
+  const rarityGlow = `0 0 12px ${rarityColor}40`
 
   return (
     <button
@@ -177,18 +177,12 @@ function SquadCard({ mate, rank, isSelected, onClick }: {
           style={{ '--rc': rarityColor } as any} />
       )}
 
-      {/* Rarity border */}
-      <div className={`absolute inset-0 transition-all duration-300 ${
-        isSelected
-          ? ''
-          : rank <= 4 ? '' : 'border border-m-border/30'
-      }`}
-        style={isSelected ? {
-          border: `2px solid ${rarityColor}80`,
-          boxShadow: rarityGlow,
-        } : rank <= 4 ? {
-          border: `1px solid ${rarityColor}20`,
-        } : {}} />
+      {/* Border — identical for all cards, only rarityColor differs */}
+      <div className="absolute inset-0 transition-all duration-300"
+        style={{
+          border: isSelected ? `2px solid ${rarityColor}80` : `1px solid ${rarityColor}20`,
+          boxShadow: isSelected ? rarityGlow : 'none',
+        }} />
 
       {/* Scan line — only on selected, not hover */}
       {isSelected && (
@@ -197,13 +191,13 @@ function SquadCard({ mate, rank, isSelected, onClick }: {
 
       {/* Corner brackets — exact same as ShellCard (1.5 inset, 3px size) */}
       <div className="absolute top-1.5 left-1.5 w-3 h-3 border-l border-t z-[3] transition-colors duration-300"
-        style={{ borderColor: isSelected ? `${rarityColor}90` : `${rank <= 4 ? `${rarityColor}15` : '#ffffff08'}` }} />
+        style={{ borderColor: isSelected ? `${rarityColor}90` : `${rarityColor}15` }} />
       <div className="absolute top-1.5 right-1.5 w-3 h-3 border-r border-t z-[3] transition-colors duration-300"
-        style={{ borderColor: isSelected ? `${rarityColor}90` : `${rank <= 4 ? `${rarityColor}15` : '#ffffff08'}` }} />
+        style={{ borderColor: isSelected ? `${rarityColor}90` : `${rarityColor}15` }} />
       <div className="absolute bottom-1.5 left-1.5 w-3 h-3 border-l border-b z-[3] transition-colors duration-300"
-        style={{ borderColor: isSelected ? `${rarityColor}90` : `${rank <= 4 ? `${rarityColor}15` : '#ffffff08'}` }} />
+        style={{ borderColor: isSelected ? `${rarityColor}90` : `${rarityColor}15` }} />
       <div className="absolute bottom-1.5 right-1.5 w-3 h-3 border-r border-b z-[3] transition-colors duration-300"
-        style={{ borderColor: isSelected ? `${rarityColor}90` : `${rank <= 4 ? `${rarityColor}15` : '#ffffff08'}` }} />
+        style={{ borderColor: isSelected ? `${rarityColor}90` : `${rarityColor}15` }} />
 
       {/* Selected top bar — exact same as ShellCard */}
       {isSelected && (
