@@ -136,7 +136,7 @@ export default function Uplink() {
       {/* ═══ HEADER — glitch-style ═══ */}
       <div className="mb-4 relative">
         <p className="text-[9px] font-mono text-m-green/60 tracking-[0.3em]">LIVE // UPLINK</p>
-        <h2 className="text-2xl font-display font-black tracking-[0.15em] text-m-green mt-1" style={PHOSPHOR_GLOW}>
+        <h2 className="text-2xl font-display font-black tracking-[0.15em] text-m-text mt-1">
           UPLINK
         </h2>
         <div className="absolute top-0 right-0 text-[7px] font-mono text-m-green/20 tracking-wider text-right">
@@ -207,7 +207,7 @@ export default function Uplink() {
                   <div className="h-2.5 bg-m-green/4 w-[75%]" style={{ animation: 'pulse 1.5s infinite 0.4s' }} />
                 </div>
               ) : briefing ? (
-                <div className="text-[11px] font-mono leading-[1.7] whitespace-pre-wrap" style={{ color: 'rgba(200,255,0,0.7)', ...PHOSPHOR_GLOW }}>
+                <div className="text-[11px] font-mono text-m-text leading-[1.7] whitespace-pre-wrap">
                   {briefing.split('\n').map((line, i) => {
                     if (!line.trim()) return <div key={i} className="h-2" />
                     if (line.includes('TREND:')) return <p key={i} className="text-m-green mt-2">{line}</p>
@@ -216,7 +216,7 @@ export default function Uplink() {
                   })}
                 </div>
               ) : (
-                <p className="text-[10px] font-mono text-m-green/30" style={PHOSPHOR_GLOW}>
+                <p className="text-[10px] font-mono text-m-text-muted">
                   AWAITING OPERATIONAL DATA, RUNNER.
                 </p>
               )}
@@ -253,10 +253,10 @@ export default function Uplink() {
             {messages.length === 0 && !streaming && (
               <div className="flex items-center justify-center h-full">
                 <div className="text-center space-y-4">
-                  <div className="text-[10px] font-mono tracking-[0.4em] animate-pulse" style={{ color: 'rgba(200,255,0,0.4)', ...PHOSPHOR_GLOW }}>
+                  <div className="text-[10px] font-mono tracking-[0.4em] text-m-green/40 animate-pulse">
                     UPLINK ACTIVE
                   </div>
-                  <div className="text-[9px] font-mono text-m-green/15 tracking-[0.15em]">
+                  <div className="text-[9px] font-mono text-m-text-muted/30 tracking-[0.15em]">
                     AWAITING QUERY, RUNNER.
                   </div>
                   <div className="text-m-green/30 text-lg animate-pulse">_</div>
@@ -276,8 +276,7 @@ export default function Uplink() {
                 ) : (
                   <div>
                     <span className="text-[7px] font-mono text-m-green/35 tracking-[0.2em] block mb-1">// UPLINK</span>
-                    <p className="text-[11px] font-mono leading-[1.8] whitespace-pre-wrap max-w-[95%]"
-                      style={{ color: 'rgba(200,255,0,0.7)', ...PHOSPHOR_GLOW }}>
+                    <p className="text-[11px] font-mono text-m-text/90 leading-[1.8] whitespace-pre-wrap max-w-[95%]">
                       {msg.content}
                       {streaming && i === messages.length - 1 && (
                         <span className="inline-block w-2 h-3.5 bg-m-green/60 ml-0.5 animate-pulse" />
@@ -307,8 +306,8 @@ export default function Uplink() {
                 onKeyDown={e => e.key === 'Enter' && sendMessage()}
                 placeholder="query uplink..."
                 disabled={streaming}
-                className="flex-1 bg-transparent text-[11px] font-mono placeholder:text-m-green/15 focus:outline-none disabled:opacity-30"
-                style={{ color: 'rgba(200,255,0,0.8)', caretColor: '#c8ff00' }}
+                className="flex-1 bg-transparent text-[11px] font-mono text-m-text placeholder:text-m-text-muted/30 focus:outline-none disabled:opacity-30"
+                style={{ caretColor: '#c8ff00' }}
               />
               <button onClick={sendMessage} disabled={streaming || !input.trim()}
                 className="text-[9px] font-mono tracking-[0.2em] disabled:opacity-15 hover:text-m-green transition-all"
@@ -329,11 +328,11 @@ export default function Uplink() {
 function HexStat({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
   return (
     <div className="px-3 py-3 relative" style={{ background: CRT_BG }}>
-      <p className="text-[7px] font-mono tracking-[0.2em] mb-1" style={{ color: 'rgba(200,255,0,0.3)' }}>{label}</p>
-      <p className="text-xl font-mono font-bold" style={{ color: color || 'rgba(200,255,0,0.8)', ...PHOSPHOR_GLOW }}>
+      <p className="text-[7px] font-mono tracking-[0.2em] mb-1 text-m-text-muted">{label}</p>
+      <p className="text-xl font-mono font-bold" style={{ color: color || '#e0e0e8' }}>
         {value}
       </p>
-      {sub && <p className="text-[7px] font-mono mt-0.5" style={{ color: 'rgba(200,255,0,0.2)' }}>{sub}</p>}
+      {sub && <p className="text-[7px] font-mono mt-0.5 text-m-text-muted/50">{sub}</p>}
     </div>
   )
 }
