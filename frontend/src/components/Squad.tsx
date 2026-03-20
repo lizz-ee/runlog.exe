@@ -54,7 +54,7 @@ export default function Squad() {
           <h2 className="text-xl font-display font-black tracking-wider text-m-text mt-1">RUNNERS</h2>
         </div>
         <div className="border border-1 border-m-border bg-m-card p-10 text-center">
-          <p className="text-xs text-m-text-muted tracking-wider">NO SQUAD DATA — PLAY SOME RUNS WITH CREW</p>
+          <p className="text-xs text-m-text-muted tracking-wider">NO RUNNER DATA — PLAY SOME RUNS WITH CREW</p>
         </div>
       </div>
     )
@@ -64,8 +64,7 @@ export default function Squad() {
     <div className="max-w-7xl mx-auto space-y-4">
       {/* Header */}
       <div>
-        <p className="label-tag text-m-green">SYSTEM // SQUAD</p>
-        <h2 className="text-xl font-display font-black tracking-wider text-m-text mt-1">SQUAD</h2>
+        <h2 className="text-xl font-display font-black tracking-wider text-m-text">RUNNERS</h2>
       </div>
 
       {/* Squad mate cards */}

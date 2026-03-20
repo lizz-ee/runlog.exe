@@ -28,18 +28,18 @@ const sections: NavSection[] = [
   {
     title: 'MAPS',
     items: [
-      { view: 'map-perimeter', label: 'PERIMETER', tag: '05' },
-      { view: 'map-dire-marsh', label: 'DIRE MARSH', tag: '06' },
-      { view: 'map-outpost', label: 'OUTPOST', tag: '07' },
-      { view: 'map-cryo-archive', label: 'CRYO ARCHIVE', tag: '08', disabled: true },
+      { view: 'map-perimeter', label: 'PERIMETER', tag: '04' },
+      { view: 'map-dire-marsh', label: 'DIRE MARSH', tag: '05' },
+      { view: 'map-outpost', label: 'OUTPOST', tag: '06' },
+      { view: 'map-cryo-archive', label: 'CRYO ARCHIVE', tag: '07', disabled: true },
     ],
   },
   {
     title: 'LIVE',
     items: [
-      { view: 'uplink' as View, label: 'UPLINK', tag: '09' },
-      { view: 'live' as View, label: 'DETECT.EXE', tag: '10' },
-      { view: 'highlights' as View, label: 'RUN REPORTS', tag: '11' },
+      { view: 'uplink' as View, label: 'UPLINK', tag: '08' },
+      { view: 'live' as View, label: 'DETECT.EXE', tag: '09' },
+      { view: 'highlights' as View, label: 'RUN REPORTS', tag: '10' },
     ],
   },
 ]
