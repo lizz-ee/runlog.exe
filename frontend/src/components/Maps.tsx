@@ -193,24 +193,24 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
           </div>
         )}
 
-        {/* Uncharted spawns staging bracket — top-left */}
+        {/* Uncharted spawns staging bracket — horizontal top row */}
         {(() => {
           const unchartedSpawns = spawns.filter(s => s.zone.startsWith('//VCTR.RDCT//'))
           if (unchartedSpawns.length === 0) return null
-          const bracketHeight = Math.max(8, unchartedSpawns.length * 5 + 4)
+          const bracketWidth = Math.max(10, unchartedSpawns.length * 3.5 + 3)
           return (
             <div
               className="absolute z-30 pointer-events-none"
-              style={{ left: '1%', top: '2%', width: '8%', height: `${bracketHeight}%` }}
+              style={{ left: '1%', top: '1%', width: `${bracketWidth}%`, height: '7%' }}
             >
               {/* Corner brackets */}
-              <div className="absolute top-0 left-0 w-3 h-3 border-t-2 border-l-2 border-m-cyan/50" />
-              <div className="absolute top-0 right-0 w-3 h-3 border-t-2 border-r-2 border-m-cyan/50" />
-              <div className="absolute bottom-0 left-0 w-3 h-3 border-b-2 border-l-2 border-m-cyan/50" />
-              <div className="absolute bottom-0 right-0 w-3 h-3 border-b-2 border-r-2 border-m-cyan/50" />
-              {/* Label */}
-              <div className="absolute -top-4 left-0 right-0 flex items-center justify-center">
-                <span className="text-[7px] font-mono text-m-cyan/60 tracking-[0.2em]">
+              <div className="absolute top-0 left-0 w-2.5 h-2.5 border-t-2 border-l-2 border-m-cyan/50" />
+              <div className="absolute top-0 right-0 w-2.5 h-2.5 border-t-2 border-r-2 border-m-cyan/50" />
+              <div className="absolute bottom-0 left-0 w-2.5 h-2.5 border-b-2 border-l-2 border-m-cyan/50" />
+              <div className="absolute bottom-0 right-0 w-2.5 h-2.5 border-b-2 border-r-2 border-m-cyan/50" />
+              {/* Label — below dots */}
+              <div className="absolute bottom-0.5 left-0 right-0 flex items-center justify-center">
+                <span className="text-[6px] font-mono text-m-cyan/40 tracking-[0.2em]">
                   STAGING // {unchartedSpawns.length}
                 </span>
               </div>
