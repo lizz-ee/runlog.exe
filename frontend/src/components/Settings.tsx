@@ -297,7 +297,7 @@ export default function Settings() {
                   {CORNERS.map((c, i) => {
                     const posMap: Record<string, { x: number; y: number }> = {
                       'top-left': { x: 2, y: 4 }, 'top-center': { x: 50, y: 4 }, 'top-right': { x: 98, y: 4 },
-                      'bottom-left': { x: 2, y: 92 }, 'bottom-center': { x: 50, y: 92 }, 'bottom-right': { x: 98, y: 92 },
+                      'bottom-left': { x: 2, y: 100 }, 'bottom-center': { x: 50, y: 100 }, 'bottom-right': { x: 98, y: 100 },
                     }
                     return (
                       <button
