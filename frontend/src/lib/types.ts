@@ -153,7 +153,6 @@ export interface SpawnPoint {
   run_id: number | null
   map_name: string
   spawn_location: string | null
-  spawn_region: string | null
   screenshot_path: string | null
   notes: string | null
   created_at: string

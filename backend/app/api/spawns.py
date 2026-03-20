@@ -23,7 +23,6 @@ SPAWN_PARSE_PROMPT = """Analyze this Marathon (Bungie 2026 extraction shooter) i
 I need you to identify the spawn location. Look for:
 - The map name (shown on the HUD, loading screen, or identifiable from environment)
 - The specific spawn location/area name (if displayed on screen or identifiable)
-- The spawn region — a general area descriptor (e.g. "north", "south", "east wing", "underground", "rooftop", "cargo bay", etc.) based on visible environment, compass, or HUD indicators
 - Any visible landmarks, signs, or environmental cues that help identify where on the map this is
 
 Return ONLY valid JSON:

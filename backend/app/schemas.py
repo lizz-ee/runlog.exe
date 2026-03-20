@@ -181,7 +181,6 @@ class SpawnPointCreate(BaseModel):
     run_id: Optional[int] = None
     map_name: str
     spawn_location: Optional[str] = None
-    spawn_region: Optional[str] = None
     x: Optional[float] = None
     y: Optional[float] = None
     notes: Optional[str] = None
@@ -191,7 +190,6 @@ class SpawnPointOut(BaseModel):
     run_id: Optional[int]
     map_name: str
     spawn_location: Optional[str]
-    spawn_region: Optional[str]
     x: Optional[float]
     y: Optional[float]
     game_coord_x: Optional[float] = None
@@ -206,7 +204,6 @@ class SpawnPointOut(BaseModel):
 class ParsedSpawnScreenshot(BaseModel):
     map_name: Optional[str] = None
     spawn_location: Optional[str] = None
-    spawn_region: Optional[str] = None
     landmarks_visible: Optional[list[str]] = None
     raw_text: Optional[str] = None
     confidence: Optional[str] = None
