@@ -208,14 +208,14 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
                 {/* Top-left bracket */}
                 <div className="absolute -top-2 -left-2 w-3 h-3 border-t-2 border-l-2 border-m-cyan/60" />
                 {/* Bottom-right bracket */}
-                <div className="absolute -bottom-2 -right-2 w-3 h-3 border-b-2 border-r-2 border-m-cyan/60" />
+                <div className="absolute -bottom-2 -right-3.5 w-3 h-3 border-b-2 border-r-2 border-m-cyan/60" />
                 {/* Invisible spacers — actual pins render via spawn system */}
                 {unchartedSpawns.map((_, i) => (
                   <div key={i} className="w-4 h-4" />
                 ))}
               </div>
               {/* Label — below bracket */}
-              <div className="flex items-center justify-center mt-1">
+              <div className="flex items-center justify-center mt-2.5">
                 <span className="text-[7px] font-mono text-m-cyan/40 tracking-[0.2em]">
                   STAGING // {unchartedSpawns.length}
                 </span>
