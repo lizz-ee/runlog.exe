@@ -131,20 +131,38 @@ GRADING CRITERIA:
 - D: Poor — died quickly with little to show for it
 - F: Disaster — died almost immediately, no kills, no loot
 
-HIGHLIGHT RULES — VERY IMPORTANT:
-1. Only select 3-5 of the BEST moments. Quality over quantity.
-2. NEVER clip inventory screens, menu screens, loadout screens, or map screens. Only clip active gameplay.
-3. Clip types:
-   - "pvp_kill": Player kills another RUNNER (human player). This is the most exciting type. The kill feed shows runner names with # tags (e.g. "player#1234"). NPC/AI kills (UESC enemies) are NOT pvp_kills.
-   - "combat": Extended firefight with multiple enemies or a tense PvP encounter lasting several seconds. Use duration_seconds 12-20.
-   - "death": The moment the player dies. Include the few seconds before death showing the final fight. Duration 8-12s.
-   - "close_call": Player nearly dies but survives — health drops very low, clutch heal, narrow escape. Duration 8-15s.
-   - "extraction": The extraction countdown and escape. Duration 10-15s.
-   - "loot": ONLY rare/high-value item finds or opening locked crates. NOT routine pickups. Duration 6-10s.
+HIGHLIGHT RULES — READ CAREFULLY:
+
+PRIORITY ORDER: pvp_kill > death > close_call > extraction > combat > loot > funny.
+
+1. Select 3-5 of the BEST moments. Quality over quantity.
+
+2. VISUAL VERIFICATION — For each highlight, you MUST describe what is ON SCREEN at that exact timestamp in the "description" field. If you see a menu, inventory, loadout screen, stats screen, loading screen, solid color screen, or the player staring at a wall/floor/empty room — DO NOT include it. Only clip frames showing active gameplay with visible action.
+
+3. CLIP TYPES (in priority order):
+   - "pvp_kill": Player kills another RUNNER (human player). ALWAYS include if it happens. Kill feed shows names with # tags. If two PvP kills happen within 20 seconds, COMBINE them into one longer clip. NPC/AI kills are NOT pvp_kills.
+   - "death": The moment the player dies — the final fight leading to the NEURAL LINK SEVERED screen. Include the combat that caused the death, not just the death screen. Duration 8-12s.
+   - "close_call": Player nearly dies but survives — visible low health, clutch heal, narrow escape. Must show ACTUAL danger on screen (health bar critical, damage effects). Duration 8-15s. NOTE: If the player dies shortly after a "close call" moment, that is a DEATH clip, not a close_call. Do not split one encounter into close_call + death.
+   - "extraction": The extraction countdown and escape sequence. Duration 10-15s.
+   - "combat": Extended firefight with enemies VISIBLE on screen — muzzle flash, hit markers, enemy models. Must show actual shooting, not just walking around. Duration 12-20s.
+   - "loot": ONLY clip if you see a PURPLE or GOLD rarity item being picked up, or a locked crate being opened with a visible animation. Routine pickups and gray/green items are NOT highlights.
    - "funny": Unusual, unexpected, or humorous events. Duration varies.
-4. Each clip timestamp should be the moment the ACTION starts (not 10 seconds before).
-5. DO NOT clip the searching/matchmaking screen, deployment loading screen, or post-match stats screens.
-6. Killing NPC/AI enemies (UESC Scouts, Recruits, Troopers) is NOT highlight-worthy unless it's a big multi-kill or dramatic moment.
+
+4. TIMESTAMP ACCURACY: Your timestamp_seconds should be the EXACT second the key action happens (the kill shot, the hit that kills you, the loot pickup). The system automatically includes 3 seconds of lead-up. Do NOT add your own buffer.
+
+5. DURATION: Set duration based on the actual content length. Short kills = 6-8s. Extended fights = 15-20s. Deaths = 8-12s. Do NOT default to 12 for everything — each clip should have a specific duration matching the action.
+
+6. NEVER CLIP THESE:
+   - Inventory, menu, loadout, or map screens
+   - Post-match stats screens (BLOODSOAKED / EXFILTRATED results)
+   - Deployment loading screen with coordinates
+   - Player walking/running with no enemies or events
+   - Solid red/black/blue screens (death transitions, loading)
+   - Any moment where no enemies, combat effects, or events are visible
+
+7. SPACING: Clips must be at least 30 seconds apart. If two exciting moments happen within 30 seconds, combine them into one longer clip or pick the better one.
+
+8. COMBINING KILLS: If the player gets multiple PvP kills within 20 seconds, make ONE clip that covers the entire multi-kill sequence. Title it "pvp_kill" and note "double kill" or "triple kill" in description.
 
 Return ONLY valid JSON, no markdown fences, no explanation."""
 
@@ -1190,12 +1208,12 @@ def cut_clips(source_path: str, clips_dir: str, highlights: list[dict], run_time
                 clip_paths.append(clip_path)
                 print(f"[processor] Clip saved: {filename} ({clip_type} @ {ts}s, {size_mb:.1f}MB)")
 
-                # Generate thumbnail from middle of clip
+                # Generate thumbnail at the action point (3s into clip = where the tagged moment is)
                 thumb_path = clip_path.replace(".mp4", "_thumb.jpg")
                 try:
                     subprocess.run(
                         ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
-                         '-ss', str(dur // 2), '-i', clip_path,
+                         '-ss', str(min(4, dur - 1)), '-i', clip_path,
                          '-vframes', '1', '-vf', 'scale=384:-1',
                          '-q:v', '5', thumb_path],
                         capture_output=True, timeout=10,
