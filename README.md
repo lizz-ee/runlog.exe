@@ -32,9 +32,10 @@ runlog.exe is a desktop companion app that **automatically records and analyzes*
 - **Zero-interaction recording** — detects Marathon window, records from matchmaking to lobby
 - **Rust capture engine** (`runlog-recorder.exe`) — dedicated binary for recording, zero-copy GPU pipeline
 - **Windows Graphics Capture (WGC)** — captures only the game window (privacy-safe, never records desktop, works when alt-tabbed)
-- **MediaFoundation H.264 encoding** — 60fps recording at native 4K, hardware-accelerated on any GPU
+- **MediaFoundation encoding** — 60fps recording at native 4K, hardware-accelerated (HEVC or H.264, configurable)
 - **OCR-based state detection** — three scan regions detect deployment screen (start recording), RUN_COMPLETE (log stats timestamp), and lobby buttons (stop recording)
-- **Ready-up screenshot capture** — captures full-screen + cropped loadout screenshots before each run for shell/loadout identification
+- **Per-phase screenshot capture** — one screenshot each from READY UP, RUN, and DEPLOYING phases for shell/loadout identification
+- **State machine timeout recovery** — auto-recovers if deploy screen missed (90s) or game crashes mid-run (30min)
 
 ### Two-Phase AI Analysis
 - **Phase 1 (Fast, High Thinking):** Uses OCR screenshots (deploy, readyup, loadout crop) + end-of-run frames. Claude Sonnet with high thinking extracts stats (kills, deaths, loot, map, weapons, spawn coordinates, survival status), identifies shell by facial geometry, reads loadout values and item tiers
@@ -50,6 +51,8 @@ runlog.exe is a desktop companion app that **automatically records and analyzes*
 - **Types:** Kill, Death, Extraction, Loot, Close Call, Funny
 - **Stream copy** — instant cuts from original 4K footage, no re-encoding
 - **Keep or delete** from the Live monitor
+- **Delete individual clips** from Run Reports with confirmation dialog
+- **Full run playback** — kept recordings appear as inline video cards in Run Reports
 
 ### Interactive Maps
 - **4 maps:** Perimeter, Dire Marsh, Outpost, Cryo Archive
@@ -57,6 +60,9 @@ runlog.exe is a desktop companion app that **automatically records and analyzes*
 - **Spawn tooltips:** Survival %, win streak, avg loot, best/worst loot, favorite weapon/shell, killed-by tracking
 - **Coordinates:** Extracted from the deployment loading screen via Claude Vision, fuzzy-matched to existing spawn points
 - **Sortable:** By name, survival rate, loot value, win streak
+- **Reference spawn data** — ships with pre-mapped spawn points, new users see all locations immediately
+- **New spawn discovery** — auto-detected spawns named `VCTR//X:Y` (coordinate reference), staged in bracket area for user to position and rename
+- **Double-click to rename** any spawn point, bracket shrinks as spawns are named
 
 ### Run History & Archive
 - Chronological log of all extraction runs with pagination
@@ -91,17 +97,25 @@ runlog.exe is a desktop companion app that **automatically records and analyzes*
 - **VS Overall** — shows how your survival rate changes with each squad mate
 - **Per-mate breakdowns:** Operations (runs, exfil/KIA, time), Combat (PVE/PVP kills, deaths, revives), Economy (loot, avg loot)
 
-### Settings
-- **API key configuration** — paste your Anthropic API key, test with one click, stored locally
-- **Setup guide** — step-by-step instructions for new users
-- **Key validation** — tests against Claude API before saving
+### SYS.CONFIG Settings
+- **Recording config** — encoder (HEVC/H.264), bitrate (10-100 Mbps), framerate (30/60 FPS)
+- **Processing config** — P1 worker count (1-8), P2 worker count (1-4)
+- **HUD overlay** — enable/disable, size (SM/MD/LG), opacity, draggable position preview
+- **Authentication** — dual mode: API Key or Claude CLI (uses your Claude subscription, no API tokens)
+- **Model selection** — Sonnet (accuracy) or Haiku (cost)
+- **Auto-detect Claude CLI** — shows install status and path
 
 ### Live Capture Monitor
 - **Engine status cards:** Engine state, recording state, duration, queue size
 - **Detection feed:** Live frame from WGC capture for debugging
-- **Processing queue:** Real-time view of all videos being processed with phase indicators (Extracting Frames → Analyzing Stats → Saving to DB → Compressing → Analyzing Gameplay → Cutting Clips → Complete)
+- **Processing queue:** Real-time view of all videos being processed with pipeline progress (geometric shapes, color-coded stages)
+- **P1 detection flags** — shows what Phase 1 found vs missed (MAP/STATS/LOADOUT indicators)
+- **Error detail** — failed items show actual error reason, not just "FAILED"
+- **Sub-status text** — shows current processing detail (e.g., "Retry: searching forward +45s")
 - **Thumbnails and metadata** for each recording
-- **Keep/Delete** actions for processed recordings
+- **Keep/Delete** actions for processed recordings — marker files cleaned up automatically
+- **Queue persistence** — completed items survive app restart, show SAVE/DISCARD on relaunch
+- **Separate P1/P2 concurrency** — Phase 1 (fast stats, 4 workers) and Phase 2 (narrative, 2 workers) run independently
 - **Auto-resume toast** for recordings carried over from previous sessions
 
 ### Session Tracking
@@ -122,8 +136,8 @@ runlog.exe is a desktop companion app that **automatically records and analyzes*
 | Charts | Recharts |
 | Backend | Python FastAPI + Uvicorn |
 | Database | SQLite (local-first, auto-backup) |
-| AI / Vision | Anthropic Claude API (Sonnet) |
-| Capture | Rust binary (WGC + MediaFoundation H.264, zero-copy GPU) |
+| AI / Vision | Anthropic Claude API (Sonnet/Haiku) or Claude CLI |
+| Capture | Rust binary (WGC + MediaFoundation HEVC/H.264, zero-copy GPU) |
 | OCR | EasyOCR (GPU-accelerated) |
 | Video | FFmpeg (muxing, compression, clip cutting) |
 | Images | Pillow, OpenCV |
@@ -160,11 +174,11 @@ A group of runs played in one sitting.
 
 ### SpawnPoint
 A map location where you deployed.
-- `id`, `run_id`, `map_name`, `spawn_location`, `spawn_region`
+- `id`, `run_id`, `map_name`, `spawn_location`
 - `x`, `y` (percentage on map image)
-- `compass_bearing`
-- `game_coord_x`, `game_coord_y` (from loading screen)
+- `game_coord_x`, `game_coord_y` (from loading screen, fuzzy-matched)
 - `screenshot_path`, `notes`, `created_at`
+- Ships with reference spawn data — new installs get all known locations pre-populated
 
 ---
 
@@ -220,7 +234,7 @@ A map location where you deployed.
 │  │  /api/sessions   (CRUD)        /api/stats   (aggs)    │   │
 │  │  /api/squad      (stats)       /api/settings (config) │   │
 │  │                                                       │   │
-│  │  SQLite ─── %APPDATA%/marathon-runlog/data/runlog.db  │   │
+│  │  SQLite ─── %APPDATA%/runlog/marathon/data/runlog.db  │   │
 │  └───────────────────────────────────────────────────────┘   │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -239,6 +253,8 @@ A map location where you deployed.
 - `GET /api/capture/clips/{filename}` — Serve clip (HTTP range requests)
 - `POST /api/capture/recording/keep` — Save a recording
 - `POST /api/capture/recording/delete` — Delete a recording
+- `POST /api/capture/recording/retry` — Retry a failed recording
+- `POST /api/capture/clip/delete` — Delete an individual clip
 
 ### Spawn Points
 - `POST /api/spawns/parse` — Upload spawn screenshot, get location via Claude Vision
@@ -247,6 +263,7 @@ A map location where you deployed.
 - `GET /api/spawns/heatmap` — Spawn frequency analysis with per-spawn stats
 - `PUT /api/spawns/update-coords` — Update x,y by map + location name
 - `PUT /api/spawns/update-coords-by-id` — Update x,y by spawn ID
+- `PUT /api/spawns/rename` — Rename a spawn point
 
 ### Runs
 - `GET /api/runs` — List runs (paginated, filter by map/survived/runner)
@@ -282,10 +299,12 @@ A map location where you deployed.
 - `GET /api/squad/stats` — Top squad mates with per-mate stats (runs, survival, combat, loot)
 
 ### Settings
-- `GET /api/settings` — Current settings (API key status, masked key, source)
+- `GET /api/settings` — Current settings (API key, CLI status, recording config, processing config)
 - `POST /api/settings/api-key` — Save API key
 - `POST /api/settings/api-key/test` — Test API key validity
 - `DELETE /api/settings/api-key` — Remove saved API key
+- `POST /api/settings/config` — Update any config value (encoder, bitrate, fps, workers, model, auth mode)
+- `GET /api/settings/cli-status` — Check Claude CLI installation and auth status
 
 ---
 
@@ -326,8 +345,10 @@ cd frontend
 npm install
 ```
 
-### API Key
-Configure your Anthropic API key in-app via **SYS.CONFIG** (Settings page). The key is tested before saving and stored locally in `%APPDATA%/marathon-runlog/data/settings.json`.
+### Authentication
+Two options:
+1. **API Key** — Configure in-app via SYS.CONFIG. Key is tested before saving, stored locally in `%APPDATA%/runlog/settings.json`
+2. **Claude CLI** — Install Claude Code CLI (`npm install -g @anthropic-ai/claude-code`), run `claude login`. Uses your Claude subscription — no API tokens required. Auto-detected by the app.
 
 ### Development
 ```bash
@@ -351,9 +372,12 @@ npm run dist
 
 ## Local-First Philosophy
 
-- All data stored in a local SQLite database (`%APPDATA%/marathon-runlog/data/`)
+- All data stored locally: `%APPDATA%/runlog/marathon/data/` (DB, recordings, clips)
+- Global settings at `%APPDATA%/runlog/settings.json`
+- Multi-game ready folder structure (`runlog/<game>/data/`)
 - Automatic database backups on startup (keeps last 7)
 - Screenshots and recordings saved locally
 - No accounts, no cloud sync, no telemetry
-- Your Anthropic API key is the only external dependency
+- Claude API key or Claude CLI subscription — your choice
 - Works offline for everything except AI-powered analysis
+- Ships with reference spawn point data — new users see all known locations immediately

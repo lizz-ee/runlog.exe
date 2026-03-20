@@ -70,8 +70,8 @@
 - [ ] Add Cryo Archive spawn point data as games are played
 
 ### Stats & Charts
-- [ ] Trends/charts on dashboard (survival rate over time, loot over time)
-- [ ] Per-map trends (performance on each map over time)
+- ~~Trends/charts on dashboard~~ — moved to UPLINK
+- ~~Per-map trends~~ — moved to UPLINK
 - [ ] Weapon performance scoring — combined survival rate + K/D + loot per weapon, best/worst weapon per shell and per map
 
 ### Processing Queue
@@ -127,7 +127,26 @@ The QUEUE status card currently jams all active stage counts into one text line 
 - [x] Readyup screenshots per phase — slot 1=READY_UP, slot 2=RUN, slot 3=DEPLOYING. One per phase, overwrites within same phase (keeps latest)
 - [x] State machine timeout recovery — deploy state resets after 90s (backed out), endgame resets + stops recording after 30min (crash/disconnect)
 - [ ] Death screen detection for mid-match death location tracking
-- [ ] Custom clip trimming UI (adjust start/end of auto-generated clips)
+
+### UPLINK — AI Intel Page (Future)
+Lives in LIVE nav section (renamed from CAPTURE), below RUN REPORTS. AI-powered briefing + chat page.
+
+**Dashboard Panels (auto-generated on page load):**
+- [ ] Last session debrief — run count, survival rate, best run, loot totals
+- [ ] Performance trend — standout stats, week-over-week changes, rotating insights
+- [ ] AI briefing blurbs — auto-generated narrative summaries ("SESSION DEBRIEF: 6 runs, 3 extractions, Triage on Perimeter was your strongest pairing")
+- [ ] Trend charts — survival rate over time, loot over time, per-map performance (line graphs, crypto-style)
+
+**Chat Window:**
+- [ ] Conversational AI interface — ask questions about your stats, performance, loadouts, maps
+- [ ] Read-only DB access via pre-built query tools (get_runs_by_map, get_death_stats, get_performance_trend, etc.) — AI can never write/modify data
+- [ ] Haiku by default, model configurable in SYS.CONFIG
+- [ ] Supports both API key and CLI auth (same dual-path as processing)
+- [ ] Ephemeral chat history (clears on page leave / app restart) — dashboard panels make persistence unnecessary
+- [ ] AI has access to full run data, screenshots, and clips if needed for answering questions
+
+**SYS.CONFIG additions:**
+- [ ] UPLINK model selector (Haiku / Sonnet) — separate from processing model
 
 ### Detection Feed Aesthetic
 - ~~Boot sequence animation~~ — overkill, app already has boot sequence on startup
@@ -174,6 +193,17 @@ The QUEUE status card currently jams all active stage counts into one text line 
 - [x] Debrief page — "FULL RUN" card in highlights grid for kept recordings, plays inline in the video player
 - [x] Delete clips from Run Reports — X button on hover, cyberpunk confirmation dialog ("SYS.WARN // PERMANENT.ACTION")
 - [x] DELETE button should clean up 4K recording, thumbnail, and marker files — clips folder preserved for Run Reports
+
+### Editor (Future)
+- [ ] Custom clip trimming UI (adjust start/end of auto-generated clips)
+- [ ] Timeline markers — when user keeps full recording, show AI-generated highlight clips as marked segments on the video timeline (clips become visual markers on the full run, not just standalone files)
+
+### Run Report Card Export (Future)
+- [ ] Export button on run row (archive, overview — right side near squad/timestamp)
+- [ ] Generates styled image card with Marathon cyberpunk aesthetic (scanlines, // separators, dot notation)
+- [ ] Card contents: grade, map, shell, runner kills (PvP), PvE kills, revives, outcome (EXTRACTED/ELIMINATED), loot value, AI narrative snippet, timestamp, RUNLOG.EXE branding
+- [ ] Dark background, Discord-friendly aspect ratio
+- [ ] Open question: clip thumbnail as background/inset? Gamertag on card?
 
 ### Data Quality
 - [x] Sonnet should return `null` (not 0) for stats it couldn't find — prompt + schema change
