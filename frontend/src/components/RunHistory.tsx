@@ -78,7 +78,7 @@ export default function RunHistory() {
   const [filter, setFilter] = useState<'all' | 'survived' | 'died'>('all')
   const [mapFilter, setMapFilter] = useState('')
   const [page, setPage] = useState(0)
-  const RUNS_PER_PAGE = 28
+  const RUNS_PER_PAGE = 21
 
   useEffect(() => {
     getRuns({ limit: 500 }).then(setAllRuns).catch(console.error)

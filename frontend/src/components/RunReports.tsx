@@ -27,7 +27,7 @@ function formatDate(dateStr: string): string {
   return `${month} ${day}, ${h}:${m}`
 }
 
-const RUNS_PER_PAGE = 28
+const RUNS_PER_PAGE = 21
 
 export default function RunReports() {
   const [runs, setRuns] = useState<Run[]>([])

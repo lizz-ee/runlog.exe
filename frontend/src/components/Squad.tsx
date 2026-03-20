@@ -170,12 +170,12 @@ function SquadCard({ mate, rank, isSelected, onClick }: {
       onMouseLeave={() => setHovered(false)}
       className="relative aspect-[3/4] group focus:outline-none"
     >
-      {/* Background */}
-      <div className={`absolute inset-0 transition-all duration-300 ${
-        isSelected
-          ? 'bg-gradient-to-b from-[var(--rc)]/10 via-[var(--rc)]/5 to-transparent'
-          : 'bg-m-card'
-      }`} style={{ '--rc': rarityColor } as any} />
+      {/* Background — dark, only gradient on selected */}
+      <div className="absolute inset-0 bg-m-card" />
+      {isSelected && (
+        <div className="absolute inset-0 bg-gradient-to-b from-[var(--rc)]/8 via-transparent to-transparent"
+          style={{ '--rc': rarityColor } as any} />
+      )}
 
       {/* Rarity border */}
       <div className="absolute inset-0 border transition-all duration-300"
@@ -184,38 +184,37 @@ function SquadCard({ mate, rank, isSelected, onClick }: {
           boxShadow: active ? rarityGlow : 'none',
         }} />
 
-      {/* Scan line on hover/select */}
-      <div className={`absolute inset-0 overflow-hidden pointer-events-none ${active ? 'opacity-100' : 'opacity-0'} transition-opacity`}>
-        <div className="absolute top-0 left-0 right-0 h-[40px] bg-gradient-to-b to-transparent animate-[scanDown_2s_linear_infinite]"
-          style={{ background: `linear-gradient(to bottom, ${rarityColor}15, transparent)` }} />
-      </div>
+      {/* Scan line on hover/select — slow, random duration like detect feed */}
+      {active && (
+        <div className="absolute inset-0 overflow-hidden pointer-events-none z-[2]">
+          <div className="absolute top-0 left-0 right-0 h-[30px]"
+            style={{
+              background: `linear-gradient(to bottom, ${rarityColor}10, transparent)`,
+              animation: `scanDown ${5 + Math.random() * 6}s linear infinite`,
+            }} />
+        </div>
+      )}
 
-      {/* Corner brackets — rarity colored */}
-      <div className="absolute top-1 left-1 w-2.5 h-2.5 border-l border-t transition-colors duration-300"
+      {/* Corner brackets — exact same as ShellCard (1.5 inset, 3px size) */}
+      <div className="absolute top-1.5 left-1.5 w-3 h-3 border-l border-t z-[3] transition-colors duration-300"
         style={{ borderColor: active ? `${rarityColor}90` : `${rarityColor}25` }} />
-      <div className="absolute top-1 right-1 w-2.5 h-2.5 border-r border-t transition-colors duration-300"
+      <div className="absolute top-1.5 right-1.5 w-3 h-3 border-r border-t z-[3] transition-colors duration-300"
         style={{ borderColor: active ? `${rarityColor}90` : `${rarityColor}25` }} />
-      <div className="absolute bottom-1 left-1 w-2.5 h-2.5 border-l border-b transition-colors duration-300"
+      <div className="absolute bottom-1.5 left-1.5 w-3 h-3 border-l border-b z-[3] transition-colors duration-300"
         style={{ borderColor: active ? `${rarityColor}90` : `${rarityColor}25` }} />
-      <div className="absolute bottom-1 right-1 w-2.5 h-2.5 border-r border-b transition-colors duration-300"
+      <div className="absolute bottom-1.5 right-1.5 w-3 h-3 border-r border-b z-[3] transition-colors duration-300"
         style={{ borderColor: active ? `${rarityColor}90` : `${rarityColor}25` }} />
 
-      {/* Selected top bar glow — rarity colored */}
+      {/* Selected top bar — exact same as ShellCard */}
       {isSelected && (
         <div className="absolute top-0 left-0 right-0 h-[2px] z-[4]"
           style={{ backgroundColor: rarityColor, boxShadow: `0 0 8px ${rarityColor}80` }} />
       )}
 
-      {/* Content */}
-      <div className="relative h-full flex flex-col p-3 z-10">
+      {/* Content — same structure as ShellCard */}
+      <div className="absolute inset-0 z-[3] flex flex-col p-3">
 
-        {/* Rank — large faded background number, rarity colored */}
-        <span className="absolute top-2 right-3 text-2xl font-display font-black transition-colors duration-300"
-          style={{ color: `${rarityColor}${isSelected ? '25' : '10'}` }}>
-          {rankStr}
-        </span>
-
-        {/* Status dot */}
+        {/* Status dot — same as ShellCard */}
         <div className="flex items-center gap-1.5">
           <div className={`w-1 h-1 rounded-full transition-all duration-300 ${
             isSelected
@@ -223,39 +222,45 @@ function SquadCard({ mate, rank, isSelected, onClick }: {
               : mate.survival_rate >= 50 ? 'bg-[#c8ff00]/30' : 'bg-red-500/30'
           }`} />
           <span className={`text-[7px] tracking-[0.2em] transition-colors duration-300 ${
-            isSelected ? 'text-[#c8ff00]/60' : 'text-[#c8ff00]/20'
+            isSelected ? 'text-[#c8ff00]/60' : 'text-[#c8ff00]/15'
           }`}>
             RUNNER
           </span>
         </div>
 
-        {/* Gamertag — center */}
-        <div className="flex-1 flex flex-col items-center justify-center">
-          <span className={`font-mono font-bold tracking-wider text-center leading-tight transition-all duration-300 truncate max-w-full px-1 ${
-            isSelected
-              ? 'text-[#c8ff00] drop-shadow-[0_0_8px_rgba(200,255,0,0.3)]'
-              : 'text-m-text group-hover:text-[#c8ff00]/80'
-          }`} style={{ fontSize: mate.gamertag.split('#')[0].length > 14 ? '8px' : mate.gamertag.split('#')[0].length > 10 ? '9px' : '11px' }}>
-            {mate.gamertag.split('#')[0]}
-          </span>
-          {mate.gamertag.includes('#') && (
-            <span className={`text-[7px] font-mono mt-0.5 transition-colors duration-300 ${
-              isSelected ? 'text-[#c8ff00]/40' : 'text-m-text-muted/40'
-            }`}>
-              #{mate.gamertag.split('#')[1]}
-            </span>
-          )}
-        </div>
+        {/* Rank badge — same position/size as ShellCard */}
+        <span className="absolute top-2.5 right-3 text-lg font-display font-black z-[3] transition-colors duration-300"
+          style={{ color: `${rarityColor}${isSelected ? '25' : '10'}` }}>
+          {rankStr}
+        </span>
 
-        {/* Divider line with glow */}
-        <div className={`w-full h-px mb-2 transition-all duration-300 ${
+        <div className="flex-1" />
+
+        {/* Gamertag — where shell name would be */}
+        <span className={`font-mono font-bold tracking-wider text-center leading-tight transition-all duration-300 truncate max-w-full ${
+          isSelected
+            ? 'text-[#c8ff00] drop-shadow-[0_0_8px_rgba(200,255,0,0.3)]'
+            : 'text-m-text group-hover:text-[#c8ff00]/80'
+        }`} style={{ fontSize: mate.gamertag.split('#')[0].length > 14 ? '8px' : mate.gamertag.split('#')[0].length > 10 ? '9px' : '11px' }}>
+          {mate.gamertag.split('#')[0]}
+        </span>
+        {mate.gamertag.includes('#') && (
+          <span className={`text-[7px] font-mono text-center mt-0.5 transition-colors duration-300 ${
+            isSelected ? 'text-[#c8ff00]/40' : 'text-m-text-muted/40'
+          }`}>
+            #{mate.gamertag.split('#')[1]}
+          </span>
+        )}
+
+        {/* Divider — same as ShellCard */}
+        <div className={`w-full h-px my-2 transition-all duration-300 ${
           active
             ? 'bg-gradient-to-r from-transparent via-[#c8ff00]/40 to-transparent'
             : 'bg-gradient-to-r from-transparent via-[#c8ff00]/10 to-transparent'
         }`} />
 
-        {/* Bottom stats */}
-        <div className="space-y-1.5">
+        {/* Bottom stats — same layout as ShellCard */}
+        <div className="space-y-1">
           <div className="flex justify-between items-center">
             <span className="text-[7px] tracking-[0.15em] text-m-text-muted/60">OPS</span>
             <span className={`text-[10px] font-mono font-bold transition-colors duration-300 ${
@@ -270,7 +275,7 @@ function SquadCard({ mate, rank, isSelected, onClick }: {
               {mate.survival_rate}%
             </span>
           </div>
-          {/* Survival micro bar — rarity colored */}
+          {/* Survival micro bar */}
           <div className="w-full h-[3px] bg-[#ffffff05] rounded-full overflow-hidden">
             <div
               className="h-full rounded-full transition-all duration-500"
