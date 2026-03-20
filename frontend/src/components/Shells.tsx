@@ -8,6 +8,7 @@ import reconImg from '../assets/shells/recon.png'
 import thiefImg from '../assets/shells/thief.png'
 import destroyerImg from '../assets/shells/destroyer.png'
 import assassinImg from '../assets/shells/assassin.png'
+import rookImg from '../assets/shells/rook-profile.png'
 
 const SHELL_IMAGES: Record<string, string> = {
   triage: triageImg,
@@ -16,9 +17,10 @@ const SHELL_IMAGES: Record<string, string> = {
   thief: thiefImg,
   destroyer: destroyerImg,
   assassin: assassinImg,
+  rook: rookImg,
 }
 
-const ALL_SHELLS = ['triage', 'vandal', 'recon', 'thief', 'destroyer', 'assassin']
+const ALL_SHELLS = ['triage', 'vandal', 'recon', 'thief', 'destroyer', 'assassin', 'rook']
 
 const EMPTY_SHELL: ShellStats = {
   runner_id: 0, runner_name: '', runs: 0, survived: 0, survival_rate: 0,

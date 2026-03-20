@@ -11,7 +11,7 @@ function formatDuration(seconds: number | null): string {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
-const SHELLS = ['Triage', 'Assassin', 'Recon', 'Vandal', 'Destroyer', 'Thief']
+const SHELLS = ['Triage', 'Assassin', 'Recon', 'Vandal', 'Destroyer', 'Thief', 'Rook']
 
 function ShellPicker({ run }: { run: Run }) {
   const [editing, setEditing] = useState(false)

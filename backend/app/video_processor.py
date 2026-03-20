@@ -474,8 +474,13 @@ def _analyze_with_screenshots(deploy_jpg: str, readyup_jpg: str, frames_dir: str
             if os.path.isdir(shell_path_base):
                 for f in sorted(os.listdir(shell_path_base)):
                     if f.endswith('.png'):
-                        shell_name = f.replace('.png', '').capitalize()
-                        shell_refs += f"\n- {shell_name}: {os.path.abspath(os.path.join(shell_path_base, f)).replace(chr(92), '/')}"
+                        # Parse name: "assassin.png" -> "Assassin", "assassin-profile.png" -> "Assassin (profile)"
+                        base = f.replace('.png', '')
+                        if '-profile' in base:
+                            display = base.replace('-profile', '').capitalize() + ' (profile view)'
+                        else:
+                            display = base.capitalize() + ' (action pose)'
+                        shell_refs += f"\n- {display}: {os.path.abspath(os.path.join(shell_path_base, f)).replace(chr(92), '/')}"
                 break
 
         image_list = "\n".join(f"- {p}" for p in screenshots)
