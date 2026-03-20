@@ -73,24 +73,25 @@ function ShellPicker({ run }: { run: Run }) {
 }
 
 export default function RunHistory() {
-  const { runs, setRuns } = useStore()
+  const { runners } = useStore()
+  const [allRuns, setAllRuns] = useState<Run[]>([])
   const [filter, setFilter] = useState<'all' | 'survived' | 'died'>('all')
   const [mapFilter, setMapFilter] = useState('')
   const [page, setPage] = useState(0)
   const RUNS_PER_PAGE = 28
 
   useEffect(() => {
-    getRuns({ limit: 200 }).then(setRuns).catch(console.error)
+    getRuns({ limit: 500 }).then(setAllRuns).catch(console.error)
   }, [])
 
-  const filtered = runs.filter((r) => {
+  const filtered = allRuns.filter((r) => {
     if (filter === 'survived' && !r.survived) return false
     if (filter === 'died' && r.survived) return false
     if (mapFilter && r.map_name?.toLowerCase() !== mapFilter.toLowerCase()) return false
     return true
   })
 
-  const maps = [...new Set(runs.map((r) => r.map_name).filter(Boolean))]
+  const maps = [...new Set(allRuns.map((r) => r.map_name).filter(Boolean))]
   const totalPages = Math.max(1, Math.ceil(filtered.length / RUNS_PER_PAGE))
   const pageRuns = filtered.slice(page * RUNS_PER_PAGE, (page + 1) * RUNS_PER_PAGE)
 
