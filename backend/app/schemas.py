@@ -196,7 +196,7 @@ class SpawnPointOut(BaseModel):
     game_coord_y: Optional[float] = None
     screenshot_path: Optional[str]
     notes: Optional[str]
-    created_at: datetime
+    created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
