@@ -85,7 +85,7 @@ export default function Shells() {
     <div className="max-w-7xl mx-auto space-y-4">
       {/* Header */}
       <div>
-        <p className="label-tag text-m-green">SYSTEM // SHELLS</p>
+        <p className="label-tag text-m-green">SYSTEM // NEURAL.LINK</p>
         <h2 className="text-xl font-display font-black tracking-wider text-m-text mt-1">
           SHELLS
         </h2>
