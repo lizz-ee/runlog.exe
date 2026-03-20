@@ -95,7 +95,7 @@ export default function Settings() {
 
   const sendOverlayPos = useCallback((xPct: number, yPct: number) => {
     const now = Date.now()
-    if (now - lastSendRef.current < 50) return  // throttle to 20fps
+    if (now - lastSendRef.current < 100) return  // throttle to 10fps
     lastSendRef.current = now;
     (window as any).runlog?.setOverlayPosition?.(xPct, yPct)
   }, [])

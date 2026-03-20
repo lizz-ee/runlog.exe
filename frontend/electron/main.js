@@ -86,6 +86,10 @@ function createOverlay() {
   overlayWindow = new BrowserWindow({
     width: dims.width,
     height: dims.height,
+    minWidth: dims.width,
+    maxWidth: dims.width,
+    minHeight: dims.height,
+    maxHeight: dims.height,
     x: pos.x,
     y: pos.y,
     frame: false,
@@ -630,11 +634,11 @@ ipcMain.on('overlay-set-position', (_event, xPercent, yPercent) => {
   const display = screen.getPrimaryDisplay()
   const { width, height } = display.size
   const dims = getOverlayDims()
-  const x = Math.round(xPercent / 100 * (width - dims.width))
-  const y = Math.round(yPercent / 100 * (height - dims.height))
-  // Use setPosition instead of setBounds to prevent resize
-  overlayWindow.setPosition(x, y)
-  // Throttle settings save to avoid disk thrashing
+  const x = Math.max(0, Math.min(width - dims.width, Math.round(xPercent / 100 * (width - dims.width))))
+  const y = Math.max(0, Math.min(height - dims.height, Math.round(yPercent / 100 * (height - dims.height))))
+  // Force exact size on every move to prevent any drift
+  overlayWindow.setBounds({ x, y, width: dims.width, height: dims.height })
+  // Throttle settings save
   if (_overlayPosTimeout) clearTimeout(_overlayPosTimeout)
   _overlayPosTimeout = setTimeout(() => {
     const settings = loadOverlaySettings()
@@ -642,7 +646,7 @@ ipcMain.on('overlay-set-position', (_event, xPercent, yPercent) => {
     settings.customY = y
     settings.corner = 'custom'
     saveOverlaySettings(settings)
-  }, 300)
+  }, 500)
 })
 
 ipcMain.on('open-file', (_event, filePath) => {
