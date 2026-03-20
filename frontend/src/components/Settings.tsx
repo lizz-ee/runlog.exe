@@ -95,7 +95,7 @@ export default function Settings() {
 
   const sendOverlayPos = useCallback((xPct: number, yPct: number) => {
     const now = Date.now()
-    if (now - lastSendRef.current < 100) return  // throttle to 10fps
+    if (now - lastSendRef.current < 33) return  // throttle IPC to 30fps
     lastSendRef.current = now;
     (window as any).runlog?.setOverlayPosition?.(xPct, yPct)
   }, [])
@@ -290,6 +290,37 @@ export default function Settings() {
                     (window as any).runlog?.setOverlayOpacity?.(v)
                   }}
                 />
+              </SettingRow>
+
+              <SettingRow label="POSITION">
+                <div className="flex">
+                  {CORNERS.map((c, i) => {
+                    const posMap: Record<string, { x: number; y: number }> = {
+                      'top-left': { x: 0, y: 0 }, 'top-center': { x: 35, y: 0 }, 'top-right': { x: 70, y: 0 },
+                      'bottom-left': { x: 0, y: 88 }, 'bottom-center': { x: 35, y: 88 }, 'bottom-right': { x: 70, y: 88 },
+                    }
+                    return (
+                      <button
+                        key={c.value}
+                        onClick={() => {
+                          setOverlayCorner(c.value)
+                          const pos = posMap[c.value]
+                          setOverlayPos(pos);
+                          (window as any).runlog?.setOverlayCorner?.(c.value)
+                        }}
+                        className={`px-2 py-1 text-2xs font-mono tracking-widest border transition-all ${
+                          i > 0 ? 'border-l-0' : ''
+                        } ${
+                          overlayCorner === c.value
+                            ? 'border-m-green/40 text-m-green bg-m-green/10'
+                            : 'border-m-border text-m-text-muted bg-m-surface hover:text-m-text'
+                        }`}
+                      >
+                        {c.label}
+                      </button>
+                    )
+                  })}
+                </div>
               </SettingRow>
             </div>
 
