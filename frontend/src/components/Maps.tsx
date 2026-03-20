@@ -205,11 +205,10 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
         {(() => {
           const unchartedSpawns = spawns.filter(s => s.zone.startsWith('VCTR//') || s.zone.startsWith('//VCTR.RDCT//'))
           if (unchartedSpawns.length === 0) return null
-          const bracketWidth = Math.max(10, unchartedSpawns.length * 3.5 + 4)
           return (
             <div
               className="absolute z-30 pointer-events-none"
-              style={{ left: '2%', top: '2%', width: `${bracketWidth}%` }}
+              style={{ left: '2%', top: '2%' }}
             >
               {/* Bracket — top-left + bottom-right corners hugging the dots */}
               <div className="relative flex items-center justify-center gap-[8px] px-2">
