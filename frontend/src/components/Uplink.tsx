@@ -341,8 +341,9 @@ function TrendPanel({ title, data, domain, suffix, prefix }: {
 }) {
   const hasData = data.length > 1
   return (
-    <div className="bg-m-card border border-m-border relative overflow-hidden">
-      <div className="px-4 py-2.5 flex justify-between items-center border-b border-m-border">
+    <div>
+      {/* Header outside card — like PIPELINE.STATUS in detect.exe */}
+      <div className="flex justify-between items-center mb-1.5">
         <span className="label-tag text-m-text-muted">{title}</span>
         {hasData && (
           <span className="text-[7px] font-mono text-m-text-muted/40 tracking-wider">
@@ -351,7 +352,7 @@ function TrendPanel({ title, data, domain, suffix, prefix }: {
         )}
       </div>
 
-      <div className="px-3 py-3" style={{ height: 180 }}>
+      <div className="bg-m-card border border-m-border px-3 py-4 flex items-center justify-center" style={{ height: 200 }}>
         {hasData ? (
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={data}>
