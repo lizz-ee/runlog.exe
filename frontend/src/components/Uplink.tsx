@@ -198,9 +198,9 @@ export default function Uplink() {
             <div className="px-5 py-4 min-h-[80px]">
               {briefingLoading && !briefing ? (
                 <div className="space-y-2.5">
-                  <div className="h-2.5 bg-m-border/40 w-[85%] animate-pulse" />
-                  <div className="h-2.5 bg-m-border/30 w-[65%] animate-pulse" />
-                  <div className="h-2.5 bg-m-border/20 w-[75%] animate-pulse" />
+                  <div className="h-2.5 bg-m-border/15 w-[85%] animate-pulse" />
+                  <div className="h-2.5 bg-m-border/10 w-[65%] animate-pulse" />
+                  <div className="h-2.5 bg-m-border/8 w-[75%] animate-pulse" />
                 </div>
               ) : briefing ? (
                 <div className="text-xs font-mono text-m-text leading-relaxed whitespace-pre-wrap">
