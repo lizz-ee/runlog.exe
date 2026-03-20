@@ -352,7 +352,7 @@ function TrendPanel({ title, data, domain, suffix, prefix }: {
         )}
       </div>
 
-      <div className="bg-m-card border border-m-border px-3 py-4 flex items-center justify-center" style={{ height: 200 }}>
+      <div className="bg-m-card border border-m-border p-2" style={{ height: 200 }}>
         {hasData ? (
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={data}>
