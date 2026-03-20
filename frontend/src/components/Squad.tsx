@@ -178,11 +178,17 @@ function SquadCard({ mate, rank, isSelected, onClick }: {
       )}
 
       {/* Rarity border */}
-      <div className="absolute inset-0 border transition-all duration-300"
-        style={{
-          borderColor: active ? `${rarityColor}90` : `${rarityColor}30`,
-          boxShadow: active ? rarityGlow : 'none',
-        }} />
+      <div className={`absolute inset-0 transition-all duration-300 ${
+        isSelected
+          ? ''
+          : rank <= 4 ? '' : 'border border-m-border/30'
+      }`}
+        style={isSelected ? {
+          border: `2px solid ${rarityColor}80`,
+          boxShadow: rarityGlow,
+        } : rank <= 4 ? {
+          border: `1px solid ${rarityColor}20`,
+        } : {}} />
 
       {/* Scan line — only on selected, not hover */}
       {isSelected && (
@@ -191,13 +197,13 @@ function SquadCard({ mate, rank, isSelected, onClick }: {
 
       {/* Corner brackets — exact same as ShellCard (1.5 inset, 3px size) */}
       <div className="absolute top-1.5 left-1.5 w-3 h-3 border-l border-t z-[3] transition-colors duration-300"
-        style={{ borderColor: active ? `${rarityColor}90` : `${rarityColor}25` }} />
+        style={{ borderColor: isSelected ? `${rarityColor}90` : `${rank <= 4 ? `${rarityColor}15` : '#ffffff08'}` }} />
       <div className="absolute top-1.5 right-1.5 w-3 h-3 border-r border-t z-[3] transition-colors duration-300"
-        style={{ borderColor: active ? `${rarityColor}90` : `${rarityColor}25` }} />
+        style={{ borderColor: isSelected ? `${rarityColor}90` : `${rank <= 4 ? `${rarityColor}15` : '#ffffff08'}` }} />
       <div className="absolute bottom-1.5 left-1.5 w-3 h-3 border-l border-b z-[3] transition-colors duration-300"
-        style={{ borderColor: active ? `${rarityColor}90` : `${rarityColor}25` }} />
+        style={{ borderColor: isSelected ? `${rarityColor}90` : `${rank <= 4 ? `${rarityColor}15` : '#ffffff08'}` }} />
       <div className="absolute bottom-1.5 right-1.5 w-3 h-3 border-r border-b z-[3] transition-colors duration-300"
-        style={{ borderColor: active ? `${rarityColor}90` : `${rarityColor}25` }} />
+        style={{ borderColor: isSelected ? `${rarityColor}90` : `${rank <= 4 ? `${rarityColor}15` : '#ffffff08'}` }} />
 
       {/* Selected top bar — exact same as ShellCard */}
       {isSelected && (
@@ -230,55 +236,47 @@ function SquadCard({ mate, rank, isSelected, onClick }: {
 
         <div className="flex-1" />
 
-        {/* Gamertag — where shell name would be */}
-        <span className={`font-mono font-bold tracking-wider text-center leading-tight transition-all duration-300 truncate max-w-full ${
+        {/* Divider — same as ShellCard */}
+        <div className={`w-full h-px mb-2 transition-all duration-300 ${
+          isSelected
+            ? 'bg-gradient-to-r from-transparent via-[#c8ff00]/40 to-transparent'
+            : 'bg-gradient-to-r from-transparent via-[#c8ff00]/10 to-transparent'
+        }`} />
+
+        {/* Gamertag — where shell name is */}
+        <span className={`text-xs tracking-[0.15em] font-bold uppercase transition-all duration-300 truncate max-w-full block ${
           isSelected
             ? 'text-[#c8ff00] drop-shadow-[0_0_8px_rgba(200,255,0,0.3)]'
-            : 'text-m-text group-hover:text-[#c8ff00]/80'
-        }`} style={{ fontSize: mate.gamertag.split('#')[0].length > 14 ? '8px' : mate.gamertag.split('#')[0].length > 10 ? '9px' : '11px' }}>
+            : 'text-m-text group-hover:text-m-cyan'
+        }`} style={{ fontSize: mate.gamertag.split('#')[0].length > 12 ? '9px' : undefined }}>
           {mate.gamertag.split('#')[0]}
         </span>
         {mate.gamertag.includes('#') && (
-          <span className={`text-[7px] font-mono text-center mt-0.5 transition-colors duration-300 ${
+          <span className={`text-[7px] font-mono transition-colors duration-300 ${
             isSelected ? 'text-[#c8ff00]/40' : 'text-m-text-muted/40'
           }`}>
             #{mate.gamertag.split('#')[1]}
           </span>
         )}
 
-        {/* Divider — same as ShellCard */}
-        <div className={`w-full h-px my-2 transition-all duration-300 ${
-          active
-            ? 'bg-gradient-to-r from-transparent via-[#c8ff00]/40 to-transparent'
-            : 'bg-gradient-to-r from-transparent via-[#c8ff00]/10 to-transparent'
-        }`} />
+        {/* Stats — same as ShellCard: runs + surv% inline */}
+        <div className="flex gap-3 mt-1">
+          <span className="text-[8px] font-mono text-m-text-muted">{mate.runs} RUNS</span>
+          <span className={`text-[8px] font-mono ${
+            mate.survival_rate >= 50 ? 'text-[#c8ff00]' : 'text-red-400'
+          }`}>
+            {mate.survival_rate}%
+          </span>
+        </div>
 
-        {/* Bottom stats — same layout as ShellCard */}
-        <div className="space-y-1">
-          <div className="flex justify-between items-center">
-            <span className="text-[7px] tracking-[0.15em] text-m-text-muted/60">OPS</span>
-            <span className={`text-[10px] font-mono font-bold transition-colors duration-300 ${
-              isSelected ? 'text-m-text' : 'text-m-text/70'
-            }`}>{mate.runs}</span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-[7px] tracking-[0.15em] text-m-text-muted/60">SURV</span>
-            <span className={`text-[10px] font-mono font-bold ${
-              mate.survival_rate >= 50 ? 'text-[#c8ff00]' : 'text-red-400'
-            }`}>
-              {mate.survival_rate}%
-            </span>
-          </div>
-          {/* Survival micro bar */}
-          <div className="w-full h-[3px] bg-[#ffffff05] rounded-full overflow-hidden">
-            <div
-              className="h-full rounded-full transition-all duration-500"
-              style={{
-                width: `${Math.min(100, Math.max(5, 50 + mate.survival_diff))}%`,
-                backgroundColor: mate.survival_diff >= 0 ? `${rarityColor}60` : '#f8717160',
-              }}
-            />
-          </div>
+        {/* Survival micro bar — same as ShellCard */}
+        <div className="w-full h-[3px] bg-[#ffffff05] rounded-full overflow-hidden mt-1.5">
+          <div
+            className={`h-full rounded-full transition-all duration-500 ${
+              mate.survival_rate >= 50 ? 'bg-[#c8ff00]/40' : 'bg-red-400/40'
+            }`}
+            style={{ width: `${Math.max(3, mate.survival_rate)}%` }}
+          />
         </div>
       </div>
 
