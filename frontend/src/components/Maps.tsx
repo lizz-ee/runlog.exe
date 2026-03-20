@@ -197,20 +197,28 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
         {(() => {
           const unchartedSpawns = spawns.filter(s => s.zone.startsWith('//VCTR.RDCT//'))
           if (unchartedSpawns.length === 0) return null
-          const bracketWidth = Math.max(10, unchartedSpawns.length * 3.5 + 3)
+          const bracketWidth = Math.max(10, unchartedSpawns.length * 3.5 + 4)
           return (
             <div
               className="absolute z-30 pointer-events-none"
-              style={{ left: '1%', top: '1%', width: `${bracketWidth}%`, height: '7%' }}
+              style={{ left: '1%', top: '1%', width: `${bracketWidth}%` }}
             >
-              {/* Corner brackets */}
-              <div className="absolute top-0 left-0 w-2.5 h-2.5 border-t-2 border-l-2 border-m-cyan/50" />
-              <div className="absolute top-0 right-0 w-2.5 h-2.5 border-t-2 border-r-2 border-m-cyan/50" />
-              <div className="absolute bottom-0 left-0 w-2.5 h-2.5 border-b-2 border-l-2 border-m-cyan/50" />
-              <div className="absolute bottom-0 right-0 w-2.5 h-2.5 border-b-2 border-r-2 border-m-cyan/50" />
-              {/* Label — below dots */}
-              <div className="absolute bottom-0.5 left-0 right-0 flex items-center justify-center">
-                <span className="text-[6px] font-mono text-m-cyan/40 tracking-[0.2em]">
+              {/* Bracket container with centered dots inside */}
+              <div className="relative border-2 border-m-cyan/30 flex items-center justify-center gap-[6px] px-3 py-1.5"
+                style={{ borderImage: 'none' }}>
+                {/* Corner accents only */}
+                <div className="absolute -top-px -left-px w-2 h-2 border-t-2 border-l-2 border-m-cyan/70" />
+                <div className="absolute -top-px -right-px w-2 h-2 border-t-2 border-r-2 border-m-cyan/70" />
+                <div className="absolute -bottom-px -left-px w-2 h-2 border-b-2 border-l-2 border-m-cyan/70" />
+                <div className="absolute -bottom-px -right-px w-2 h-2 border-b-2 border-r-2 border-m-cyan/70" />
+                {/* Invisible dots just for spacing — actual pins render via spawn system */}
+                {unchartedSpawns.map((_, i) => (
+                  <div key={i} className="w-3 h-3" />
+                ))}
+              </div>
+              {/* Label — below bracket */}
+              <div className="flex items-center justify-center mt-1">
+                <span className="text-[7px] font-mono text-m-cyan/40 tracking-[0.2em]">
                   STAGING // {unchartedSpawns.length}
                 </span>
               </div>

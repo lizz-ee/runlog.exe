@@ -1280,8 +1280,11 @@ def save_run_to_db(analysis: dict, run_date: datetime | None = None) -> int | No
                 uncharted_count = db.query(SpawnPoint).filter(
                     SpawnPoint.spawn_location.like("//VCTR.RDCT//%")
                 ).count()
-                staging_x = 3.0 + uncharted_count * 3.5  # horizontal line, 3.5% apart
-                staging_y = 4.0  # single row near top
+                # Centered in bracket: bracket at 1%, width = count*3.5+4
+                total = uncharted_count + 1
+                bracket_center = 1 + (total * 3.5 + 4) / 2
+                staging_x = bracket_center + (uncharted_count - (total - 1) / 2) * 3.5
+                staging_y = 3.5  # vertically centered in bracket
 
                 spawn = SpawnPoint(
                     map_name=analysis.get("map_name") or "Unknown",

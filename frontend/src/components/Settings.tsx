@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { getSettings, setApiKey, testApiKey, removeApiKey, updateConfig, getCliStatus } from '../lib/api'
 import type { AppSettings } from '../lib/api'
 
@@ -88,6 +88,9 @@ export default function Settings() {
   const [overlayCorner, setOverlayCorner] = useState('top-left')
   const [overlayOpacity, setOverlayOpacity] = useState(88)
   const [overlaySize, setOverlaySize] = useState('medium')
+  const [overlayPos, setOverlayPos] = useState({ x: 0, y: 0 })  // % position
+  const [draggingOverlay, setDraggingOverlay] = useState(false)
+  const posRef = useRef<HTMLDivElement>(null)
 
   // CLI status
   const [cliStatus, setCliStatus] = useState<{ installed: boolean; authenticated: boolean; path: string | null } | null>(null)
@@ -99,9 +102,16 @@ export default function Settings() {
     if (runlog?.getOverlaySettings) {
       runlog.getOverlaySettings().then((s: any) => {
         setOverlayEnabled(s.enabled ?? true)
-        setOverlayCorner(s.corner ?? 'top-left')
+        const corner = s.corner ?? 'top-left'
+        setOverlayCorner(corner)
         setOverlayOpacity(s.opacity ?? 88)
         setOverlaySize(s.size ?? 'medium')
+        // Set initial preview position from corner
+        const posMap: Record<string, { x: number; y: number }> = {
+          'top-left': { x: 0, y: 0 }, 'top-center': { x: 35, y: 0 }, 'top-right': { x: 70, y: 0 },
+          'bottom-left': { x: 0, y: 88 }, 'bottom-center': { x: 35, y: 88 }, 'bottom-right': { x: 70, y: 88 },
+        }
+        setOverlayPos(posMap[corner] || { x: s.customX != null ? 50 : 0, y: s.customY != null ? 50 : 0 })
       }).catch(() => {})
     }
   }, [])
@@ -278,87 +288,55 @@ export default function Settings() {
             {/* Divider */}
             <div className="w-px bg-m-border/30" />
 
-            {/* Right half — interactive position display */}
+            {/* Right half — draggable position display */}
             <div className="flex-1 pl-5 space-y-3">
               <span className="label-tag text-m-text-muted">POSITION</span>
 
-              {/* Interactive screen preview — click zones to set position */}
-              <div className="relative border border-m-border/50 bg-m-black/60 aspect-video overflow-hidden">
+              {/* Interactive screen preview — drag the bar to reposition */}
+              <div
+                ref={posRef}
+                className="relative border border-m-border/50 bg-m-black/60 aspect-video overflow-hidden cursor-crosshair"
+                onMouseDown={(e) => {
+                  setDraggingOverlay(true)
+                  const rect = posRef.current?.getBoundingClientRect()
+                  if (!rect) return
+                  const xPct = Math.max(0, Math.min(100, (e.clientX - rect.left) / rect.width * 100))
+                  const yPct = Math.max(0, Math.min(100, (e.clientY - rect.top) / rect.height * 100))
+                  setOverlayPos({ x: xPct, y: yPct })
+                  setOverlayCorner('custom');
+                  (window as any).runlog?.setOverlayPosition?.(xPct, yPct)
+                }}
+                onMouseMove={(e) => {
+                  if (!draggingOverlay || !posRef.current) return
+                  const rect = posRef.current.getBoundingClientRect()
+                  const xPct = Math.max(0, Math.min(100, (e.clientX - rect.left) / rect.width * 100))
+                  const yPct = Math.max(0, Math.min(100, (e.clientY - rect.top) / rect.height * 100))
+                  setOverlayPos({ x: xPct, y: yPct });
+                  (window as any).runlog?.setOverlayPosition?.(xPct, yPct)
+                }}
+                onMouseUp={() => setDraggingOverlay(false)}
+                onMouseLeave={() => setDraggingOverlay(false)}
+              >
                 {/* Scan lines */}
                 <div className="absolute inset-0 opacity-[0.03] pointer-events-none"
                   style={{ backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(200,255,0,0.3) 2px, rgba(200,255,0,0.3) 3px)' }} />
 
-                {/* 6 clickable zones — 3x2 grid */}
-                <div className="absolute inset-0 grid grid-cols-3 grid-rows-2">
-                  {CORNERS.map((c) => {
-                    const isActive = overlayCorner === c.value
-                    return (
-                      <button
-                        key={c.value}
-                        onClick={() => {
-                          setOverlayCorner(c.value);
-                          (window as any).runlog?.setOverlayCorner?.(c.value)
-                        }}
-                        className={`relative transition-all ${isActive ? 'bg-m-green/5' : 'hover:bg-m-green/3'}`}
-                      >
-                        {/* Zone label */}
-                        <span className={`absolute text-[7px] font-mono tracking-wider transition-all ${
-                          isActive ? 'text-m-green/50' : 'text-m-border/30'
-                        } ${
-                          c.value.includes('top') ? 'top-1' : 'bottom-1'
-                        } ${
-                          c.value.includes('left') ? 'left-1.5' : c.value.includes('right') ? 'right-1.5' : 'left-1/2 -translate-x-1/2'
-                        }`}>
-                          {c.label}
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
-
-                {/* Overlay bar indicator — shows where the HUD actually is */}
-                {(() => {
-                  const pos = overlayCorner
-                  const barStyle: React.CSSProperties = {
-                    position: 'absolute',
-                    width: overlaySize === 'small' ? '30%' : overlaySize === 'large' ? '50%' : '38%',
+                {/* Draggable overlay bar */}
+                <div
+                  className="absolute pointer-events-none transition-[left,top] duration-75"
+                  style={{
+                    left: `${Math.min(overlayPos.x, 70)}%`,
+                    top: `${Math.min(overlayPos.y, 88)}%`,
+                    width: '30%',
                     height: '12%',
-                    transition: 'all 0.3s ease',
-                  }
-                  if (pos.includes('top')) barStyle.top = '4%'
-                  else barStyle.bottom = '4%'
-                  if (pos.includes('left')) barStyle.left = '3%'
-                  else if (pos.includes('right')) barStyle.right = '3%'
-                  else { barStyle.left = '50%'; barStyle.transform = 'translateX(-50%)' }
-
-                  return (
-                    <div style={barStyle} className="pointer-events-none">
-                      <div className="w-full h-full bg-m-green/60 border border-m-green/80 shadow-[0_0_12px_rgba(200,255,0,0.3)]" />
-                    </div>
-                  )
-                })()}
+                  }}
+                >
+                  <div className="w-full h-full bg-m-green/60 border border-m-green/80 shadow-[0_0_12px_rgba(200,255,0,0.3)]" />
+                </div>
 
                 {/* Center label */}
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <span className="text-[7px] font-mono text-m-border/30 tracking-[0.3em]">DISPLAY</span>
-                </div>
-              </div>
-
-              {/* Nudge controls — inline */}
-              <div className="flex items-center gap-3">
-                <span className="text-[7px] font-mono text-m-text-muted/40 tracking-[0.2em]">NUDGE</span>
-                <div className="flex items-center gap-px">
-                  {(['left', 'up', 'down', 'right'] as const).map(dir => (
-                    <button key={dir} onClick={() => (window as any).runlog?.nudgeOverlay?.(dir)}
-                      className="w-6 h-5 text-m-text-muted border border-m-border/60 bg-m-surface hover:text-m-green hover:border-m-green/30 hover:bg-m-green/5 transition-all flex items-center justify-center">
-                      <svg width="6" height="6" viewBox="0 0 8 8" fill="currentColor">
-                        {dir === 'up' && <polygon points="4,1 7,6 1,6" />}
-                        {dir === 'down' && <polygon points="4,7 1,2 7,2" />}
-                        {dir === 'left' && <polygon points="1,4 6,1 6,7" />}
-                        {dir === 'right' && <polygon points="7,4 2,1 2,7" />}
-                      </svg>
-                    </button>
-                  ))}
+                  <span className="text-[7px] font-mono text-m-border/30 tracking-[0.3em]">CLICK & DRAG</span>
                 </div>
               </div>
             </div>
@@ -369,17 +347,7 @@ export default function Settings() {
       {/* ═══ AUTHENTICATION ═══ */}
       <div className="border border-m-border bg-m-card">
         <SectionHeader tag="AUTH.CONFIG" title="AUTHENTICATION" desc="Connect to Claude for AI-powered analysis." />
-        <div className="px-5 py-4 space-y-4">
-          {/* Model selection — shared across both auth modes */}
-          <SettingRow label="MODEL">
-            <ToggleButton
-              options={[{ value: 'sonnet', label: 'SONNET' }, { value: 'haiku', label: 'HAIKU' }]}
-              value={config.model}
-              onChange={v => saveConfig('model', v)}
-            />
-          </SettingRow>
-
-          {/* Side-by-side auth methods */}
+        <div className="px-5 py-4">
           <div className="flex gap-0">
             {/* Left — API Key */}
             <div className="flex-1 pr-5 space-y-3">
@@ -439,50 +407,71 @@ export default function Settings() {
             {/* Divider */}
             <div className="w-px bg-m-border/30" />
 
-            {/* Right — Claude CLI */}
-            <div className="flex-1 pl-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="label-tag text-m-cyan">CLAUDE CLI</span>
-                {cliStatus === null ? (
-                  <button onClick={checkCli}
-                    className="px-2 py-0.5 text-[9px] font-mono tracking-widest border border-m-border text-m-text-muted hover:text-m-cyan hover:border-m-cyan/40 transition-all">
-                    CHECK
-                  </button>
-                ) : cliStatus.installed ? (
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 bg-m-green rounded-full" />
-                    <span className="text-[9px] font-mono text-m-green">CONNECTED</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 bg-m-red rounded-full" />
-                    <span className="text-[9px] font-mono text-m-red">NOT FOUND</span>
-                  </div>
-                )}
+            {/* Right — Model + Claude CLI */}
+            <div className="flex-1 pl-5 space-y-4">
+              {/* Model selector at top */}
+              <div>
+                <div className="flex items-center justify-between">
+                  <span className="label-tag text-m-text-muted">MODEL</span>
+                  <ToggleButton
+                    options={[{ value: 'sonnet', label: 'SONNET' }, { value: 'haiku', label: 'HAIKU' }]}
+                    value={config.model}
+                    onChange={v => saveConfig('model', v)}
+                  />
+                </div>
+                <p className="text-[8px] font-mono text-m-text-muted/30 tracking-wider mt-1.5">
+                  SONNET = HIGHER ACCURACY — HAIKU = LOWER COST
+                </p>
               </div>
 
-              {cliStatus && cliStatus.installed && cliStatus.path && (
-                <p className="text-[9px] font-mono text-m-text-muted/60 truncate">{cliStatus.path}</p>
-              )}
+              {/* Divider */}
+              <div className="border-t border-m-border/20" />
 
-              {cliStatus && !cliStatus.installed && (
-                <div className="bg-m-surface border border-m-border/30 px-3 py-2 space-y-1.5">
-                  <p className="text-[9px] font-mono text-m-text-muted tracking-wider">
-                    CLI NOT FOUND — INSTALL:
-                  </p>
-                  <p className="text-[10px] font-mono text-m-cyan">
-                    npm install -g @anthropic-ai/claude-code
+              {/* Claude CLI below model */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="label-tag text-m-cyan">CLAUDE CLI</span>
+                  {cliStatus === null ? (
+                    <button onClick={checkCli}
+                      className="px-2 py-0.5 text-[9px] font-mono tracking-widest border border-m-border text-m-text-muted hover:text-m-cyan hover:border-m-cyan/40 transition-all">
+                      CHECK
+                    </button>
+                  ) : cliStatus.installed ? (
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 bg-m-green rounded-full" />
+                      <span className="text-[9px] font-mono text-m-green">CONNECTED</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 bg-m-red rounded-full" />
+                      <span className="text-[9px] font-mono text-m-red">NOT FOUND</span>
+                    </div>
+                  )}
+                </div>
+
+                {cliStatus && cliStatus.installed && cliStatus.path && (
+                  <p className="text-[9px] font-mono text-m-text-muted/60 truncate">{cliStatus.path}</p>
+                )}
+
+                {cliStatus && !cliStatus.installed && (
+                  <div className="bg-m-surface border border-m-border/30 px-3 py-2 space-y-1.5">
+                    <p className="text-[9px] font-mono text-m-text-muted tracking-wider">
+                      CLI NOT FOUND — INSTALL:
+                    </p>
+                    <p className="text-[10px] font-mono text-m-cyan">
+                      npm install -g @anthropic-ai/claude-code
+                    </p>
+                  </div>
+                )}
+
+                <div className="pt-1 border-t border-m-border/20">
+                  <p className="text-[8px] font-mono text-m-text-muted/30 tracking-wider leading-relaxed">
+                    01 — INSTALL CLAUDE CODE CLI<br/>
+                    02 — RUN <span className="text-m-cyan/50">claude login</span> IN TERMINAL<br/>
+                    03 — USES YOUR CLAUDE SUBSCRIPTION<br/>
+                    <span className="text-m-text-muted/20">NO API TOKENS REQUIRED</span>
                   </p>
                 </div>
-              )}
-
-              <div className="pt-1 border-t border-m-border/20">
-                <p className="text-[8px] font-mono text-m-text-muted/30 tracking-wider leading-relaxed">
-                  01 — INSTALL CLAUDE CODE CLI<br/>
-                  02 — RUN <span className="text-m-cyan/50">claude login</span> IN TERMINAL<br/>
-                  03 — USES YOUR CLAUDE SUBSCRIPTION<br/>
-                  <span className="text-m-text-muted/20">NO API TOKENS REQUIRED</span>
-                </p>
               </div>
             </div>
           </div>

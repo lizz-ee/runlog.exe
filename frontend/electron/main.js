@@ -38,9 +38,9 @@ let recordingManager = null
 const overlaySettingsFile = path.join(app.getPath('userData'), 'overlay-settings.json')
 
 const OVERLAY_SIZES = {
-  small: { width: 200, height: 24 },
-  medium: { width: 260, height: 30 },
-  large: { width: 340, height: 38 },
+  small: { width: 260, height: 24, fontSize: 9 },
+  medium: { width: 260, height: 30, fontSize: 11 },
+  large: { width: 260, height: 38, fontSize: 14 },
 }
 
 function loadOverlaySettings() {
@@ -616,7 +616,27 @@ ipcMain.on('overlay-set-size', (_event, size) => {
     const dims = OVERLAY_SIZES[size] || OVERLAY_SIZES.medium
     const bounds = overlayWindow.getBounds()
     overlayWindow.setBounds({ x: bounds.x, y: bounds.y, width: dims.width, height: dims.height })
+    overlayWindow.webContents.executeJavaScript(
+      `document.getElementById('bar').style.font = '700 ${dims.fontSize}px "JetBrains Mono", monospace';
+       document.getElementById('bar').style.height = '${dims.height}px';`
+    )
   }
+})
+
+ipcMain.on('overlay-set-position', (_event, xPercent, yPercent) => {
+  if (!overlayWindow) return
+  const { screen } = require('electron')
+  const display = screen.getPrimaryDisplay()
+  const { width, height } = display.size
+  const bounds = overlayWindow.getBounds()
+  const x = Math.round(xPercent / 100 * (width - bounds.width))
+  const y = Math.round(yPercent / 100 * (height - bounds.height))
+  overlayWindow.setBounds({ x, y, width: bounds.width, height: bounds.height })
+  const settings = loadOverlaySettings()
+  settings.customX = x
+  settings.customY = y
+  settings.corner = 'custom'
+  saveOverlaySettings(settings)
 })
 
 ipcMain.on('open-file', (_event, filePath) => {
