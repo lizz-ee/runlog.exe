@@ -47,7 +47,7 @@ export default function RunReports() {
           getClips(),
         ])
         // Filter to runs with summaries (auto-captured and processed)
-        const reportRuns = allRuns.filter((r: Run) => r.summary)
+        const reportRuns = allRuns
         setRuns(reportRuns)
         setClips(allClips)
       } catch (e) {
