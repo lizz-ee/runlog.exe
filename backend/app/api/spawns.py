@@ -30,7 +30,6 @@ Return ONLY valid JSON:
 {
   "map_name": "string or null",
   "spawn_location": "string description of the specific spawn point, or null",
-  "spawn_region": "string general area/region, or null",
   "landmarks_visible": ["list", "of", "visible", "landmarks/signs"] or null,
   "raw_text": "summary of any text visible on screen (HUD, signs, etc.)",
   "confidence": "high/medium/low"
@@ -136,6 +135,23 @@ def update_spawn_coords_by_id(body: CoordsUpdateById, db: DBSession = Depends(ge
     return {"updated": 1, "id": body.id, "x": body.x, "y": body.y}
 
 
+class SpawnRename(BaseModel):
+    id: int
+    spawn_location: str
+
+
+@router.put("/rename")
+def rename_spawn(body: SpawnRename, db: DBSession = Depends(get_db)):
+    """Rename a spawn point's display name."""
+    spawn = db.query(SpawnPoint).filter(SpawnPoint.id == body.id).first()
+    if not spawn:
+        raise HTTPException(status_code=404, detail=f"Spawn #{body.id} not found")
+    old_name = spawn.spawn_location
+    spawn.spawn_location = body.spawn_location.strip()
+    db.commit()
+    return {"id": body.id, "old_name": old_name, "new_name": spawn.spawn_location}
+
+
 @router.get("/", response_model=list[SpawnPointOut])
 def list_spawns(map_name: str = None, db: DBSession = Depends(get_db)):
     q = db.query(SpawnPoint)
@@ -152,15 +168,13 @@ def spawn_heatmap(db: DBSession = Depends(get_db)):
     maps: dict[str, dict[str, dict]] = {}
     for s in spawns:
         map_key = s.map_name or "Unknown"
-        loc_key = s.spawn_location or s.spawn_region or "Unknown"
+        loc_key = s.spawn_location or "Unknown"
 
         if map_key not in maps:
             maps[map_key] = {}
         if loc_key not in maps[map_key]:
             maps[map_key][loc_key] = {
                 "location": loc_key,
-                "region": s.spawn_region,
-                "compass_bearing": s.compass_bearing,
                 "x": s.x,
                 "y": s.y,
                 "count": 0,
@@ -189,9 +203,6 @@ def spawn_heatmap(db: DBSession = Depends(get_db)):
         if s.x is not None:
             entry["x"] = s.x
             entry["y"] = s.y
-        if s.compass_bearing:
-            entry["compass_bearing"] = s.compass_bearing
-
         for run in s.runs:
             if run.survived is not None:
                 if run.survived:

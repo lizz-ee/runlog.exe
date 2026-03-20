@@ -106,10 +106,8 @@ class SpawnPoint(Base):
     run_id = Column(Integer, ForeignKey("runs.id"), nullable=True)
     map_name = Column(String(100), nullable=False)
     spawn_location = Column(String(200), nullable=True)
-    spawn_region = Column(String(100), nullable=True)
     x = Column(Float, nullable=True)  # % position on map image (0-100)
     y = Column(Float, nullable=True)  # % position on map image (0-100)
-    compass_bearing = Column(String(20), nullable=True)  # e.g. "S 195" — direction facing on spawn
     game_coord_x = Column(Float, nullable=True)  # Game coordinate from loading screen (e.g. 10.564070)
     game_coord_y = Column(Float, nullable=True)  # Game coordinate from loading screen (e.g. 195.869476)
     screenshot_path = Column(String(500), nullable=True)

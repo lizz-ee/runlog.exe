@@ -82,7 +82,7 @@ export default function App() {
         addToast({
           type: 'info',
           title: 'SPAWN LOGGED',
-          body: `${d.map_name || 'UNKNOWN'} — ${d.spawn_location || d.spawn_region || 'UNKNOWN'}`,
+          body: `${d.map_name || 'UNKNOWN'} — ${d.spawn_location || 'UNKNOWN'}`,
         })
       }
     })

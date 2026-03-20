@@ -1,0 +1,162 @@
+[
+  {
+    "map_name": "Dire Marsh",
+    "spawn_location": "AI Uplink",
+    "x": 56.9,
+    "y": 71.3,
+    "game_coord_x": 10.56407,
+    "game_coord_y": 195.860476
+  },
+  {
+    "map_name": "Dire Marsh",
+    "spawn_location": "Bio-Research",
+    "x": 68.6,
+    "y": 13.9,
+    "game_coord_x": null,
+    "game_coord_y": null
+  },
+  {
+    "map_name": "Dire Marsh",
+    "spawn_location": "East Gate",
+    "x": 86.9,
+    "y": 45.0,
+    "game_coord_x": null,
+    "game_coord_y": null
+  },
+  {
+    "map_name": "Dire Marsh",
+    "spawn_location": "Greenhouse",
+    "x": 39.9,
+    "y": 27.5,
+    "game_coord_x": 226.404694,
+    "game_coord_y": -189.159973
+  },
+  {
+    "map_name": "Dire Marsh",
+    "spawn_location": "West Gate",
+    "x": 14.7,
+    "y": 45.0,
+    "game_coord_x": null,
+    "game_coord_y": null
+  },
+  {
+    "map_name": "Outpost",
+    "spawn_location": "Outpost S",
+    "x": 56.0,
+    "y": 30.0,
+    "game_coord_x": 90.325317,
+    "game_coord_y": -143.245758
+  },
+  {
+    "map_name": "Outpost",
+    "spawn_location": "Outpost W",
+    "x": 31.9,
+    "y": 26.3,
+    "game_coord_x": 307.28479,
+    "game_coord_y": -169.468948
+  },
+  {
+    "map_name": "Perimeter",
+    "spawn_location": "Bluffs",
+    "x": 59.7,
+    "y": 22.0,
+    "game_coord_x": -90.208244,
+    "game_coord_y": -369.487468
+  },
+  {
+    "map_name": "Perimeter",
+    "spawn_location": "Columns",
+    "x": 46.5,
+    "y": 78.4,
+    "game_coord_x": null,
+    "game_coord_y": null
+  },
+  {
+    "map_name": "Perimeter",
+    "spawn_location": "Data Wall",
+    "x": 48.4,
+    "y": 48.0,
+    "game_coord_x": -2.176647,
+    "game_coord_y": -70.787342
+  },
+  {
+    "map_name": "Perimeter",
+    "spawn_location": "Hauler",
+    "x": 28.8,
+    "y": 58.5,
+    "game_coord_x": 347.442983,
+    "game_coord_y": 57.000307
+  },
+  {
+    "map_name": "Perimeter",
+    "spawn_location": "Hauler N",
+    "x": 29.7,
+    "y": 45.0,
+    "game_coord_x": 345.823639,
+    "game_coord_y": -112.599724
+  },
+  {
+    "map_name": "Perimeter",
+    "spawn_location": "North Relay N",
+    "x": 51.7,
+    "y": 12.0,
+    "game_coord_x": 20.265451,
+    "game_coord_y": -446.360199
+  },
+  {
+    "map_name": "Perimeter",
+    "spawn_location": "North Relay W",
+    "x": 35.8,
+    "y": 21.2,
+    "game_coord_x": 251.6943876,
+    "game_coord_y": -357.6716616
+  },
+  {
+    "map_name": "Perimeter",
+    "spawn_location": "Overflow",
+    "x": 30.6,
+    "y": 80.8,
+    "game_coord_x": 317.2082517142857,
+    "game_coord_y": 271.3149555714286
+  },
+  {
+    "map_name": "Perimeter",
+    "spawn_location": "South Relay E",
+    "x": 71.6,
+    "y": 70.4,
+    "game_coord_x": -245.57428,
+    "game_coord_y": 121.348846
+  },
+  {
+    "map_name": "Perimeter",
+    "spawn_location": "South Relay S",
+    "x": 58.3,
+    "y": 89.3,
+    "game_coord_x": -59.4213485,
+    "game_coord_y": 336.4634555
+  },
+  {
+    "map_name": "Perimeter",
+    "spawn_location": "Station E",
+    "x": 74.1,
+    "y": 41.1,
+    "game_coord_x": -294.591034,
+    "game_coord_y": -152.994995
+  },
+  {
+    "map_name": "Perimeter",
+    "spawn_location": "Station N",
+    "x": 72.2,
+    "y": 29.5,
+    "game_coord_x": -267.710872,
+    "game_coord_y": -262.627502
+  },
+  {
+    "map_name": "Perimeter",
+    "spawn_location": "Tunnels",
+    "x": 57.5,
+    "y": 54.6,
+    "game_coord_x": null,
+    "game_coord_y": null
+  }
+]

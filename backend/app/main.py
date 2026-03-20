@@ -46,6 +46,29 @@ with engine.connect() as conn:
         conn.execute(text("ALTER TABLE runs ADD COLUMN viewed BOOLEAN DEFAULT 0"))
         conn.commit()
 
+# Seed spawn points from reference data if table is empty
+from .database import SessionLocal
+from .models import SpawnPoint
+_seed_db = SessionLocal()
+if _seed_db.query(SpawnPoint).count() == 0:
+    _seed_file = os.path.join(os.path.dirname(__file__), "data", "spawn_points.json")
+    if os.path.exists(_seed_file):
+        import json
+        with open(_seed_file) as f:
+            _seed_spawns = json.load(f)
+        for s in _seed_spawns:
+            _seed_db.add(SpawnPoint(
+                map_name=s["map_name"],
+                spawn_location=s["spawn_location"],
+                x=s.get("x"),
+                y=s.get("y"),
+                game_coord_x=s.get("game_coord_x"),
+                game_coord_y=s.get("game_coord_y"),
+            ))
+        _seed_db.commit()
+        print(f"[seed] Loaded {len(_seed_spawns)} reference spawn points")
+_seed_db.close()
+
 app = FastAPI(
     title="Marathon RunLog",
     description="Track your Marathon extraction runs with screenshot parsing",

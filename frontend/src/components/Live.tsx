@@ -278,7 +278,7 @@ export default function Live() {
           </div>
 
           {/* Bottom data bar — Marathon-style ticker */}
-          <div className="absolute bottom-8 left-0 right-0 z-20 pointer-events-none flex items-center justify-between px-3 py-1.5">
+          <div className="absolute bottom-[30px] left-0 right-0 z-20 pointer-events-none flex items-center justify-between px-3 py-1.5">
             <div className="flex items-center gap-4">
               {status?.recording && status.recording_path && (
                 <p className="text-[9px] font-mono text-m-text-muted/50">

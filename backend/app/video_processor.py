@@ -1276,18 +1276,26 @@ def save_run_to_db(analysis: dict, run_date: datetime | None = None) -> int | No
                 db.commit()
                 print(f"[processor] Matched spawn #{spawn_point_id} '{best_match.spawn_location}' (dist={best_dist:.1f}, avg updated)")
             else:
+                # Count existing uncharted spawns to offset the staging position
+                uncharted_count = db.query(SpawnPoint).filter(
+                    SpawnPoint.spawn_location.like("//VECTOR.LOST//%")
+                ).count()
+                staging_x = 5.0 + (uncharted_count % 5) * 4.0  # stagger left side
+                staging_y = 92.0  # bottom of map — staging area
+
                 spawn = SpawnPoint(
                     map_name=analysis.get("map_name") or "Unknown",
-                    spawn_location=analysis.get("spawn_location"),
+                    spawn_location=f"//VECTOR.LOST//{uncharted_count + 1:03d}",
                     game_coord_x=coord_x,
                     game_coord_y=coord_y,
-                    notes=f"Auto-detected coordinates: {coord_x}, {coord_y}",
+                    x=staging_x,
+                    y=staging_y,
                 )
                 db.add(spawn)
                 db.commit()
                 db.refresh(spawn)
                 spawn_point_id = spawn.id
-                print(f"[processor] New spawn #{spawn_point_id} created: ({coord_x}, {coord_y})")
+                print(f"[processor] New spawn #{spawn_point_id} //VECTOR.LOST//{uncharted_count + 1:03d} at staging ({staging_x}, {staging_y})")
 
         # Match shell (runner) by name from lobby screen
         runner_id = None

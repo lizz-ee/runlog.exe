@@ -196,6 +196,11 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
           const isHovered = hoveredSpawn === spawn.id
           const isDragging = dragState?.spawnId === spawn.id
           const isDirty = dirty.has(spawn.id)
+          const isUncharted = spawn.zone.startsWith('//VECTOR.LOST//')
+          const pinColor = isDirty ? 'yellow' : isUncharted ? 'cyan' : 'green'
+          const borderClass = pinColor === 'yellow' ? 'border-m-yellow/50' : pinColor === 'cyan' ? 'border-m-cyan/50' : 'border-m-green/30'
+          const bgClass = pinColor === 'yellow' ? 'border-m-yellow bg-m-yellow/30' : pinColor === 'cyan' ? 'border-m-cyan bg-m-cyan/30' : 'border-m-green bg-m-green/15'
+          const dotClass = pinColor === 'yellow' ? 'bg-m-yellow' : pinColor === 'cyan' ? 'bg-m-cyan' : 'bg-m-green'
           return (
             <div
               key={spawn.id}
@@ -211,15 +216,13 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
               onMouseLeave={() => !dragState && setHoveredSpawn(null)}
             >
               <motion.div
-                className={`absolute rounded-full border ${isDirty ? 'border-m-yellow/50' : 'border-m-green/30'}`}
+                className={`absolute rounded-full border ${borderClass}`}
                 style={{ width: 28, height: 28, left: -14, top: -14 }}
                 animate={{ opacity: [0.3, 0.6, 0.3], scale: [1, 1.2, 1] }}
                 transition={{ duration: 2.5, repeat: Infinity }}
               />
-              <div className={`relative w-4 h-4 -ml-2 -mt-2 rounded-full border-2 flex items-center justify-center transition-all ${
-                isDirty ? 'border-m-yellow bg-m-yellow/30' : 'border-m-green bg-m-green/15'
-              } ${isHovered || isDragging ? 'scale-150' : ''}`}>
-                <div className={`w-1.5 h-1.5 rounded-full ${isDirty ? 'bg-m-yellow' : 'bg-m-green'}`} />
+              <div className={`relative w-4 h-4 -ml-2 -mt-2 rounded-full border-2 flex items-center justify-center transition-all ${bgClass} ${isHovered || isDragging ? 'scale-150' : ''}`}>
+                <div className={`w-1.5 h-1.5 rounded-full ${dotClass}`} />
               </div>
 
               {/* Tooltip */}
@@ -229,7 +232,7 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
                 const survRate = totalRuns > 0 ? Math.round(loc!.runs_survived / totalRuns * 100) : null
                 return (
                   <div className="absolute top-full left-1/2 -translate-x-1/2 mt-3 bg-m-black/95 border border-m-green/40 px-3 py-2 min-w-[140px] z-[100] pointer-events-none">
-                    <p className="text-[10px] tracking-[0.15em] text-m-green font-bold uppercase">{spawn.zone}</p>
+                    <p className={`text-[10px] tracking-[0.15em] font-bold uppercase ${isUncharted ? 'text-m-cyan' : 'text-m-green'}`}>{spawn.zone}</p>
                     {spawn.gameCoords && (
                       <p className="text-[8px] font-mono text-m-text-muted/60 mt-0.5">
                         {spawn.gameCoords[0].toFixed(2)}, {spawn.gameCoords[1].toFixed(2)}

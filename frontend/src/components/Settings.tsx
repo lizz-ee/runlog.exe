@@ -228,98 +228,125 @@ export default function Settings() {
       {/* ═══ OVERLAY ═══ */}
       <div className="border border-m-border bg-m-card">
         <SectionHeader tag="HUD.OVERLAY" title="RECORDING OVERLAY" desc="Always-on-top status indicator during capture." />
-        <div className="px-5 py-4 space-y-4">
-          <SettingRow label="OVERLAY">
-            <button
-              onClick={() => {
-                const next = !overlayEnabled
-                setOverlayEnabled(next)
-                const runlog = (window as any).runlog
-                runlog?.toggleOverlay?.(next)
-              }}
-              className={`px-3 py-1 text-2xs font-mono tracking-widest border transition-all ${
-                overlayEnabled
-                  ? 'border-m-green/40 text-m-green bg-m-green/10'
-                  : 'border-m-border text-m-text-muted bg-m-surface'
-              }`}
-            >
-              {overlayEnabled ? 'ENABLED' : 'DISABLED'}
-            </button>
-          </SettingRow>
+        <div className="px-5 py-4">
+          <div className="flex gap-6">
+            {/* Left column — controls */}
+            <div className="flex-1 space-y-4">
+              <SettingRow label="OVERLAY">
+                <button
+                  onClick={() => {
+                    const next = !overlayEnabled
+                    setOverlayEnabled(next)
+                    const runlog = (window as any).runlog
+                    runlog?.toggleOverlay?.(next)
+                  }}
+                  className={`px-3 py-1 text-2xs font-mono tracking-widest border transition-all ${
+                    overlayEnabled
+                      ? 'border-m-green/40 text-m-green bg-m-green/10'
+                      : 'border-m-border text-m-text-muted bg-m-surface'
+                  }`}
+                >
+                  {overlayEnabled ? 'ENABLED' : 'DISABLED'}
+                </button>
+              </SettingRow>
 
-          <SettingRow label="SIZE">
-            <ToggleButton
-              options={[
-                { value: 'small', label: 'SM' },
-                { value: 'medium', label: 'MD' },
-                { value: 'large', label: 'LG' },
-              ]}
-              value={overlaySize}
-              onChange={v => {
-                setOverlaySize(v);
-                (window as any).runlog?.setOverlaySize?.(v)
-              }}
-            />
-          </SettingRow>
+              <SettingRow label="SIZE">
+                <ToggleButton
+                  options={[
+                    { value: 'small', label: 'SM' },
+                    { value: 'medium', label: 'MD' },
+                    { value: 'large', label: 'LG' },
+                  ]}
+                  value={overlaySize}
+                  onChange={v => {
+                    setOverlaySize(v);
+                    (window as any).runlog?.setOverlaySize?.(v)
+                  }}
+                />
+              </SettingRow>
 
-          <SettingRow label="OPACITY">
-            <Slider min={40} max={100} step={5} value={overlayOpacity} unit="%"
-              onChange={v => {
-                setOverlayOpacity(v);
-                (window as any).runlog?.setOverlayOpacity?.(v)
-              }}
-            />
-          </SettingRow>
+              <SettingRow label="OPACITY">
+                <Slider min={40} max={100} step={5} value={overlayOpacity} unit="%"
+                  onChange={v => {
+                    setOverlayOpacity(v);
+                    (window as any).runlog?.setOverlayOpacity?.(v)
+                  }}
+                />
+              </SettingRow>
+            </div>
 
-          {/* Position selector + nudge */}
-          <div className="space-y-2">
-            <span className="label-tag text-m-text-muted">POSITION</span>
-            <div className="flex gap-6 items-start">
-              {/* Corner grid */}
-              <div className="grid grid-cols-3 gap-1">
-                {CORNERS.map((c) => (
-                  <button
-                    key={c.value}
-                    onClick={() => {
-                      setOverlayCorner(c.value);
-                      (window as any).runlog?.setOverlayCorner?.(c.value)
-                    }}
-                    className={`w-10 h-7 text-2xs font-mono tracking-widest border transition-all ${
-                      overlayCorner === c.value
-                        ? 'border-m-green/40 text-m-green bg-m-green/10'
-                        : 'border-m-border text-m-text-muted bg-m-surface hover:text-m-text'
-                    }`}
-                  >
-                    {c.label}
-                  </button>
-                ))}
+            {/* Divider */}
+            <div className="w-px bg-m-border/30" />
+
+            {/* Right column — position preview */}
+            <div className="w-56 space-y-3">
+              <span className="label-tag text-m-text-muted">POSITION</span>
+
+              {/* Screen preview — visual representation of monitor */}
+              <div className="relative border border-m-border/50 bg-m-black/60 aspect-video">
+                {/* Scan line effect */}
+                <div className="absolute inset-0 opacity-[0.03] pointer-events-none"
+                  style={{ backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(200,255,0,0.3) 2px, rgba(200,255,0,0.3) 3px)' }} />
+
+                {/* 6 corner position buttons overlaid on the "screen" */}
+                {CORNERS.map((c) => {
+                  const posClass =
+                    c.value === 'top-left' ? 'top-1.5 left-1.5' :
+                    c.value === 'top-center' ? 'top-1.5 left-1/2 -translate-x-1/2' :
+                    c.value === 'top-right' ? 'top-1.5 right-1.5' :
+                    c.value === 'bottom-left' ? 'bottom-1.5 left-1.5' :
+                    c.value === 'bottom-center' ? 'bottom-1.5 left-1/2 -translate-x-1/2' :
+                    'bottom-1.5 right-1.5'
+                  const isActive = overlayCorner === c.value
+                  return (
+                    <button
+                      key={c.value}
+                      onClick={() => {
+                        setOverlayCorner(c.value);
+                        (window as any).runlog?.setOverlayCorner?.(c.value)
+                      }}
+                      className={`absolute ${posClass} transition-all ${
+                        isActive
+                          ? 'bg-m-green/80 border-m-green shadow-[0_0_8px_rgba(200,255,0,0.4)]'
+                          : 'bg-m-border/30 border-m-border/50 hover:bg-m-green/20 hover:border-m-green/30'
+                      } border`}
+                      style={{ width: isActive ? 40 : 24, height: isActive ? 8 : 5 }}
+                      title={c.value.replace('-', ' ').toUpperCase()}
+                    />
+                  )
+                })}
+
+                {/* Center label */}
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="text-[7px] font-mono text-m-border/40 tracking-[0.3em]">DISPLAY</span>
+                </div>
               </div>
 
               {/* Nudge D-pad */}
-              <div className="flex flex-col items-center">
-                <span className="text-[7px] font-mono text-m-text-muted/40 tracking-[0.2em] mb-1">NUDGE</span>
+              <div className="flex items-center justify-between">
+                <span className="text-[7px] font-mono text-m-text-muted/40 tracking-[0.2em]">NUDGE</span>
                 <div className="grid grid-cols-3 gap-px">
                   <div />
                   <button onClick={() => (window as any).runlog?.nudgeOverlay?.('up')}
-                    className="w-7 h-6 text-[10px] font-mono text-m-text-muted border border-m-border/60 bg-m-surface hover:text-m-green hover:border-m-green/30 hover:bg-m-green/5 transition-all flex items-center justify-center">
-                    <svg width="8" height="6" viewBox="0 0 8 6" fill="currentColor"><polygon points="4,0 8,6 0,6" /></svg>
+                    className="w-6 h-5 text-m-text-muted border border-m-border/60 bg-m-surface hover:text-m-green hover:border-m-green/30 hover:bg-m-green/5 transition-all flex items-center justify-center">
+                    <svg width="7" height="5" viewBox="0 0 8 6" fill="currentColor"><polygon points="4,0 8,6 0,6" /></svg>
                   </button>
                   <div />
                   <button onClick={() => (window as any).runlog?.nudgeOverlay?.('left')}
-                    className="w-7 h-6 text-[10px] font-mono text-m-text-muted border border-m-border/60 bg-m-surface hover:text-m-green hover:border-m-green/30 hover:bg-m-green/5 transition-all flex items-center justify-center">
-                    <svg width="6" height="8" viewBox="0 0 6 8" fill="currentColor"><polygon points="0,4 6,0 6,8" /></svg>
+                    className="w-6 h-5 text-m-text-muted border border-m-border/60 bg-m-surface hover:text-m-green hover:border-m-green/30 hover:bg-m-green/5 transition-all flex items-center justify-center">
+                    <svg width="5" height="7" viewBox="0 0 6 8" fill="currentColor"><polygon points="0,4 6,0 6,8" /></svg>
                   </button>
-                  <div className="w-7 h-6 border border-m-border/20 bg-m-border/5 flex items-center justify-center">
-                    <div className="w-1.5 h-1.5 bg-m-green/30 rounded-full" />
+                  <div className="w-6 h-5 border border-m-border/20 bg-m-border/5 flex items-center justify-center">
+                    <div className="w-1 h-1 bg-m-green/30 rounded-full" />
                   </div>
                   <button onClick={() => (window as any).runlog?.nudgeOverlay?.('right')}
-                    className="w-7 h-6 text-[10px] font-mono text-m-text-muted border border-m-border/60 bg-m-surface hover:text-m-green hover:border-m-green/30 hover:bg-m-green/5 transition-all flex items-center justify-center">
-                    <svg width="6" height="8" viewBox="0 0 6 8" fill="currentColor"><polygon points="6,4 0,0 0,8" /></svg>
+                    className="w-6 h-5 text-m-text-muted border border-m-border/60 bg-m-surface hover:text-m-green hover:border-m-green/30 hover:bg-m-green/5 transition-all flex items-center justify-center">
+                    <svg width="5" height="7" viewBox="0 0 6 8" fill="currentColor"><polygon points="6,4 0,0 0,8" /></svg>
                   </button>
                   <div />
                   <button onClick={() => (window as any).runlog?.nudgeOverlay?.('down')}
-                    className="w-7 h-6 text-[10px] font-mono text-m-text-muted border border-m-border/60 bg-m-surface hover:text-m-green hover:border-m-green/30 hover:bg-m-green/5 transition-all flex items-center justify-center">
-                    <svg width="8" height="6" viewBox="0 0 8 6" fill="currentColor"><polygon points="4,6 0,0 8,0" /></svg>
+                    className="w-6 h-5 text-m-text-muted border border-m-border/60 bg-m-surface hover:text-m-green hover:border-m-green/30 hover:bg-m-green/5 transition-all flex items-center justify-center">
+                    <svg width="7" height="5" viewBox="0 0 8 6" fill="currentColor"><polygon points="4,6 0,0 8,0" /></svg>
                   </button>
                   <div />
                 </div>
