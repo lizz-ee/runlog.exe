@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { getShellStats } from '../lib/api'
 import type { ShellStats } from '../lib/types'
+import Squad from './Squad'
 
 import triageImg from '../assets/shells/triage.png'
 import vandalImg from '../assets/shells/vandal.png'
@@ -185,6 +186,11 @@ export default function Shells() {
           </div>
         </>
       )}
+
+      {/* Squad section — preview of combined page */}
+      <div className="mt-8 pt-6 border-t border-m-border">
+        <Squad />
+      </div>
     </div>
   )
 }
