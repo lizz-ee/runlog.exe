@@ -39,6 +39,18 @@ export default function RunReports() {
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
   const [storyExpanded, setStoryExpanded] = useState<Set<number>>(new Set())
   const [deleteTarget, setDeleteTarget] = useState<{ filename: string; runId: number } | null>(null)
+  const { focusRunId, setFocusRunId } = useStore()
+
+  // Auto-expand focused run from cross-page navigation
+  useEffect(() => {
+    if (focusRunId && runs.length > 0) {
+      setExpanded(new Set([focusRunId]))
+      setFocusRunId(null)
+      // Find which page this run is on
+      const idx = runs.findIndex(r => r.id === focusRunId)
+      if (idx >= 0) setPage(Math.floor(idx / RUNS_PER_PAGE))
+    }
+  }, [focusRunId, runs])
 
   useEffect(() => {
     async function load() {
@@ -396,7 +408,7 @@ export default function RunReports() {
                       {/* Link to Run Record */}
                       <div className="mt-3 pt-3 border-t border-m-border">
                         <button
-                          onClick={(e) => { e.stopPropagation(); useStore.getState().setView('history') }}
+                          onClick={(e) => { e.stopPropagation(); useStore.getState().setFocusRunId(run.id); useStore.getState().setView('history') }}
                           className="label-tag px-3 py-1.5 border border-m-border text-m-text-muted hover:text-m-green hover:border-m-green/40 transition-all"
                         >
                           VIEW RECORD →

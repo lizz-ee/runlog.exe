@@ -64,6 +64,10 @@ interface AppState {
   captureError: string | null
   setCaptureError: (error: string | null) => void
 
+  // Cross-page navigation: auto-expand a specific run
+  focusRunId: number | null
+  setFocusRunId: (id: number | null) => void
+
   // UPLINK chat (persists across page navigation)
   uplinkMessages: { role: 'user' | 'assistant'; content: string }[]
   setUplinkMessages: (msgs: { role: 'user' | 'assistant'; content: string }[]) => void
@@ -138,6 +142,9 @@ export const useStore = create<AppState>((set) => ({
   setCaptureStatus: (captureStatus) => set({ captureStatus }),
   captureError: null,
   setCaptureError: (captureError) => set({ captureError }),
+
+  focusRunId: null,
+  setFocusRunId: (focusRunId) => set({ focusRunId }),
 
   uplinkMessages: [],
   setUplinkMessages: (uplinkMessages) => set({ uplinkMessages }),

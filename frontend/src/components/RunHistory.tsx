@@ -80,8 +80,17 @@ export default function RunHistory() {
   const [page, setPage] = useState(0)
   const RUNS_PER_PAGE = 21
 
+  const { focusRunId: historyFocusId } = useStore()
+
   useEffect(() => {
-    getRuns({ limit: 500 }).then(setAllRuns).catch(console.error)
+    getRuns({ limit: 500 }).then((data) => {
+      setAllRuns(data)
+      // If navigated here with a focus run, find its page
+      if (historyFocusId) {
+        const idx = data.findIndex(r => r.id === historyFocusId)
+        if (idx >= 0) setPage(Math.floor(idx / RUNS_PER_PAGE))
+      }
+    }).catch(console.error)
   }, [])
 
   const filtered = allRuns.filter((r) => {
@@ -199,7 +208,16 @@ export default function RunHistory() {
 }
 
 function RunRow({ run }: { run: Run }) {
+  const { focusRunId, setFocusRunId } = useStore()
   const [expanded, setExpanded] = useState(false)
+
+  // Auto-expand if this run was navigated to from another page
+  useEffect(() => {
+    if (focusRunId === run.id) {
+      setExpanded(true)
+      setFocusRunId(null)
+    }
+  }, [focusRunId])
 
   return (
     <div>
@@ -308,7 +326,7 @@ function RunRow({ run }: { run: Run }) {
           {run.summary && (
             <div className="mt-3 pt-3 border-t border-m-border">
               <button
-                onClick={(e) => { e.stopPropagation(); useStore.getState().setView('highlights') }}
+                onClick={(e) => { e.stopPropagation(); useStore.getState().setFocusRunId(run.id); useStore.getState().setView('highlights') }}
                 className="label-tag px-3 py-1.5 border border-m-border text-m-text-muted hover:text-m-green hover:border-m-green/40 transition-all"
               >
                 VIEW REPORT →
