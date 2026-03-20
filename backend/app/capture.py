@@ -130,11 +130,16 @@ class AutoCapture:
         self._ocr_thread.start()
 
         # Processing pools — Phase 1 (fast) + Phase 2 (heavy)
+        # Read worker counts from config, fall back to defaults
+        from .api.settings_api import get_config_value
+        p1_workers = get_config_value("p1_workers") or MAX_P1_WORKERS
+        p2_workers = get_config_value("p2_workers") or MAX_P2_WORKERS
+        print(f"[capture] Processing pools: P1={p1_workers} workers, P2={p2_workers} workers")
         self._p1_executor = ThreadPoolExecutor(
-            max_workers=MAX_P1_WORKERS, thread_name_prefix="p1-processor"
+            max_workers=p1_workers, thread_name_prefix="p1-processor"
         )
         self._p2_executor = ThreadPoolExecutor(
-            max_workers=MAX_P2_WORKERS, thread_name_prefix="p2-processor"
+            max_workers=p2_workers, thread_name_prefix="p2-processor"
         )
         self._dispatcher_thread = threading.Thread(
             target=self._dispatcher_loop, daemon=True, name="dispatcher"
@@ -379,20 +384,27 @@ class AutoCapture:
     # -- Recording management ------------------------------------------
 
     def _start_recording(self):
-        """Start recording via Rust binary."""
+        """Start recording via Rust binary, using settings from config."""
         if not self._recorder.is_running:
             print("[capture] Cannot record — Rust recorder not running")
             return
+
+        # Load recording settings from config
+        from .api.settings_api import get_config_value
+        encoder = get_config_value("encoder") or "hevc"
+        bitrate_mbps = get_config_value("bitrate") or 50
+        fps = get_config_value("fps") or 60
+        bitrate = int(bitrate_mbps) * 1_000_000
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"run_{timestamp}.mp4"
         path = os.path.join(self.recordings_dir, filename)
 
-        if self._recorder.start_recording(path):
+        if self._recorder.start_recording(path, bitrate=bitrate, encoder=encoder, fps=fps):
             self._recording = True
             self._recording_start = time.time()
             self._recording_path = path
-            print(f"[capture] Recording to: {path}")
+            print(f"[capture] Recording to: {path} ({encoder.upper()}, {bitrate_mbps}Mbps, {fps}fps)")
         else:
             print("[capture] Recording failed to start")
 

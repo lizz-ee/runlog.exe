@@ -25,7 +25,7 @@ use windows_capture::window::Window;
 #[serde(tag = "cmd")]
 enum Command {
     #[serde(rename = "start")]
-    Start { path: String, bitrate: Option<u32> },
+    Start { path: String, bitrate: Option<u32>, encoder: Option<String>, fps: Option<u32> },
     #[serde(rename = "stop")]
     Stop,
     #[serde(rename = "screenshot")]
@@ -87,6 +87,10 @@ struct SharedState {
     record_path: Mutex<Option<String>>,
     /// Bitrate for the next recording
     record_bitrate: Mutex<Option<u32>>,
+    /// Encoder type for the next recording ("hevc" or "h264")
+    record_encoder: Mutex<Option<String>>,
+    /// FPS for the next recording
+    record_fps: Mutex<Option<u32>>,
     /// When true, the capture should shut down
     should_quit: AtomicBool,
     /// Request a screenshot save
@@ -181,13 +185,20 @@ impl GraphicsCaptureApiHandler for Recorder {
         if self.state.should_record.load(Ordering::Relaxed) && self.encoder.is_none() {
             let path = self.state.record_path.lock().unwrap().take();
             let bitrate = self.state.record_bitrate.lock().unwrap().take();
+            let encoder_type = self.state.record_encoder.lock().unwrap().take();
+            let fps = self.state.record_fps.lock().unwrap().take();
             if let Some(path) = path {
                 let br = bitrate.unwrap_or(50_000_000); // 50Mbps default
+                let sub_type = match encoder_type.as_deref() {
+                    Some("h264") => VideoSettingsSubType::H264,
+                    _ => VideoSettingsSubType::HEVC,  // default to HEVC
+                };
+                let frame_rate = fps.unwrap_or(60);
                 match VideoEncoder::new(
                     VideoSettingsBuilder::new(self.width, self.height)
-                        .sub_type(VideoSettingsSubType::HEVC)
+                        .sub_type(sub_type)
                         .bitrate(br)
-                        .frame_rate(60),
+                        .frame_rate(frame_rate),
                     AudioSettingsBuilder::default().disabled(true),
                     ContainerSettingsBuilder::default(),
                     &path,
@@ -424,6 +435,8 @@ fn main() {
         should_record: AtomicBool::new(false),
         record_path: Mutex::new(None),
         record_bitrate: Mutex::new(None),
+        record_encoder: Mutex::new(None),
+        record_fps: Mutex::new(None),
         should_quit: AtomicBool::new(false),
         screenshot_path: Mutex::new(None),
         encoded_frames: AtomicU64::new(0),
@@ -492,9 +505,11 @@ fn main() {
                 continue;
             }
             match serde_json::from_str::<Command>(&line) {
-                Ok(Command::Start { path, bitrate }) => {
+                Ok(Command::Start { path, bitrate, encoder, fps }) => {
                     *ipc_state.record_path.lock().unwrap() = Some(path);
                     *ipc_state.record_bitrate.lock().unwrap() = bitrate;
+                    *ipc_state.record_encoder.lock().unwrap() = encoder;
+                    *ipc_state.record_fps.lock().unwrap() = fps;
                     ipc_state.should_record.store(true, Ordering::Relaxed);
                 }
                 Ok(Command::Stop) => {

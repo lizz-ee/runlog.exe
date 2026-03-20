@@ -26,6 +26,19 @@ from datetime import datetime
 
 from .config import settings
 
+
+def _get_model_config():
+    """Get configured model names for API and CLI."""
+    try:
+        from .api.settings_api import get_config_value
+        model = get_config_value("model") or "sonnet"
+    except Exception:
+        model = "sonnet"
+    if model == "haiku":
+        return {"api": "claude-haiku-4-5-20251001", "cli": "haiku"}
+    return {"api": "claude-sonnet-4-6", "cli": "sonnet"}
+
+
 # -- Frame extraction settings (easy to tune) -------------------------------
 FRAME_RESOLUTION = 2000       # long edge px for extracted frames — keeps API token usage reasonable
 FRAME_DURATION_START = 90     # seconds from start (loading screen can be 0-90s depending on session spawn wait)
@@ -368,7 +381,7 @@ def _analyze_frames_with_api(frame_paths: list[str], prompt: str) -> dict:
     print(f"[processor] Sending {len(frame_paths)} frames to Sonnet API...")
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
     message = client.messages.create(
-        model="claude-sonnet-4-6",
+        model=_get_model_config()["api"],
         max_tokens=4096,
         messages=[{"role": "user", "content": content}],
     )
@@ -393,7 +406,7 @@ Read ALL of these images, then analyze them and follow these instructions:
 
     # Give CLI access to the frames directory
     frames_dir = os.path.dirname(abs_paths[0]) if abs_paths else "."
-    cmd = [claude_bin, "-p", full_prompt, "--model", "sonnet",
+    cmd = [claude_bin, "-p", full_prompt, "--model", _get_model_config()["cli"],
            "--dangerously-skip-permissions", "--add-dir", frames_dir]
 
     print(f"[processor] Sending {len(frame_paths)} frames to CLI...")
@@ -535,7 +548,7 @@ Extract and return ONLY valid JSON:
 Use null for anything not visible."""
 
         deploy_dir = os.path.dirname(deploy_jpg) if os.path.exists(deploy_jpg) else "."
-        cmd1 = [claude_bin, "-p", prompt1, "--model", "sonnet", "--thinking", "enabled",
+        cmd1 = [claude_bin, "-p", prompt1, "--model", _get_model_config()["cli"], "--thinking", "enabled",
                 "--dangerously-skip-permissions", "--add-dir", deploy_dir]
 
         print(f"[processor] CLI Call 1: {len(screenshots)} screenshots...")
@@ -598,7 +611,7 @@ These are from the END of a Marathon run — stats screens, death screen, loadou
 {PHASE1_PROMPT}"""
 
             frames_parent = os.path.dirname(batch[0])
-            cmd2 = [claude_bin, "-p", prompt2, "--model", "sonnet",
+            cmd2 = [claude_bin, "-p", prompt2, "--model", _get_model_config()["cli"],
                     "--dangerously-skip-permissions", "--add-dir", frames_parent]
 
             print(f"[processor] CLI Call 2 batch {batch_idx + 1}/{len(batches)}: {len(batch)} frames...")
@@ -933,7 +946,7 @@ CRITICAL: Your FINAL output must be ONLY a valid JSON object. Do not output any 
 {PHASE2_PROMPT}"""
 
     video_dir = os.path.dirname(abs_path)
-    cmd = [claude_bin, "-p", prompt, "--model", "sonnet",
+    cmd = [claude_bin, "-p", prompt, "--model", _get_model_config()["cli"],
            "--dangerously-skip-permissions", "--add-dir", video_dir]
     print(f"[processor-p2] CLI analyzing video for narrative...")
 
@@ -978,7 +991,7 @@ def _analyze_phase2_with_api(video_path: str) -> dict:
 
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
     message = client.messages.create(
-        model="claude-sonnet-4-6",
+        model=_get_model_config()["api"],
         max_tokens=4096,
         messages=[{
             "role": "user",
@@ -1031,7 +1044,7 @@ def analyze_with_api(video_path: str) -> dict:
 
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
     message = client.messages.create(
-        model="claude-sonnet-4-6",
+        model=_get_model_config()["api"],
         max_tokens=4096,
         messages=[{
             "role": "user",
@@ -1064,7 +1077,7 @@ Analyze this video and extract the information below. You have access to ffmpeg 
 
 {VIDEO_PROMPT}"""
 
-    cmd = [claude_bin, "-p", prompt, "--model", "sonnet",
+    cmd = [claude_bin, "-p", prompt, "--model", _get_model_config()["cli"],
            "--dangerously-skip-permissions"]
     print(f"[processor] CLI command: {' '.join(cmd[:5])}...")
     print(f"[processor] Video path: {abs_path}")

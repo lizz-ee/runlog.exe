@@ -122,11 +122,11 @@ class RustRecorder:
         self._proc = None
         print("[recorder] Stopped")
 
-    def start_recording(self, path: str, bitrate: int = 50_000_000) -> bool:
+    def start_recording(self, path: str, bitrate: int = 50_000_000, encoder: str = "hevc", fps: int = 60) -> bool:
         """Tell the Rust binary to start recording."""
         if not self.is_running:
             return False
-        self._send_command({"cmd": "start", "path": path, "bitrate": bitrate})
+        self._send_command({"cmd": "start", "path": path, "bitrate": bitrate, "encoder": encoder, "fps": fps})
         return True
 
     def stop_recording(self):

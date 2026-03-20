@@ -139,11 +139,18 @@ The QUEUE status card currently jams all active stage counts into one text line 
 - ~~Boot sequence style for overlay initialization~~ — not needed
 
 ### SYS.CONFIG Settings
-- [ ] Video encoder selection UI — HEVC (smaller) vs H.264 (compatible). Currently hardcoded to HEVC for testing
-- [ ] Recording bitrate slider
-- [ ] Recording FPS — 30 vs 60
-- [ ] OCR polling rate
-- [ ] Overlay opacity/size options — position/corner/nudge/toggle done, opacity and size still hardcoded (260x30)
+- [x] Video encoder selection UI — HEVC / H.264 toggle
+- [x] Recording bitrate slider (10-100 Mbps)
+- [x] Recording FPS — 30 / 60 toggle
+- [x] P1/P2 worker count sliders
+- [x] Overlay opacity slider (40-100%)
+- [x] Overlay size presets (SM/MD/LG)
+- [x] Nudge D-pad redesign with SVG arrows + Marathon aesthetic
+- [x] Auth mode selector — API Key vs Claude Account (CLI)
+- [x] Model selector — Sonnet / Haiku
+- [x] CLI status detection + install instructions
+- [x] Full page rebuild with Marathon cyberpunk aesthetic
+- ~~OCR polling rate~~ — not exposing, tuned internally
 
 ### Processing Queue Bugs
 - [x] "FAILED" false positive — Fixed: `_update_processing_item()` was missing `p1_failed` parameter, causing TypeError → caught by except → set to "error" instead of "done"

@@ -46,7 +46,21 @@ export async function markAllRunsViewed(): Promise<void> {
 }
 
 // Settings
-export async function getSettings(): Promise<{ has_api_key: boolean; api_key_masked: string; api_key_source: string }> {
+export interface AppSettings {
+  has_api_key: boolean
+  api_key_masked: string
+  api_key_source: string
+  cli_available: boolean
+  encoder: string
+  bitrate: number
+  fps: number
+  p1_workers: number
+  p2_workers: number
+  auth_mode: string
+  model: string
+}
+
+export async function getSettings(): Promise<AppSettings> {
   const { data } = await api.get('/settings')
   return data
 }
@@ -62,6 +76,15 @@ export async function testApiKey(apiKey: string): Promise<{ status: string; resp
 
 export async function removeApiKey(): Promise<void> {
   await api.delete('/settings/api-key')
+}
+
+export async function updateConfig(key: string, value: string | number | boolean): Promise<void> {
+  await api.post('/settings/config', { key, value })
+}
+
+export async function getCliStatus(): Promise<{ installed: boolean; authenticated: boolean; path: string | null }> {
+  const { data } = await api.get('/settings/cli-status')
+  return data
 }
 
 // Squad

@@ -37,6 +37,12 @@ let recordingManager = null
 // ── Overlay settings ──────────────────────────────────────────────
 const overlaySettingsFile = path.join(app.getPath('userData'), 'overlay-settings.json')
 
+const OVERLAY_SIZES = {
+  small: { width: 200, height: 24 },
+  medium: { width: 260, height: 30 },
+  large: { width: 340, height: 38 },
+}
+
 function loadOverlaySettings() {
   try {
     return JSON.parse(fs.readFileSync(overlaySettingsFile, 'utf-8'))
@@ -47,11 +53,17 @@ function saveOverlaySettings(settings) {
   try { fs.writeFileSync(overlaySettingsFile, JSON.stringify(settings)) } catch {}
 }
 
+function getOverlayDims() {
+  const settings = loadOverlaySettings()
+  return OVERLAY_SIZES[settings.size] || OVERLAY_SIZES.medium
+}
+
 function getOverlayPosition(corner) {
   const { screen } = require('electron')
   const display = screen.getPrimaryDisplay()
   const { width, height } = display.size  // Always use full screen size
-  const w = 260, h = 30
+  const dims = getOverlayDims()
+  const w = dims.width, h = dims.height
   const bottomY = height - h
   switch (corner) {
     case 'top-right': return { x: width - w, y: 0 }
@@ -70,9 +82,10 @@ function createOverlay() {
   const pos = (settings.customX != null && settings.customY != null)
     ? { x: settings.customX, y: settings.customY }
     : getOverlayPosition(settings.corner || 'top-left')
+  const dims = getOverlayDims()
   overlayWindow = new BrowserWindow({
-    width: 260,
-    height: 30,
+    width: dims.width,
+    height: dims.height,
     x: pos.x,
     y: pos.y,
     frame: false,
@@ -561,7 +574,8 @@ ipcMain.on('overlay-set-corner', (_event, corner) => {
   saveOverlaySettings(settings)
   if (overlayWindow) {
     const pos = getOverlayPosition(corner)
-    overlayWindow.setBounds({ x: pos.x, y: pos.y, width: 260, height: 30 })
+    const dims = getOverlayDims()
+    overlayWindow.setBounds({ x: pos.x, y: pos.y, width: dims.width, height: dims.height })
   }
 })
 ipcMain.on('overlay-nudge', (_event, direction) => {
@@ -584,6 +598,26 @@ ipcMain.on('overlay-nudge', (_event, direction) => {
   saveOverlaySettings(settings)
 })
 ipcMain.handle('overlay-get-settings', () => loadOverlaySettings())
+
+ipcMain.on('overlay-set-opacity', (_event, opacity) => {
+  const settings = loadOverlaySettings()
+  settings.opacity = opacity
+  saveOverlaySettings(settings)
+  if (overlayWindow) {
+    overlayWindow.setOpacity(opacity / 100)
+  }
+})
+
+ipcMain.on('overlay-set-size', (_event, size) => {
+  const settings = loadOverlaySettings()
+  settings.size = size
+  saveOverlaySettings(settings)
+  if (overlayWindow) {
+    const dims = OVERLAY_SIZES[size] || OVERLAY_SIZES.medium
+    const bounds = overlayWindow.getBounds()
+    overlayWindow.setBounds({ x: bounds.x, y: bounds.y, width: dims.width, height: dims.height })
+  }
+})
 
 ipcMain.on('open-file', (_event, filePath) => {
   const { shell } = require('electron')
