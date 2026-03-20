@@ -109,6 +109,19 @@ function createOverlay() {
   overlayWindow.setAlwaysOnTop(true, 'screen-saver')  // Highest z-level — stays above fullscreen games
   overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 
+  // Re-assert always-on-top periodically — Windows can steal it on focus change / alt-tab
+  overlayWindow._keepAliveInterval = setInterval(() => {
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+      overlayWindow.setAlwaysOnTop(true, 'screen-saver')
+      if (!overlayWindow.isVisible()) overlayWindow.showInactive()
+    }
+  }, 3000)
+
+  overlayWindow.on('closed', () => {
+    if (overlayWindow?._keepAliveInterval) clearInterval(overlayWindow._keepAliveInterval)
+    overlayWindow = null
+  })
+
   const overlayHTML = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
