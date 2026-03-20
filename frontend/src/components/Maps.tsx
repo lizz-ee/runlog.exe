@@ -43,6 +43,8 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
   const [dirty, setDirty] = useState<Set<string>>(new Set())
   const [saving, setSaving] = useState(false)
   const [spawnSort, setSpawnSort] = useState<'name' | 'surv' | 'loot' | 'streak'>('name')
+  const [renamingSpawn, setRenamingSpawn] = useState<string | null>(null)  // spawn.id being renamed
+  const [renameValue, setRenameValue] = useState('')
   const mapRef = useRef<HTMLDivElement>(null)
 
   const mapData = MAPS[selectedMap]
@@ -256,8 +258,42 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
                 const totalRuns = loc ? loc.runs_survived + loc.runs_died : 0
                 const survRate = totalRuns > 0 ? Math.round(loc!.runs_survived / totalRuns * 100) : null
                 return (
-                  <div className="absolute top-full left-1/2 -translate-x-1/2 mt-3 bg-m-black/95 border border-m-green/40 px-3 py-2 min-w-[140px] z-[100] pointer-events-none">
-                    <p className={`text-[10px] tracking-[0.15em] font-bold uppercase ${isUncharted ? 'text-m-cyan' : 'text-m-green'}`}>{spawn.zone}</p>
+                  <div className={`absolute top-full left-1/2 -translate-x-1/2 mt-3 bg-m-black/95 border ${isUncharted ? 'border-m-cyan/40' : 'border-m-green/40'} px-3 py-2 min-w-[140px] z-[100] ${renamingSpawn === spawn.id ? '' : 'pointer-events-none'}`}>
+                    {renamingSpawn === spawn.id ? (
+                      <form
+                        className="pointer-events-auto"
+                        onSubmit={(e) => {
+                          e.preventDefault()
+                          if (!renameValue.trim() || !spawn.dbId) return
+                          axios.put(`${apiBase}/api/spawns/rename`, { id: spawn.dbId, spawn_location: renameValue.trim() })
+                            .then(() => {
+                              setSpawns(prev => prev.map(s => s.id === spawn.id ? { ...s, zone: renameValue.trim() } : s))
+                              setRenamingSpawn(null)
+                            })
+                        }}
+                      >
+                        <input
+                          autoFocus
+                          value={renameValue}
+                          onChange={e => setRenameValue(e.target.value.toUpperCase())}
+                          onBlur={() => setRenamingSpawn(null)}
+                          onKeyDown={e => e.key === 'Escape' && setRenamingSpawn(null)}
+                          className="w-full bg-m-black text-[10px] font-mono text-m-green tracking-[0.15em] font-bold uppercase border border-m-green/40 px-1 py-0.5 focus:outline-none focus:border-m-green"
+                          placeholder="ENTER NAME..."
+                        />
+                      </form>
+                    ) : (
+                      <p
+                        className={`text-[10px] tracking-[0.15em] font-bold uppercase cursor-pointer pointer-events-auto hover:underline ${isUncharted ? 'text-m-cyan' : 'text-m-green'}`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setRenameValue(spawn.zone)
+                          setRenamingSpawn(spawn.id)
+                        }}
+                      >
+                        {spawn.zone}
+                      </p>
+                    )}
                     {spawn.gameCoords && (
                       <p className="text-[8px] font-mono text-m-text-muted/60 mt-0.5">
                         {spawn.gameCoords[0].toFixed(2)}, {spawn.gameCoords[1].toFixed(2)}
