@@ -1,4 +1,6 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import axios from 'axios'
+import { apiBase } from '../lib/api'
 import { useStore } from '../lib/store'
 import type { View } from '../lib/types'
 
@@ -54,12 +56,45 @@ function UnviewedBadge() {
   )
 }
 
+// Map view names to actual map names in DB
+const VIEW_TO_MAP: Record<string, string> = {
+  'map-perimeter': 'Perimeter',
+  'map-dire-marsh': 'Dire Marsh',
+  'map-outpost': 'Outpost',
+  'map-cryo-archive': 'Cryo Archive',
+}
+
 export default function Sidebar() {
   const { view, setView, stats, unviewedCount, refreshUnviewed } = useStore()
+  const [stagingCounts, setStagingCounts] = useState<Record<string, number>>({})
 
   useEffect(() => {
     refreshUnviewed()
     const interval = setInterval(refreshUnviewed, 5000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // Fetch staging counts per map
+  useEffect(() => {
+    async function fetchStaging() {
+      try {
+        const { data } = await axios.get(`${apiBase}/api/spawns/heatmap`)
+        const counts: Record<string, number> = {}
+        for (const map of data) {
+          const uncharted = map.locations.filter((l: any) =>
+            l.location.startsWith('VCTR//') || l.location.startsWith('//VCTR.RDCT//')
+          ).length
+          if (uncharted > 0) {
+            // Convert map name to view name
+            const viewName = Object.entries(VIEW_TO_MAP).find(([, v]) => v === map.map)?.[0]
+            if (viewName) counts[viewName] = uncharted
+          }
+        }
+        setStagingCounts(counts)
+      } catch {}
+    }
+    fetchStaging()
+    const interval = setInterval(fetchStaging, 10000)
     return () => clearInterval(interval)
   }, [])
 
@@ -132,6 +167,9 @@ export default function Sidebar() {
                     {item.label}
                   </span>
                   {item.view === 'dashboard' && unviewedCount > 0 && (
+                    <span className="text-m-cyan"><UnviewedBadge /></span>
+                  )}
+                  {stagingCounts[item.view] > 0 && (
                     <span className="text-m-cyan"><UnviewedBadge /></span>
                   )}
                   {item.disabled && (

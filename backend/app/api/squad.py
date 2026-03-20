@@ -8,7 +8,7 @@ router = APIRouter()
 
 
 @router.get("/stats")
-def get_squad_stats(limit: int = Query(20, ge=1, le=50), db: Session = Depends(get_db)):
+def get_squad_stats(limit: int = Query(7, ge=1, le=7), db: Session = Depends(get_db)):
     """Top squad mates by runs together, with per-mate stats."""
     runs = db.query(Run).all()
     if not runs:
@@ -60,6 +60,12 @@ def get_squad_stats(limit: int = Query(20, ge=1, le=50), db: Session = Depends(g
         m["avg_kills"] = round(total_kills / m["runs"], 1) if m["runs"] else 0
         m["avg_time"] = round(m["time"] / m["runs"]) if m["runs"] else 0
 
-    # Sort by runs together, take top N
-    sorted_mates = sorted(mates.values(), key=lambda x: x["runs"], reverse=True)
+    # Weighted score: runs * (frequency base + survival quality + loot quality)
+    # More runs = stronger signal, but bad survival drags score down
+    for m in mates.values():
+        surv_factor = m["survival_rate"] / 100  # 0.0 to 1.0
+        loot_factor = min(m["avg_loot"] / 5000, 1.0) if m["avg_loot"] > 0 else 0  # caps at $5k
+        m["score"] = round(m["runs"] * (0.4 + 0.4 * surv_factor + 0.2 * loot_factor), 2)
+
+    sorted_mates = sorted(mates.values(), key=lambda x: x["score"], reverse=True)
     return sorted_mates[:limit]

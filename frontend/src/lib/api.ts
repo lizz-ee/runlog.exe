@@ -88,7 +88,7 @@ export async function getCliStatus(): Promise<{ installed: boolean; authenticate
 }
 
 // Squad
-export async function getSquadStats(limit = 20): Promise<any[]> {
+export async function getSquadStats(limit = 7): Promise<any[]> {
   const { data } = await api.get('/squad/stats', { params: { limit } })
   return data
 }
