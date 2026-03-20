@@ -203,17 +203,16 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
               className="absolute z-30 pointer-events-none"
               style={{ left: '1%', top: '1%', width: `${bracketWidth}%` }}
             >
-              {/* Bracket container with centered dots inside */}
-              <div className="relative border-2 border-m-cyan/30 flex items-center justify-center gap-[6px] px-3 py-1.5"
-                style={{ borderImage: 'none' }}>
-                {/* Corner accents only */}
-                <div className="absolute -top-px -left-px w-2 h-2 border-t-2 border-l-2 border-m-cyan/70" />
-                <div className="absolute -top-px -right-px w-2 h-2 border-t-2 border-r-2 border-m-cyan/70" />
-                <div className="absolute -bottom-px -left-px w-2 h-2 border-b-2 border-l-2 border-m-cyan/70" />
-                <div className="absolute -bottom-px -right-px w-2 h-2 border-b-2 border-r-2 border-m-cyan/70" />
-                {/* Invisible dots just for spacing — actual pins render via spawn system */}
+              {/* Bracket — corner accents only, no full border */}
+              <div className="relative flex items-center justify-center gap-[6px] px-4 py-3">
+                {/* Corner brackets only */}
+                <div className="absolute top-0 left-0 w-3 h-3 border-t-2 border-l-2 border-m-cyan/60" />
+                <div className="absolute top-0 right-0 w-3 h-3 border-t-2 border-r-2 border-m-cyan/60" />
+                <div className="absolute bottom-0 left-0 w-3 h-3 border-b-2 border-l-2 border-m-cyan/60" />
+                <div className="absolute bottom-0 right-0 w-3 h-3 border-b-2 border-r-2 border-m-cyan/60" />
+                {/* Invisible spacers — actual pins render via spawn system */}
                 {unchartedSpawns.map((_, i) => (
-                  <div key={i} className="w-3 h-3" />
+                  <div key={i} className="w-4 h-4" />
                 ))}
               </div>
               {/* Label — below bracket */}

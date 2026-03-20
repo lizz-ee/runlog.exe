@@ -623,20 +623,26 @@ ipcMain.on('overlay-set-size', (_event, size) => {
   }
 })
 
+let _overlayPosTimeout = null
 ipcMain.on('overlay-set-position', (_event, xPercent, yPercent) => {
   if (!overlayWindow) return
   const { screen } = require('electron')
   const display = screen.getPrimaryDisplay()
   const { width, height } = display.size
-  const bounds = overlayWindow.getBounds()
-  const x = Math.round(xPercent / 100 * (width - bounds.width))
-  const y = Math.round(yPercent / 100 * (height - bounds.height))
-  overlayWindow.setBounds({ x, y, width: bounds.width, height: bounds.height })
-  const settings = loadOverlaySettings()
-  settings.customX = x
-  settings.customY = y
-  settings.corner = 'custom'
-  saveOverlaySettings(settings)
+  const dims = getOverlayDims()
+  const x = Math.round(xPercent / 100 * (width - dims.width))
+  const y = Math.round(yPercent / 100 * (height - dims.height))
+  // Use setPosition instead of setBounds to prevent resize
+  overlayWindow.setPosition(x, y)
+  // Throttle settings save to avoid disk thrashing
+  if (_overlayPosTimeout) clearTimeout(_overlayPosTimeout)
+  _overlayPosTimeout = setTimeout(() => {
+    const settings = loadOverlaySettings()
+    settings.customX = x
+    settings.customY = y
+    settings.corner = 'custom'
+    saveOverlaySettings(settings)
+  }, 300)
 })
 
 ipcMain.on('open-file', (_event, filePath) => {

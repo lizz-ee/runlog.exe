@@ -91,6 +91,14 @@ export default function Settings() {
   const [overlayPos, setOverlayPos] = useState({ x: 0, y: 0 })  // % position
   const [draggingOverlay, setDraggingOverlay] = useState(false)
   const posRef = useRef<HTMLDivElement>(null)
+  const lastSendRef = useRef(0)
+
+  const sendOverlayPos = useCallback((xPct: number, yPct: number) => {
+    const now = Date.now()
+    if (now - lastSendRef.current < 50) return  // throttle to 20fps
+    lastSendRef.current = now;
+    (window as any).runlog?.setOverlayPosition?.(xPct, yPct)
+  }, [])
 
   // CLI status
   const [cliStatus, setCliStatus] = useState<{ installed: boolean; authenticated: boolean; path: string | null } | null>(null)
@@ -295,49 +303,73 @@ export default function Settings() {
               {/* Interactive screen preview — drag the bar to reposition */}
               <div
                 ref={posRef}
-                className="relative border border-m-border/50 bg-m-black/60 aspect-video overflow-hidden cursor-crosshair"
+                className="relative border border-m-border/50 bg-m-black/80 aspect-video overflow-hidden cursor-crosshair select-none"
                 onMouseDown={(e) => {
+                  e.preventDefault()
                   setDraggingOverlay(true)
                   const rect = posRef.current?.getBoundingClientRect()
                   if (!rect) return
                   const xPct = Math.max(0, Math.min(100, (e.clientX - rect.left) / rect.width * 100))
                   const yPct = Math.max(0, Math.min(100, (e.clientY - rect.top) / rect.height * 100))
                   setOverlayPos({ x: xPct, y: yPct })
-                  setOverlayCorner('custom');
-                  (window as any).runlog?.setOverlayPosition?.(xPct, yPct)
+                  setOverlayCorner('custom')
+                  sendOverlayPos(xPct, yPct)
                 }}
                 onMouseMove={(e) => {
                   if (!draggingOverlay || !posRef.current) return
                   const rect = posRef.current.getBoundingClientRect()
                   const xPct = Math.max(0, Math.min(100, (e.clientX - rect.left) / rect.width * 100))
                   const yPct = Math.max(0, Math.min(100, (e.clientY - rect.top) / rect.height * 100))
-                  setOverlayPos({ x: xPct, y: yPct });
-                  (window as any).runlog?.setOverlayPosition?.(xPct, yPct)
+                  setOverlayPos({ x: xPct, y: yPct })
+                  sendOverlayPos(xPct, yPct)
                 }}
-                onMouseUp={() => setDraggingOverlay(false)}
+                onMouseUp={() => {
+                  if (draggingOverlay) {
+                    setDraggingOverlay(false)
+                    // Final send on release
+                    ;(window as any).runlog?.setOverlayPosition?.(overlayPos.x, overlayPos.y)
+                  }
+                }}
                 onMouseLeave={() => setDraggingOverlay(false)}
               >
-                {/* Scan lines */}
-                <div className="absolute inset-0 opacity-[0.03] pointer-events-none"
-                  style={{ backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(200,255,0,0.3) 2px, rgba(200,255,0,0.3) 3px)' }} />
-
-                {/* Draggable overlay bar */}
-                <div
-                  className="absolute pointer-events-none transition-[left,top] duration-75"
+                {/* Grid lines for reference */}
+                <div className="absolute inset-0 pointer-events-none"
                   style={{
-                    left: `${Math.min(overlayPos.x, 70)}%`,
-                    top: `${Math.min(overlayPos.y, 88)}%`,
+                    backgroundImage: `
+                      linear-gradient(to right, rgba(200,255,0,0.04) 1px, transparent 1px),
+                      linear-gradient(to bottom, rgba(200,255,0,0.04) 1px, transparent 1px)`,
+                    backgroundSize: '33.33% 50%',
+                  }} />
+
+                {/* Draggable overlay bar — centered on cursor */}
+                <div
+                  className="absolute pointer-events-none"
+                  style={{
+                    left: `${Math.max(0, Math.min(overlayPos.x - 15, 70))}%`,
+                    top: `${Math.max(0, Math.min(overlayPos.y - 4, 92))}%`,
                     width: '30%',
-                    height: '12%',
+                    height: '8%',
                   }}
                 >
-                  <div className="w-full h-full bg-m-green/60 border border-m-green/80 shadow-[0_0_12px_rgba(200,255,0,0.3)]" />
+                  <div className="w-full h-full bg-m-green/70 border border-m-green shadow-[0_0_12px_rgba(200,255,0,0.4)] flex items-center justify-center">
+                    <span className="text-[6px] font-mono text-m-black/60 tracking-widest font-bold">RUNLOG.EXE</span>
+                  </div>
                 </div>
 
-                {/* Center label */}
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <span className="text-[7px] font-mono text-m-border/30 tracking-[0.3em]">CLICK & DRAG</span>
-                </div>
+                {/* Crosshair at cursor position */}
+                {draggingOverlay && (
+                  <>
+                    <div className="absolute pointer-events-none bg-m-green/20" style={{ left: `${overlayPos.x}%`, top: 0, width: 1, height: '100%' }} />
+                    <div className="absolute pointer-events-none bg-m-green/20" style={{ left: 0, top: `${overlayPos.y}%`, width: '100%', height: 1 }} />
+                  </>
+                )}
+
+                {/* Label */}
+                {!draggingOverlay && (
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <span className="text-[8px] font-mono text-m-border/40 tracking-[0.2em]">CLICK & DRAG TO POSITION</span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
