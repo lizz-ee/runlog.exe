@@ -223,11 +223,11 @@ function SquadCard({ mate, rank, isSelected, onClick }: {
 
         {/* Gamertag — center */}
         <div className="flex-1 flex flex-col items-center justify-center">
-          <span className={`text-[11px] font-mono font-bold tracking-wider text-center leading-tight transition-all duration-300 ${
+          <span className={`font-mono font-bold tracking-wider text-center leading-tight transition-all duration-300 truncate max-w-full px-1 ${
             isSelected
               ? 'text-[#c8ff00] drop-shadow-[0_0_8px_rgba(200,255,0,0.3)]'
               : 'text-m-text group-hover:text-[#c8ff00]/80'
-          }`}>
+          }`} style={{ fontSize: mate.gamertag.split('#')[0].length > 14 ? '8px' : mate.gamertag.split('#')[0].length > 10 ? '9px' : '11px' }}>
             {mate.gamertag.split('#')[0]}
           </span>
           {mate.gamertag.includes('#') && (
