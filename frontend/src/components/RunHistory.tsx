@@ -304,14 +304,17 @@ function RunRow({ run }: { run: Run }) {
             </div>
           </div>
 
-          {/* Notes */}
-          {run.notes && (
-            <div className="mt-4 pt-3 border-t border-m-border">
-              <p className="label-tag text-m-text-muted mb-1">NOTES</p>
-              <p className="text-xs text-m-text">{run.notes}</p>
+          {/* Link to Run Report */}
+          {run.summary && (
+            <div className="mt-3 pt-3 border-t border-m-border">
+              <button
+                onClick={(e) => { e.stopPropagation(); useStore.getState().setView('highlights') }}
+                className="label-tag px-3 py-1.5 border border-m-border text-m-text-muted hover:text-m-green hover:border-m-green/40 transition-all"
+              >
+                VIEW REPORT →
+              </button>
             </div>
           )}
-
         </div>
       )}
     </div>

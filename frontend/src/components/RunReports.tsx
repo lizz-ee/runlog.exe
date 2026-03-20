@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import axios from 'axios'
 import { getRuns, getClips, getClipUrl, apiBase } from '../lib/api'
+import { useStore } from '../lib/store'
 import type { Run, Clip } from '../lib/types'
 
 const GRADE_COLORS: Record<string, string> = {
@@ -391,6 +392,16 @@ export default function RunReports() {
                           No clips or narrative available yet. Phase 2 processing may still be running.
                         </p>
                       )}
+
+                      {/* Link to Run Record */}
+                      <div className="mt-3 pt-3 border-t border-m-border">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); useStore.getState().setView('history') }}
+                          className="label-tag px-3 py-1.5 border border-m-border text-m-text-muted hover:text-m-green hover:border-m-green/40 transition-all"
+                        >
+                          VIEW RECORD →
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
