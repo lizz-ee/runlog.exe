@@ -191,6 +191,31 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
           </div>
         )}
 
+        {/* Uncharted spawns staging bracket — top-left */}
+        {(() => {
+          const unchartedSpawns = spawns.filter(s => s.zone.startsWith('//VECTOR.LOST//'))
+          if (unchartedSpawns.length === 0) return null
+          const bracketHeight = Math.max(8, unchartedSpawns.length * 5 + 4)
+          return (
+            <div
+              className="absolute z-30 pointer-events-none"
+              style={{ left: '1%', top: '2%', width: '8%', height: `${bracketHeight}%` }}
+            >
+              {/* Corner brackets */}
+              <div className="absolute top-0 left-0 w-3 h-3 border-t-2 border-l-2 border-m-cyan/50" />
+              <div className="absolute top-0 right-0 w-3 h-3 border-t-2 border-r-2 border-m-cyan/50" />
+              <div className="absolute bottom-0 left-0 w-3 h-3 border-b-2 border-l-2 border-m-cyan/50" />
+              <div className="absolute bottom-0 right-0 w-3 h-3 border-b-2 border-r-2 border-m-cyan/50" />
+              {/* Label */}
+              <div className="absolute -top-4 left-0 right-0 flex items-center justify-center">
+                <span className="text-[7px] font-mono text-m-cyan/60 tracking-[0.2em]">
+                  STAGING // {unchartedSpawns.length}
+                </span>
+              </div>
+            </div>
+          )
+        })()}
+
         {/* Spawn point markers — draggable */}
         {spawns.map((spawn) => {
           const isHovered = hoveredSpawn === spawn.id

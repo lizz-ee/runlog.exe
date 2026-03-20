@@ -1280,8 +1280,8 @@ def save_run_to_db(analysis: dict, run_date: datetime | None = None) -> int | No
                 uncharted_count = db.query(SpawnPoint).filter(
                     SpawnPoint.spawn_location.like("//VECTOR.LOST//%")
                 ).count()
-                staging_x = 5.0 + (uncharted_count % 5) * 4.0  # stagger left side
-                staging_y = 92.0  # bottom of map — staging area
+                staging_x = 4.0  # top-left staging column
+                staging_y = 5.0 + uncharted_count * 5.0  # vertical stack, 5% apart
 
                 spawn = SpawnPoint(
                     map_name=analysis.get("map_name") or "Unknown",
