@@ -200,18 +200,18 @@ function SquadCard({ mate, rank, isSelected, onClick }: {
       <div className="absolute bottom-1 right-1 w-2.5 h-2.5 border-r border-b transition-colors duration-300"
         style={{ borderColor: active ? `${rarityColor}90` : `${rarityColor}25` }} />
 
-      {/* Selected top bar glow */}
+      {/* Selected top bar glow — rarity colored */}
       {isSelected && (
-        <div className="absolute top-0 left-0 right-0 h-[2px] bg-[#c8ff00] shadow-[0_0_8px_rgba(200,255,0,0.5)]" />
+        <div className="absolute top-0 left-0 right-0 h-[2px] z-[4]"
+          style={{ backgroundColor: rarityColor, boxShadow: `0 0 8px ${rarityColor}80` }} />
       )}
 
       {/* Content */}
       <div className="relative h-full flex flex-col p-3 z-10">
 
-        {/* Rank — large faded background number */}
-        <span className={`absolute top-2 right-3 text-2xl font-display font-black transition-colors duration-300 ${
-          isSelected ? 'text-[#c8ff00]/15' : 'text-[#c8ff00]/5'
-        }`}>
+        {/* Rank — large faded background number, rarity colored */}
+        <span className="absolute top-2 right-3 text-2xl font-display font-black transition-colors duration-300"
+          style={{ color: `${rarityColor}${isSelected ? '25' : '10'}` }}>
           {rankStr}
         </span>
 
@@ -270,24 +270,19 @@ function SquadCard({ mate, rank, isSelected, onClick }: {
               {mate.survival_rate}%
             </span>
           </div>
-          {/* Survival diff micro bar */}
+          {/* Survival micro bar — rarity colored */}
           <div className="w-full h-[3px] bg-[#ffffff05] rounded-full overflow-hidden">
             <div
-              className={`h-full rounded-full transition-all duration-500 ${
-                mate.survival_diff >= 0 ? 'bg-[#c8ff00]/40' : 'bg-red-400/40'
-              }`}
-              style={{ width: `${Math.min(100, Math.max(5, 50 + mate.survival_diff))}%` }}
+              className="h-full rounded-full transition-all duration-500"
+              style={{
+                width: `${Math.min(100, Math.max(5, 50 + mate.survival_diff))}%`,
+                backgroundColor: mate.survival_diff >= 0 ? `${rarityColor}60` : '#f8717160',
+              }}
             />
           </div>
         </div>
       </div>
 
-      {/* Outer border */}
-      <div className={`absolute inset-0 border transition-all duration-300 pointer-events-none ${
-        isSelected
-          ? 'border-[#c8ff00]/30'
-          : 'border-m-border/40 group-hover:border-[#c8ff00]/20'
-      }`} />
     </button>
   )
 }
