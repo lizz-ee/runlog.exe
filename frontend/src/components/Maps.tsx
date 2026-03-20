@@ -382,39 +382,42 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
           </div>
         </div>
         <div className="flex-1 overflow-y-auto min-h-0">
-          {currentHeatmap && currentHeatmap.locations.length > 0 ? (
+          {spawns.length > 0 ? (
             <div className="divide-y divide-m-border">
-              {[...currentHeatmap.locations].sort((a, b) => {
-                const aTotal = a.runs_survived + a.runs_died
-                const bTotal = b.runs_survived + b.runs_died
-                const aSurv = aTotal > 0 ? a.runs_survived / aTotal : -1
-                const bSurv = bTotal > 0 ? b.runs_survived / bTotal : -1
-                const aStreak = a.runs_survived > 0 && a.runs_died === 0 ? a.runs_survived : 0
-                const bStreak = b.runs_survived > 0 && b.runs_died === 0 ? b.runs_survived : 0
+              {[...spawns].sort((a, b) => {
+                const aLoc = currentHeatmap?.locations.find(l => l.location === a.zone)
+                const bLoc = currentHeatmap?.locations.find(l => l.location === b.zone)
+                const aTotal = aLoc ? aLoc.runs_survived + aLoc.runs_died : 0
+                const bTotal = bLoc ? bLoc.runs_survived + bLoc.runs_died : 0
+                const aSurv = aTotal > 0 ? aLoc!.runs_survived / aTotal : -1
+                const bSurv = bTotal > 0 ? bLoc!.runs_survived / bTotal : -1
+                const aStreak = aLoc && aLoc.runs_survived > 0 && aLoc.runs_died === 0 ? aLoc.runs_survived : 0
+                const bStreak = bLoc && bLoc.runs_survived > 0 && bLoc.runs_died === 0 ? bLoc.runs_survived : 0
                 switch (spawnSort) {
-                  case 'name': return a.location.localeCompare(b.location)
+                  case 'name': return a.zone.localeCompare(b.zone)
                   case 'surv': return bSurv - aSurv
-                  case 'loot': return (b.avg_loot ?? -Infinity) - (a.avg_loot ?? -Infinity)
+                  case 'loot': return ((bLoc as any)?.avg_loot ?? -Infinity) - ((aLoc as any)?.avg_loot ?? -Infinity)
                   case 'streak': return bStreak - aStreak
                   default: return 0
                 }
-              }).map((loc) => {
-                const spawnMatch = spawns.find(s => s.zone === loc.location)
-                const totalRuns = loc.runs_survived + loc.runs_died
-                const survRate = totalRuns > 0 ? Math.round(loc.runs_survived / totalRuns * 100) : null
+              }).map((spawn) => {
+                const loc = currentHeatmap?.locations.find(l => l.location === spawn.zone)
+                const isUnchartedItem = spawn.zone.startsWith('//VCTR.RDCT//')
+                const totalRuns = loc ? loc.runs_survived + loc.runs_died : 0
+                const survRate = totalRuns > 0 ? Math.round(loc!.runs_survived / totalRuns * 100) : null
                 return (
                   <div
-                    key={loc.location}
+                    key={spawn.id}
                     className={`px-3 py-2.5 cursor-pointer transition-colors ${
-                      hoveredSpawn === spawnMatch?.id ? 'bg-m-surface' : ''
+                      hoveredSpawn === spawn.id ? 'bg-m-surface' : ''
                     }`}
-                    onMouseEnter={() => spawnMatch && setHoveredSpawn(spawnMatch.id)}
+                    onMouseEnter={() => setHoveredSpawn(spawn.id)}
                     onMouseLeave={() => setHoveredSpawn(null)}
                   >
-                    <p className="text-2xs text-m-text uppercase tracking-wider font-bold mb-1.5">{loc.location}</p>
-                    {totalRuns > 0 && (() => {
+                    <p className={`text-2xs uppercase tracking-wider font-bold mb-1.5 ${isUnchartedItem ? 'text-m-cyan' : 'text-m-text'}`}>{spawn.zone}</p>
+                    {loc && totalRuns > 0 && (() => {
                       const l = loc as any
-                      const streak = loc.runs_survived > 0 && loc.runs_died === 0 ? loc.runs_survived : 0
+                      const streak = loc!.runs_survived > 0 && loc!.runs_died === 0 ? loc!.runs_survived : 0
                       return (
                         <div className="ml-0 mt-1 space-y-0.5 text-[9px] font-mono">
                           <div className="flex justify-between">
@@ -423,7 +426,7 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
                           </div>
                           <div className="flex justify-between">
                             <span className="text-m-text-muted">AVG LOOT</span>
-                            <span className="text-m-yellow">${Math.round(loc.avg_loot ?? 0).toLocaleString()}</span>
+                            <span className="text-m-yellow">${Math.round(loc!.avg_loot ?? 0).toLocaleString()}</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-m-text-muted">STREAK</span>
