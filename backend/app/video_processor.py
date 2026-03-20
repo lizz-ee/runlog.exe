@@ -1278,17 +1278,22 @@ def save_run_to_db(analysis: dict, run_date: datetime | None = None) -> int | No
             else:
                 # Count existing uncharted spawns to offset the staging position
                 uncharted_count = db.query(SpawnPoint).filter(
-                    SpawnPoint.spawn_location.like("//VCTR.RDCT//%")
+                    SpawnPoint.spawn_location.like("VCTR//%")
                 ).count()
-                # Centered in bracket: bracket at 1%, width = count*3.5+4
+                # Centered in bracket: bracket at 2%, width = count*3.5+4
                 total = uncharted_count + 1
-                bracket_center = 1 + (total * 3.5 + 4) / 2
+                bracket_center = 2 + (total * 3.5 + 4) / 2
                 staging_x = bracket_center + (uncharted_count - (total - 1) / 2) * 3.5
-                staging_y = 3.5  # vertically centered in bracket
+                staging_y = 4.5  # vertically centered in bracket
+
+                # Name includes truncated coordinates for quick reference
+                cx_short = int(round(coord_x))
+                cy_short = int(round(coord_y))
+                spawn_name = f"VCTR//{cx_short}:{cy_short}"
 
                 spawn = SpawnPoint(
                     map_name=analysis.get("map_name") or "Unknown",
-                    spawn_location=f"//VCTR.RDCT//{uncharted_count + 1:03d}",
+                    spawn_location=spawn_name,
                     game_coord_x=coord_x,
                     game_coord_y=coord_y,
                     x=staging_x,
@@ -1298,7 +1303,7 @@ def save_run_to_db(analysis: dict, run_date: datetime | None = None) -> int | No
                 db.commit()
                 db.refresh(spawn)
                 spawn_point_id = spawn.id
-                print(f"[processor] New spawn #{spawn_point_id} //VCTR.RDCT//{uncharted_count + 1:03d} at staging ({staging_x}, {staging_y})")
+                print(f"[processor] New spawn #{spawn_point_id} {spawn_name} at staging ({staging_x}, {staging_y})")
 
         # Match shell (runner) by name from lobby screen
         runner_id = None

@@ -203,7 +203,7 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
 
         {/* Uncharted spawns staging bracket — horizontal top row */}
         {(() => {
-          const unchartedSpawns = spawns.filter(s => s.zone.startsWith('//VCTR.RDCT//'))
+          const unchartedSpawns = spawns.filter(s => s.zone.startsWith('VCTR//') || s.zone.startsWith('//VCTR.RDCT//'))
           if (unchartedSpawns.length === 0) return null
           const bracketWidth = Math.max(10, unchartedSpawns.length * 3.5 + 4)
           return (
@@ -237,7 +237,7 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
           const isHovered = hoveredSpawn === spawn.id
           const isDragging = dragState?.spawnId === spawn.id
           const isDirty = dirty.has(spawn.id)
-          const isUncharted = spawn.zone.startsWith('//VCTR.RDCT//')
+          const isUncharted = spawn.zone.startsWith('VCTR//') || spawn.zone.startsWith('//VCTR.RDCT//')
           const pinColor = isDirty ? 'yellow' : isUncharted ? 'cyan' : 'green'
           const borderClass = pinColor === 'yellow' ? 'border-m-yellow/50' : pinColor === 'cyan' ? 'border-m-cyan/50' : 'border-m-green/30'
           const bgClass = pinColor === 'yellow' ? 'border-m-yellow bg-m-yellow/30' : pinColor === 'cyan' ? 'border-m-cyan bg-m-cyan/30' : 'border-m-green bg-m-green/15'
