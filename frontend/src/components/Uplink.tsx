@@ -161,17 +161,8 @@ export default function Uplink() {
     }
   }, [messages])
 
-  // Empty state
-  if (totalRuns === 0 && !summary?.run_count) {
-    return (
-      <div className="max-w-7xl mx-auto flex items-center justify-center h-full">
-        <div className="text-center space-y-2">
-          <p className="text-sm font-mono text-m-text-muted">INSUFFICIENT DATA</p>
-          <p className="text-xs font-mono text-m-text-muted/60">Complete runs to activate UPLINK.</p>
-        </div>
-      </div>
-    )
-  }
+  const hasSessionData = summary && summary.run_count > 0
+  const hasAnyData = totalRuns > 0
 
   return (
     <div className="max-w-7xl mx-auto h-full flex flex-col">
@@ -186,20 +177,30 @@ export default function Uplink() {
         {/* LEFT COLUMN — 60% scrollable */}
         <div className="w-[60%] overflow-y-auto space-y-4 pr-2">
           {/* Session debrief — hero stats */}
-          {summary && summary.run_count > 0 && (
-            <div className="grid grid-cols-5 gap-[1px] bg-m-border">
-              <StatBlock label="RUNS" value={String(summary.run_count)} sub="session" />
-              <StatBlock label="SURVIVAL" value={`${summary.survival_rate ?? 0}%`}
-                sub={`${summary.survived ?? 0} of ${summary.run_count}`}
-                color={(summary.survival_rate ?? 0) >= 50 ? 'green' : 'red'} />
-              <StatBlock label="R.KILLS" value={String(summary.total_runner_kills ?? 0)}
-                sub={`${summary.avg_runner_kills_per_run ?? 0}/run`} />
-              <StatBlock label="PVE" value={String(summary.total_pve_kills ?? 0)}
-                sub={`${summary.avg_pve_kills_per_run ?? 0}/run`} />
-              <StatBlock label="LOOT" value={`$${(summary.total_loot ?? 0).toLocaleString()}`}
-                sub="extracted" color="yellow" />
-            </div>
-          )}
+          <div className="grid grid-cols-5 gap-[1px] bg-m-border">
+            {hasSessionData ? (
+              <>
+                <StatBlock label="RUNS" value={String(summary!.run_count)} sub="session" />
+                <StatBlock label="SURVIVAL" value={`${summary!.survival_rate ?? 0}%`}
+                  sub={`${summary!.survived ?? 0} of ${summary!.run_count}`}
+                  color={(summary!.survival_rate ?? 0) >= 50 ? 'green' : 'red'} />
+                <StatBlock label="R.KILLS" value={String(summary!.total_runner_kills ?? 0)}
+                  sub={`${summary!.avg_runner_kills_per_run ?? 0}/run`} />
+                <StatBlock label="PVE" value={String(summary!.total_pve_kills ?? 0)}
+                  sub={`${summary!.avg_pve_kills_per_run ?? 0}/run`} />
+                <StatBlock label="LOOT" value={`$${(summary!.total_loot ?? 0).toLocaleString()}`}
+                  sub="extracted" color="yellow" />
+              </>
+            ) : (
+              <>
+                <StatBlock label="RUNS" value="—" sub="session" />
+                <StatBlock label="SURVIVAL" value="—%" sub="— of —" />
+                <StatBlock label="R.KILLS" value="—" sub="—/run" />
+                <StatBlock label="PVE" value="—" sub="—/run" />
+                <StatBlock label="LOOT" value="$—" sub="awaiting" />
+              </>
+            )}
+          </div>
 
           {/* Briefing */}
           <div className="bg-m-card border border-m-border relative overflow-hidden">
@@ -242,7 +243,7 @@ export default function Uplink() {
           </div>
 
           {/* Survival trend chart */}
-          {survivalTrend.length > 1 && (
+          {survivalTrend.length > 1 ? (
             <div className="bg-m-card border border-m-border">
               <div className="px-4 py-3 border-b border-m-border">
                 <span className="label-tag text-m-text-muted">TRENDS // SURVIVAL</span>
@@ -262,10 +263,33 @@ export default function Uplink() {
                 </ResponsiveContainer>
               </div>
             </div>
+          ) : (
+            <div className="bg-m-card border border-m-border">
+              <div className="px-4 py-3 border-b border-m-border">
+                <span className="label-tag text-m-text-muted">TRENDS // SURVIVAL</span>
+              </div>
+              <div className="px-4 py-3 relative overflow-hidden" style={{ height: 200 }}>
+                {/* Decorative grid + ambient data */}
+                <div className="absolute inset-0 opacity-[0.04]" style={{
+                  backgroundImage: 'linear-gradient(to right, rgba(200,255,0,0.3) 1px, transparent 1px), linear-gradient(to bottom, rgba(200,255,0,0.3) 1px, transparent 1px)',
+                  backgroundSize: '20% 25%',
+                }} />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="text-center space-y-2">
+                    <p className="text-[8px] font-mono text-m-text-muted/20 tracking-[0.3em]">// AWAITING SIGNAL //</p>
+                    <p className="text-[7px] font-mono text-m-border/30 tracking-widest">0x4E554C4C // DATA.STREAM.PENDING</p>
+                  </div>
+                </div>
+                {/* Fake axis labels */}
+                <div className="absolute left-3 top-3 text-[7px] font-mono text-m-border/20">100%</div>
+                <div className="absolute left-3 bottom-3 text-[7px] font-mono text-m-border/20">0%</div>
+                <div className="absolute right-3 bottom-3 text-[7px] font-mono text-m-border/20">S.01</div>
+              </div>
+            </div>
           )}
 
           {/* Loot trend chart */}
-          {lootTrend.length > 1 && (
+          {lootTrend.length > 1 ? (
             <div className="bg-m-card border border-m-border">
               <div className="px-4 py-3 border-b border-m-border">
                 <span className="label-tag text-m-text-muted">TRENDS // LOOT.EXTRACTED</span>
@@ -283,6 +307,29 @@ export default function Uplink() {
                     <Line type="monotone" dataKey="value" stroke="#c8ff00" strokeWidth={2} dot={{ r: 3, fill: '#c8ff00' }} />
                   </LineChart>
                 </ResponsiveContainer>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-m-card border border-m-border">
+              <div className="px-4 py-3 border-b border-m-border">
+                <span className="label-tag text-m-text-muted">TRENDS // LOOT.EXTRACTED</span>
+              </div>
+              <div className="px-4 py-3 relative overflow-hidden" style={{ height: 200 }}>
+                {/* Decorative grid + ambient data */}
+                <div className="absolute inset-0 opacity-[0.04]" style={{
+                  backgroundImage: 'linear-gradient(to right, rgba(200,255,0,0.3) 1px, transparent 1px), linear-gradient(to bottom, rgba(200,255,0,0.3) 1px, transparent 1px)',
+                  backgroundSize: '20% 25%',
+                }} />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="text-center space-y-2">
+                    <p className="text-[8px] font-mono text-m-text-muted/20 tracking-[0.3em]">// AWAITING SIGNAL //</p>
+                    <p className="text-[7px] font-mono text-m-border/30 tracking-widest">0x4E554C4C // DATA.STREAM.PENDING</p>
+                  </div>
+                </div>
+                {/* Fake axis labels */}
+                <div className="absolute left-3 top-3 text-[7px] font-mono text-m-border/20">100%</div>
+                <div className="absolute left-3 bottom-3 text-[7px] font-mono text-m-border/20">0%</div>
+                <div className="absolute right-3 bottom-3 text-[7px] font-mono text-m-border/20">S.01</div>
               </div>
             </div>
           )}

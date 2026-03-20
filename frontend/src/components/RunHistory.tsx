@@ -76,6 +76,8 @@ export default function RunHistory() {
   const { runs, setRuns } = useStore()
   const [filter, setFilter] = useState<'all' | 'survived' | 'died'>('all')
   const [mapFilter, setMapFilter] = useState('')
+  const [page, setPage] = useState(0)
+  const RUNS_PER_PAGE = 28
 
   useEffect(() => {
     getRuns({ limit: 200 }).then(setRuns).catch(console.error)
@@ -89,6 +91,11 @@ export default function RunHistory() {
   })
 
   const maps = [...new Set(runs.map((r) => r.map_name).filter(Boolean))]
+  const totalPages = Math.max(1, Math.ceil(filtered.length / RUNS_PER_PAGE))
+  const pageRuns = filtered.slice(page * RUNS_PER_PAGE, (page + 1) * RUNS_PER_PAGE)
+
+  // Reset page when filters change
+  useEffect(() => { setPage(0) }, [filter, mapFilter])
 
   return (
     <div className="max-w-7xl mx-auto space-y-4">
@@ -158,9 +165,32 @@ export default function RunHistory() {
         </div>
       ) : (
         <div className="border border-1 border-m-green/20 divide-y divide-m-border">
-          {filtered.map((run) => (
+          {pageRuns.map((run) => (
             <RunRow key={run.id} run={run} />
           ))}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-3 pt-2">
+          <button
+            onClick={() => setPage(p => Math.max(0, p - 1))}
+            disabled={page === 0}
+            className="label-tag px-3 py-1.5 border border-m-border text-m-text-muted hover:text-m-text hover:border-m-green/40 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+          >
+            PREV
+          </button>
+          <span className="text-[9px] font-mono text-m-text-muted tracking-wider">
+            {page + 1} // {totalPages}
+          </span>
+          <button
+            onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+            disabled={page === totalPages - 1}
+            className="label-tag px-3 py-1.5 border border-m-border text-m-text-muted hover:text-m-text hover:border-m-green/40 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+          >
+            NEXT
+          </button>
         </div>
       )}
     </div>
