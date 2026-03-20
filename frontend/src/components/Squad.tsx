@@ -160,7 +160,7 @@ function SquadCard({ mate, rank, isSelected, onClick }: {
 
   // Rarity colors based on rank: 1=gold, 2=purple, 3=blue, 4=green, 5-7=gray
   const rarityColor = rank === 1 ? '#FFD700' : rank === 2 ? '#A855F7' : rank === 3 ? '#3B82F6' : rank === 4 ? '#22C55E' : '#888888'
-  const rarityGlow = `0 0 12px ${rarityColor}40`
+  const rarityGlow = 'none'
 
   return (
     <button
@@ -183,10 +183,6 @@ function SquadCard({ mate, rank, isSelected, onClick }: {
           boxShadow: isSelected ? rarityGlow : 'none',
         }} />
 
-      {/* Scan line — only on selected, not hover */}
-      {isSelected && (
-        <ScanEffect color={rarityColor} />
-      )}
 
       {/* Corner brackets — exact same as ShellCard (1.5 inset, 3px size) */}
       <div className="absolute top-1.5 left-1.5 w-3 h-3 border-l border-t z-[3] transition-colors duration-300"

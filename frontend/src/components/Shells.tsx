@@ -187,8 +187,8 @@ export default function Shells() {
         </>
       )}
 
-      {/* Squad section — preview of combined page */}
-      <div className="mt-8 pt-6 border-t border-m-border">
+      {/* Runners section */}
+      <div className="mt-4">
         <Squad />
       </div>
     </div>
