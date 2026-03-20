@@ -420,7 +420,7 @@ export default function Settings() {
             <div className="flex-1 pr-5">
               <div className="flex items-center justify-between">
                 <div>
-                  <span className="label-tag text-m-green">CAPTURE MODEL</span>
+                  <span className="label-tag text-m-green">CAPTURE.MODEL</span>
                   <p className="text-[7px] font-mono text-m-text-muted/30 tracking-wider mt-0.5">RUN ANALYSIS + STATS</p>
                 </div>
                 <ToggleButton
@@ -434,7 +434,7 @@ export default function Settings() {
             <div className="flex-1 pl-5">
               <div className="flex items-center justify-between">
                 <div>
-                  <span className="label-tag text-m-cyan">UPLINK MODEL</span>
+                  <span className="label-tag text-m-green">UPLINK.MODEL</span>
                   <p className="text-[7px] font-mono text-m-text-muted/30 tracking-wider mt-0.5">CHAT + BRIEFINGS</p>
                 </div>
                 <ToggleButton
@@ -454,7 +454,7 @@ export default function Settings() {
             {/* Left — API Key */}
             <div className="flex-1 pr-5 space-y-3">
               <div className="flex items-center justify-between">
-                <span className="label-tag text-m-green">API KEY</span>
+                <span className="label-tag text-m-cyan">API KEY</span>
                 {config.has_api_key ? (
                   <div className="flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 bg-m-green rounded-full" />
@@ -512,7 +512,7 @@ export default function Settings() {
             {/* Right — Claude CLI */}
             <div className="flex-1 pl-5 space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="label-tag text-m-cyan">CLAUDE CLI</span>
+                  <span className="label-tag text-m-cyan">CLAUDE.CLI</span>
                   {cliStatus === null ? (
                     <button onClick={checkCli}
                       className="px-2 py-0.5 text-[9px] font-mono tracking-widest border border-m-border text-m-text-muted hover:text-m-cyan hover:border-m-cyan/40 transition-all">
