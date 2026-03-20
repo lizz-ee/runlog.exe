@@ -153,9 +153,8 @@ export default function Uplink() {
         {/* ═══════════════════════════════════════ */}
         <div className="w-[60%] overflow-y-auto space-y-3 pr-1">
 
-          {/* ─── SESSION DEBRIEF — hex-style stat blocks ─── */}
-          <div className="relative overflow-hidden" style={{ background: CRT_BG }}>
-            <div className="absolute inset-0 pointer-events-none" style={CRT_SCANLINES} />
+          {/* ─── SESSION DEBRIEF — stat blocks ─── */}
+          <div className="relative overflow-hidden">
             <div className="grid grid-cols-6 gap-px relative z-10">
               {hasSessionData ? (
                 <>
@@ -180,34 +179,35 @@ export default function Uplink() {
             </div>
           </div>
 
-          {/* ─── BRIEFING — classified document style ─── */}
-          <div className="relative overflow-hidden border border-m-green/10" style={{ background: CRT_BG }}>
-            <div className="absolute inset-0 pointer-events-none" style={CRT_SCANLINES} />
-            <div className="absolute inset-0 pointer-events-none" style={CRT_VIGNETTE} />
-            {/* Corner brackets */}
-            <div className="absolute top-0 left-0 w-4 h-4 border-t border-l border-m-green/30" />
-            <div className="absolute top-0 right-0 w-4 h-4 border-t border-r border-m-green/30" />
-            <div className="absolute bottom-0 left-0 w-4 h-4 border-b border-l border-m-green/30" />
-            <div className="absolute bottom-0 right-0 w-4 h-4 border-b border-r border-m-green/30" />
+          {/* ─── BRIEFING — grey card with green accents ─── */}
+          <div className="bg-m-card border border-m-border relative overflow-hidden">
+            {/* Corner bracket accents */}
+            <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-m-green/30 z-10" />
+            <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-m-green/30 z-10" />
+            <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-m-green/30 z-10" />
+            <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-m-green/30 z-10" />
+            {/* Subtle scanline overlay */}
+            <div className="absolute inset-0 opacity-[0.015] pointer-events-none"
+              style={{ backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(200,255,0,0.3) 3px, rgba(200,255,0,0.3) 4px)' }} />
 
-            <div className="px-5 py-3 flex justify-between relative z-10 border-b border-m-green/8">
-              <span className="text-[8px] font-mono text-m-green/50 tracking-[0.2em]">
+            <div className="px-5 py-3 flex justify-between border-b border-m-border">
+              <span className="label-tag text-m-green">
                 BRIEFING // {summary?.session_code || ':??:'}
               </span>
-              <span className="text-[8px] font-mono text-m-green/30 tracking-wider">
+              <span className="label-tag text-m-text-muted">
                 {summary?.date?.replace(/-/g, '.') || ''}
               </span>
             </div>
 
-            <div className="px-5 py-4 relative z-10 min-h-[80px]">
+            <div className="px-5 py-4 min-h-[80px]">
               {briefingLoading && !briefing ? (
                 <div className="space-y-2.5">
-                  <div className="h-2.5 bg-m-green/8 w-[85%]" style={{ animation: 'pulse 1.5s infinite' }} />
-                  <div className="h-2.5 bg-m-green/6 w-[65%]" style={{ animation: 'pulse 1.5s infinite 0.2s' }} />
-                  <div className="h-2.5 bg-m-green/4 w-[75%]" style={{ animation: 'pulse 1.5s infinite 0.4s' }} />
+                  <div className="h-2.5 bg-m-border/40 w-[85%] animate-pulse" />
+                  <div className="h-2.5 bg-m-border/30 w-[65%] animate-pulse" />
+                  <div className="h-2.5 bg-m-border/20 w-[75%] animate-pulse" />
                 </div>
               ) : briefing ? (
-                <div className="text-[11px] font-mono text-m-text leading-[1.7] whitespace-pre-wrap">
+                <div className="text-xs font-mono text-m-text leading-relaxed whitespace-pre-wrap">
                   {briefing.split('\n').map((line, i) => {
                     if (!line.trim()) return <div key={i} className="h-2" />
                     if (line.includes('TREND:')) return <p key={i} className="text-m-green mt-2">{line}</p>
@@ -327,7 +327,7 @@ export default function Uplink() {
 // ═══════════════════════════════════════════════════════
 function HexStat({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
   return (
-    <div className="px-3 py-3 relative" style={{ background: CRT_BG }}>
+    <div className="px-3 py-3 relative bg-m-card">
       <p className="text-[7px] font-mono tracking-[0.2em] mb-1 text-m-text-muted">{label}</p>
       <p className="text-xl font-mono font-bold" style={{ color: color || '#e0e0e8' }}>
         {value}
