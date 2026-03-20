@@ -468,7 +468,7 @@ def _analyze_with_screenshots(deploy_jpg: str, readyup_jpg: str, frames_dir: str
         image_list = "\n".join(f"- {p}" for p in screenshots)
         prompt1 = f"""Read these Marathon (2026 extraction shooter) screenshots. You may receive multiple images:
 1. **deploy.jpg** — the deployment loading screen with map name and spawn coordinates.
-2. **readyup_1.jpg, readyup_2.jpg, readyup_3.jpg** — up to 3 ready-up/loadout screenshots taken at different moments before deployment. Some may be black/loading screens — IGNORE those and use the ones with actual game content (shell visible, loadout grid, weapons, map name, crew size, gamertag). Pick the BEST image for each piece of data.
+2. **readyup_1.jpg** (READY UP screen), **readyup_2.jpg** (RUN screen), **readyup_3.jpg** (DEPLOYING screen) — one screenshot from each pre-deployment phase. Some may be black/loading screens — IGNORE those and use the ones with actual game content (shell visible, loadout grid, weapons, map name, crew size, gamertag). Pick the BEST image for each piece of data.
 
 {image_list}
 {f'{chr(10)}Shell reference images — use these to identify the shell:{shell_refs}' if shell_refs else ''}

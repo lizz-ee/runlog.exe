@@ -1,8 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import axios from 'axios'
-import { getCaptureStatus, getFrameUrl, getThumbnailUrl, apiBase } from '../lib/api'
+import { getFrameUrl, getThumbnailUrl, apiBase } from '../lib/api'
 import { useStore } from '../lib/store'
-import type { CaptureStatus } from '../lib/types'
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60)
@@ -54,24 +53,50 @@ function getStageIndex(status: string): number {
   return idx >= 0 ? idx : -1
 }
 
-function PipelineProgress({ status, detail, p1Failed }: { status: string; detail?: string | null; p1Failed?: boolean }) {
+function PipelineProgress({ status, detail, p1Failed, p1Flags }: {
+  status: string
+  detail?: string | null
+  p1Failed?: boolean
+  p1Flags?: { loading?: boolean; stats?: boolean; loadout?: boolean }
+}) {
   const currentIdx = getStageIndex(status)
   if (currentIdx < 0) return null
 
   const isP1Failed = status === 'phase1_failed' || !!p1Failed
   const p1EndIdx = PIPELINE_STAGES.findIndex(s => s.key === 'phase1_done')
+  const showFlags = p1Flags && (status === 'phase1_done' || status === 'done' || status === 'analyzing_gameplay' || status === 'cutting_clips')
 
   // Shape per stage: P0 (circle), P1 (triangle, square, circle), P2 (triangle, square, circle)
   const SHAPES = ['circle', 'triangle', 'square', 'circle', 'triangle', 'square', 'circle'] as const
 
   return (
     <div className="flex items-center gap-0">
-      {/* Status label first, then shapes */}
-      {status !== 'done' && status !== 'queued' && status !== 'encoding' && (
-        <span className={`text-[9px] font-mono mr-2 tracking-wider ${isP1Failed ? 'text-m-red' : 'text-m-cyan'}`}>
-          {PHASE_LABELS[status] || status.toUpperCase()}
-        </span>
-      )}
+      {/* Detail text + P1 flags before shapes */}
+      <div className="flex flex-col items-end mr-2 gap-0">
+        {status !== 'done' && status !== 'queued' && status !== 'encoding' && (
+          <span className={`text-[9px] font-mono tracking-wider ${isP1Failed ? 'text-m-red' : 'text-m-cyan'}`}>
+            {PHASE_LABELS[status] || status.toUpperCase()}
+          </span>
+        )}
+        {detail && status !== 'done' && (
+          <span className="text-[8px] font-mono text-m-text-muted/60 tracking-wider truncate max-w-[150px]">
+            {detail}
+          </span>
+        )}
+        {showFlags && (
+          <div className="flex gap-1.5">
+            <span className={`text-[7px] font-mono tracking-wider ${p1Flags!.loading ? 'text-m-green/70' : 'text-m-red/50'}`}>
+              {p1Flags!.loading ? '✓' : '✗'}MAP
+            </span>
+            <span className={`text-[7px] font-mono tracking-wider ${p1Flags!.stats ? 'text-m-green/70' : 'text-m-red/50'}`}>
+              {p1Flags!.stats ? '✓' : '✗'}STATS
+            </span>
+            <span className={`text-[7px] font-mono tracking-wider ${p1Flags!.loadout ? 'text-m-green/70' : 'text-m-red/50'}`}>
+              {p1Flags!.loadout ? '✓' : '✗'}LOADOUT
+            </span>
+          </div>
+        )}
+      </div>
       {PIPELINE_STAGES.map((stage, i) => {
         const isCompleted = i < currentIdx
         const isActive = i === currentIdx
@@ -156,115 +181,19 @@ function phaseColor(status: string): string {
 }
 
 
-function getSeenRunId(): number | null {
-  const v = sessionStorage.getItem('runlog_lastSeenRunId')
-  return v ? parseInt(v, 10) : null
-}
-function setSeenRunId(id: number) {
-  sessionStorage.setItem('runlog_lastSeenRunId', String(id))
-}
-function wasResumeToastShown(): boolean {
-  return sessionStorage.getItem('runlog_resumeToastShown') === '1'
-}
-function markResumeToastShown() {
-  sessionStorage.setItem('runlog_resumeToastShown', '1')
-}
 
 export default function Live() {
-  const [status, setStatus] = useState<CaptureStatus | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const status = useStore(s => s.captureStatus)
+  const error = useStore(s => s.captureError)
   const [frameKey, setFrameKey] = useState(0)
   const [dismissing, setDismissing] = useState<Record<string, 'keeping' | 'deleting'>>({})
-  const { refreshData, addToast } = useStore()
+  const { addToast } = useStore()
 
+  // Frame refresh interval — specific to Live page preview
   useEffect(() => {
-    let interval: ReturnType<typeof setInterval>
-    let frameInterval: ReturnType<typeof setInterval>
-
-    async function poll() {
-      try {
-        const s = await getCaptureStatus()
-        setStatus(s)
-        setError(null)
-
-        // Auto-start the capture engine if it's not active
-        if (!s.active) {
-          try {
-            await axios.post(`${apiBase}/api/capture/start`, {})
-          } catch {}
-        }
-      } catch {
-        setError('Capture engine not running')
-      }
-    }
-
-    poll()
-    interval = setInterval(poll, 2000)
-    frameInterval = setInterval(() => setFrameKey(k => k + 1), 2000)
-
-    const runlog = (window as any).runlog
-    if (runlog?.onRecordingStatus) {
-      runlog.onRecordingStatus(() => poll())
-    }
-
-    return () => {
-      clearInterval(interval)
-      clearInterval(frameInterval)
-    }
+    const frameInterval = setInterval(() => setFrameKey(k => k + 1), 2000)
+    return () => clearInterval(frameInterval)
   }, [])
-
-  // Push overlay updates when recording state changes
-  useEffect(() => {
-    const runlog = (window as any).runlog
-    if (!runlog?.updateOverlay || !status) return
-    if (status.recording) {
-      const det = status.last_detection
-      // During recording: show time, switch aux to RUN.COMPLETE when detected
-      let recDetail = formatTime(status.recording_seconds)
-      if (det === 'endgame') recDetail += '|RUN.COMPLETE'
-      runlog.updateOverlay('recording', recDetail)
-    } else if (status.active && status.last_detection) {
-      const det = status.last_detection === 'run' ? 'RUN.EXE' : status.last_detection.toUpperCase().replace('_', '.')
-      runlog.updateOverlay('active', det)
-    } else if (status.active) {
-      runlog.updateOverlay('active', 'WATCHING')
-    }
-  }, [status?.recording, status?.recording_seconds, status?.last_detection])
-
-  // Auto-refresh dashboard data when a new run is processed
-  useEffect(() => {
-    const newRunId = status?.last_result?.run_id
-    if (newRunId && newRunId !== getSeenRunId()) {
-      setSeenRunId(newRunId)
-      refreshData()
-      addToast({
-        type: 'success',
-        title: 'RUN PROCESSED',
-        body: 'Run analyzed and saved',
-      })
-    }
-  }, [status?.last_result?.run_id])
-
-  // Refresh dashboard when Phase 1 stats are ready (before Phase 2 finishes)
-  useEffect(() => {
-    const items = status?.processing_items || []
-    const phase1Item = items.find(i => i.status === 'phase1_done' && i.run_id)
-    if (phase1Item?.run_id) {
-      refreshData()
-    }
-  }, [status?.processing_items?.find(i => i.status === 'phase1_done')?.run_id])
-
-  // Show toast for auto-resumed recordings
-  useEffect(() => {
-    if (status?.resumed_count && status.resumed_count > 0 && !wasResumeToastShown()) {
-      markResumeToastShown()
-      addToast({
-        type: 'info',
-        title: 'RESUMING PROCESSING',
-        body: `Found ${status.resumed_count} unprocessed recording${status.resumed_count > 1 ? 's' : ''} from last session`,
-      })
-    }
-  }, [status?.resumed_count])
 
   const processingItems = status?.processing_items || []
   const counts = status?.status_counts || {}
@@ -630,7 +559,7 @@ export default function Live() {
                           </div>
                           <span className="text-[8px] font-mono text-m-text-muted/50 tracking-wider">FULL RECORDING</span>
                         </div>
-                        <PipelineProgress status={item.status} detail={item.detail} p1Failed={item.p1_failed} />
+                        <PipelineProgress status={item.status} detail={item.detail} p1Failed={item.p1_failed} p1Flags={{ loading: item.loading_screen_found, stats: item.stats_tab_found, loadout: item.loadout_tab_found }} />
                       </>
                     ) : item.status === 'error' ? (
                       <div className="flex items-center gap-3">
@@ -666,12 +595,19 @@ export default function Live() {
                             DISCARD
                           </button>
                         </div>
-                        <span className="text-xs font-mono font-bold tracking-wider text-m-red">
-                          FAILED
-                        </span>
+                        <div className="flex flex-col items-end">
+                          <span className="text-xs font-mono font-bold tracking-wider text-m-red">
+                            FAILED
+                          </span>
+                          {item.detail && (
+                            <span className="text-[8px] font-mono text-m-red/50 tracking-wider truncate max-w-[150px]" title={item.detail}>
+                              {item.detail}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     ) : (
-                      <PipelineProgress status={item.status} detail={item.detail} p1Failed={item.p1_failed} />
+                      <PipelineProgress status={item.status} detail={item.detail} p1Failed={item.p1_failed} p1Flags={{ loading: item.loading_screen_found, stats: item.stats_tab_found, loadout: item.loadout_tab_found }} />
                     )}
                   </div>
                 </div>

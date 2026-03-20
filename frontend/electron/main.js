@@ -584,3 +584,10 @@ ipcMain.on('overlay-nudge', (_event, direction) => {
   saveOverlaySettings(settings)
 })
 ipcMain.handle('overlay-get-settings', () => loadOverlaySettings())
+
+ipcMain.on('open-file', (_event, filePath) => {
+  const { shell } = require('electron')
+  if (filePath && fs.existsSync(filePath)) {
+    shell.openPath(filePath)
+  }
+})

@@ -213,6 +213,9 @@ export interface ProcessingItem {
   p2_started_at?: string | null
   p2_ended_at?: string | null
   p1_failed?: boolean
+  loading_screen_found?: boolean
+  stats_tab_found?: boolean
+  loadout_tab_found?: boolean
 }
 
 export interface ProcessResult {

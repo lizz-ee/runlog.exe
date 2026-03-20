@@ -37,6 +37,7 @@ export default function RunReports() {
   const [page, setPage] = useState(0)
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
   const [storyExpanded, setStoryExpanded] = useState<Set<number>>(new Set())
+  const [deleteTarget, setDeleteTarget] = useState<{ filename: string; runId: number } | null>(null)
 
   useEffect(() => {
     async function load() {
@@ -253,37 +254,82 @@ export default function RunReports() {
                             )}
                           </div>
                           <div className="grid grid-cols-3 gap-3">
-                            {runClips.map((clip) => (
-                              <button
-                                key={clip.filename}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setPlayingClips(prev => ({ ...prev, [run.id]: clip.filename }))
-                                }}
-                                className={`bg-m-card border overflow-hidden text-left transition-all hover:border-m-green/40 ${
-                                  playingClips[run.id] === clip.filename ? 'border-m-green/60' : 'border-m-border'
-                                }`}
-                              >
-                                {clip.thumbnail ? (
-                                  <img
-                                    src={getClipUrl(clip.thumbnail)}
-                                    alt=""
-                                    className="w-full h-24 object-cover"
-                                  />
-                                ) : (
-                                  <div className="w-full h-24 bg-m-border/20 flex items-center justify-center">
-                                    <span className="text-m-text-muted text-xs">NO PREVIEW</span>
+                            {/* Full recording card — if saved */}
+                            {run.recording_path && (() => {
+                              const relPath = run.recording_path!.split(/[/\\]clips[/\\]/).pop() || ''
+                              const fullRunKey = `__full__${relPath}`
+                              return (
+                                <button
+                                  key="full-run"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setPlayingClips(prev => ({ ...prev, [run.id]: relPath }))
+                                  }}
+                                  className={`bg-m-card border overflow-hidden text-left transition-all hover:border-m-cyan/40 ${
+                                    playingClips[run.id] === relPath ? 'border-m-cyan/60' : 'border-m-border'
+                                  }`}
+                                >
+                                  <div className="w-full h-24 bg-m-border/10 flex items-center justify-center">
+                                    <div className="flex flex-col items-center gap-1">
+                                      <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" className="text-m-cyan/60">
+                                        <path d="M4 2l10 6-10 6V2z"/>
+                                      </svg>
+                                      <span className="text-[9px] font-mono text-m-cyan/60 tracking-widest">FULL RECORDING</span>
+                                    </div>
                                   </div>
-                                )}
-                                <div className="p-2 flex items-center justify-between">
-                                  <span className="label-tag text-m-cyan">
-                                    {clip.type.toUpperCase().replace('_', ' ')}
-                                  </span>
-                                  <span className="label-tag text-m-text-muted">
-                                    {clip.size_mb} MB
-                                  </span>
-                                </div>
-                              </button>
+                                  <div className="p-2 flex items-center justify-between">
+                                    <span className="label-tag text-m-yellow">
+                                      FULL RUN
+                                    </span>
+                                    <span className="label-tag text-m-text-muted">
+                                      {run.duration_seconds ? formatTime(run.duration_seconds) : ''}
+                                    </span>
+                                  </div>
+                                </button>
+                              )
+                            })()}
+                            {runClips.map((clip) => (
+                              <div key={clip.filename} className="relative group/clip">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setPlayingClips(prev => ({ ...prev, [run.id]: clip.filename }))
+                                  }}
+                                  className={`w-full bg-m-card border overflow-hidden text-left transition-all hover:border-m-green/40 ${
+                                    playingClips[run.id] === clip.filename ? 'border-m-green/60' : 'border-m-border'
+                                  }`}
+                                >
+                                  {clip.thumbnail ? (
+                                    <img
+                                      src={getClipUrl(clip.thumbnail)}
+                                      alt=""
+                                      className="w-full h-24 object-cover"
+                                    />
+                                  ) : (
+                                    <div className="w-full h-24 bg-m-border/20 flex items-center justify-center">
+                                      <span className="text-m-text-muted text-xs">NO PREVIEW</span>
+                                    </div>
+                                  )}
+                                  <div className="p-2 flex items-center justify-between">
+                                    <span className="label-tag text-m-cyan">
+                                      {clip.type.toUpperCase().replace('_', ' ')}
+                                    </span>
+                                    <span className="label-tag text-m-text-muted">
+                                      {clip.size_mb} MB
+                                    </span>
+                                  </div>
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setDeleteTarget({ filename: clip.filename, runId: run.id })
+                                  }}
+                                  className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center bg-m-black/80 border border-m-border text-m-text-muted hover:text-m-red hover:border-m-red/40 transition-all opacity-0 group-hover/clip:opacity-100 text-[10px] font-mono"
+                                  title="Delete clip"
+                                >
+                                  X
+                                </button>
+                              </div>
                             ))}
                           </div>
                           {/* Inline video player — below the grid */}
@@ -373,6 +419,47 @@ export default function RunReports() {
               </button>
             </div>
           )}
+        </div>
+      )}
+      {/* Delete confirmation dialog */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={() => setDeleteTarget(null)}>
+          <div className="bg-m-card border border-m-red/40 p-6 max-w-sm mx-4 space-y-4" onClick={e => e.stopPropagation()}>
+            <div className="space-y-1">
+              <p className="label-tag text-m-red">SYS.WARN // PERMANENT.ACTION</p>
+              <p className="text-sm font-mono text-m-text">
+                THIS OPERATION WILL PURGE THE SELECTED FOOTAGE FROM LOCAL STORAGE. THIS ACTION CANNOT BE REVERSED.
+              </p>
+            </div>
+            <p className="text-[10px] font-mono text-m-text-muted tracking-wider truncate">
+              TARGET: {deleteTarget.filename}
+            </p>
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={() => {
+                  axios.post(`${apiBase}/api/capture/clip/delete`, { filename: deleteTarget.filename })
+                    .then(() => {
+                      setClips(prev => prev.filter(c => c.filename !== deleteTarget.filename))
+                      setPlayingClips(prev => {
+                        const next = { ...prev }
+                        if (next[deleteTarget.runId] === deleteTarget.filename) delete next[deleteTarget.runId]
+                        return next
+                      })
+                      setDeleteTarget(null)
+                    })
+                }}
+                className="label-tag px-4 py-1.5 border border-m-red/60 text-m-red hover:bg-m-red-glow transition-all"
+              >
+                CONFIRM PURGE
+              </button>
+              <button
+                onClick={() => setDeleteTarget(null)}
+                className="label-tag px-4 py-1.5 border border-m-border text-m-text-muted hover:text-m-text hover:border-m-green/40 transition-all"
+              >
+                ABORT
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

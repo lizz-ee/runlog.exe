@@ -185,7 +185,7 @@ impl GraphicsCaptureApiHandler for Recorder {
                 let br = bitrate.unwrap_or(50_000_000); // 50Mbps default
                 match VideoEncoder::new(
                     VideoSettingsBuilder::new(self.width, self.height)
-                        .sub_type(VideoSettingsSubType::H264)
+                        .sub_type(VideoSettingsSubType::HEVC)
                         .bitrate(br)
                         .frame_rate(60),
                     AudioSettingsBuilder::default().disabled(true),

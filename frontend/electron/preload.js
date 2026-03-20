@@ -30,4 +30,7 @@ contextBridge.exposeInMainWorld('runlog', {
   setOverlayCorner: (corner) => ipcRenderer.send('overlay-set-corner', corner),
   nudgeOverlay: (direction) => ipcRenderer.send('overlay-nudge', direction),
   getOverlaySettings: () => ipcRenderer.invoke('overlay-get-settings'),
+
+  // Open a file in system default application
+  openFile: (filePath) => ipcRenderer.send('open-file', filePath),
 })

@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
+import axios from 'axios'
 import { useStore } from './lib/store'
-import { getRecentRuns, getOverviewStats, getRunners, getLoadouts } from './lib/api'
+import { getRecentRuns, getOverviewStats, getRunners, getLoadouts, getCaptureStatus, apiBase } from './lib/api'
 import { onScreenshotParsed } from './lib/electron'
 import Sidebar from './components/Sidebar'
 import Dashboard from './components/Dashboard'
@@ -21,8 +22,28 @@ const MAP_VIEW_TO_NAME: Record<string, string> = {
   'map-cryo-archive': 'Cryo Archive',
 }
 
+function formatTime(seconds: number): string {
+  const m = Math.floor(seconds / 60)
+  const s = Math.floor(seconds % 60)
+  return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+function getSeenRunId(): number | null {
+  const v = sessionStorage.getItem('runlog_lastSeenRunId')
+  return v ? parseInt(v, 10) : null
+}
+function setSeenRunId(id: number) {
+  sessionStorage.setItem('runlog_lastSeenRunId', String(id))
+}
+function wasResumeToastShown(): boolean {
+  return sessionStorage.getItem('runlog_resumeToastShown') === '1'
+}
+function markResumeToastShown() {
+  sessionStorage.setItem('runlog_resumeToastShown', '1')
+}
+
 export default function App() {
-  const { view, setRuns, setStats, setRunners, setLoadouts, addToast, setPendingCapture } = useStore()
+  const { view, setRuns, setStats, setRunners, setLoadouts, addToast, setPendingCapture, captureStatus, setCaptureStatus, setCaptureError, refreshData } = useStore()
 
   useEffect(() => {
     async function load() {
@@ -66,6 +87,88 @@ export default function App() {
       }
     })
   }, [])
+
+  // Global capture status polling — always runs regardless of active page
+  useEffect(() => {
+    async function poll() {
+      try {
+        const s = await getCaptureStatus()
+        setCaptureStatus(s)
+        setCaptureError(null)
+
+        // Auto-start the capture engine if it's not active
+        if (!s.active) {
+          try {
+            await axios.post(`${apiBase}/api/capture/start`, {})
+          } catch {}
+        }
+      } catch {
+        setCaptureError('Capture engine not running')
+      }
+    }
+
+    poll()
+    const interval = setInterval(poll, 2000)
+
+    const runlog = (window as any).runlog
+    if (runlog?.onRecordingStatus) {
+      runlog.onRecordingStatus(() => poll())
+    }
+
+    return () => clearInterval(interval)
+  }, [])
+
+  // Push overlay updates when recording state changes
+  useEffect(() => {
+    const runlog = (window as any).runlog
+    if (!runlog?.updateOverlay || !captureStatus) return
+    if (captureStatus.recording) {
+      const det = captureStatus.last_detection
+      let recDetail = formatTime(captureStatus.recording_seconds)
+      if (det === 'endgame') recDetail += '|RUN.COMPLETE'
+      runlog.updateOverlay('recording', recDetail)
+    } else if (captureStatus.active && captureStatus.last_detection) {
+      const det = captureStatus.last_detection === 'run' ? 'RUN.EXE' : captureStatus.last_detection.toUpperCase().replace('_', '.')
+      runlog.updateOverlay('active', det)
+    } else if (captureStatus.active) {
+      runlog.updateOverlay('active', 'WATCHING')
+    }
+  }, [captureStatus?.recording, captureStatus?.recording_seconds, captureStatus?.last_detection])
+
+  // Auto-refresh dashboard data when a new run is processed
+  useEffect(() => {
+    const newRunId = captureStatus?.last_result?.run_id
+    if (newRunId && newRunId !== getSeenRunId()) {
+      setSeenRunId(newRunId)
+      refreshData()
+      addToast({
+        type: 'success',
+        title: 'RUN PROCESSED',
+        body: 'Run analyzed and saved',
+      })
+    }
+  }, [captureStatus?.last_result?.run_id])
+
+  // Refresh dashboard when Phase 1 stats are ready (before Phase 2 finishes)
+  useEffect(() => {
+    const items = captureStatus?.processing_items || []
+    const phase1Item = items.find(i => i.status === 'phase1_done' && i.run_id)
+    if (phase1Item?.run_id) {
+      refreshData()
+    }
+  }, [captureStatus?.processing_items?.find(i => i.status === 'phase1_done')?.run_id])
+
+  // Show toast for auto-resumed recordings
+  useEffect(() => {
+    if (captureStatus?.resumed_count && captureStatus.resumed_count > 0 && !wasResumeToastShown()) {
+      markResumeToastShown()
+      addToast({
+        type: 'info',
+        title: 'RESUMING PROCESSING',
+        body: `Found ${captureStatus.resumed_count} unprocessed recording${captureStatus.resumed_count > 1 ? 's' : ''} from last session`,
+      })
+    }
+  }, [captureStatus?.resumed_count])
 
   const mapName = MAP_VIEW_TO_NAME[view]
 

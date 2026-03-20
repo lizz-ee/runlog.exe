@@ -254,6 +254,12 @@ def keep_recording(body: RecordingAction):
         finally:
             db.close()
 
+    # Clean up marker files
+    for ext in ('.done', '.p1done', '.encoded', '.endgame'):
+        marker = filepath + ext
+        if os.path.exists(marker):
+            os.remove(marker)
+
     # Remove from processing queue UI
     if _engine:
         _engine.remove_processing_item(filename)
@@ -272,11 +278,15 @@ def delete_recording(body: RecordingAction):
     if os.path.exists(filepath):
         os.remove(filepath)
 
-    # Also remove thumbnail
+    # Also remove thumbnail, marker files, and clips folder
     thumb = filename.replace(".mp4", "_thumb.jpg")
     thumb_path = os.path.join(RECORDINGS_DIR, thumb)
     if os.path.exists(thumb_path):
         os.remove(thumb_path)
+    for ext in ('.done', '.p1done', '.encoded', '.endgame'):
+        marker = filepath + ext
+        if os.path.exists(marker):
+            os.remove(marker)
 
     # Remove from processing queue UI
     if _engine:
@@ -323,3 +333,24 @@ def open_run_folder(body: dict):
     # Open in Windows Explorer
     subprocess.Popen(['explorer', folder_path.replace('/', '\\')])
     return JSONResponse(content={"status": "opened", "path": folder_path})
+
+
+@router.post("/clip/delete")
+def delete_clip(body: dict):
+    """Delete a single clip file and its thumbnail."""
+    filename = body.get("filename")
+    if not filename:
+        raise HTTPException(status_code=400, detail="filename required")
+
+    filepath = os.path.join(CLIPS_DIR, filename)
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    os.remove(filepath)
+
+    # Also remove thumbnail if it exists
+    thumb_path = filepath.replace(".mp4", "_thumb.jpg")
+    if os.path.exists(thumb_path):
+        os.remove(thumb_path)
+
+    return JSONResponse(content={"status": "deleted", "filename": filename})

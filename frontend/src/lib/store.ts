@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { getRecentRuns, getOverviewStats, getUnviewedCount } from './api'
-import type { View, Run, OverviewStats, Runner, Loadout, ParsedScreenshot } from './types'
+import type { View, Run, OverviewStats, Runner, Loadout, ParsedScreenshot, CaptureStatus } from './types'
 
 export interface Toast {
   id: string
@@ -52,6 +52,12 @@ interface AppState {
   // Pending captures from hotkeys
   pendingCapture: PendingCapture | null
   setPendingCapture: (capture: PendingCapture | null) => void
+
+  // Capture status (polled from backend, shared across all pages)
+  captureStatus: CaptureStatus | null
+  setCaptureStatus: (status: CaptureStatus | null) => void
+  captureError: string | null
+  setCaptureError: (error: string | null) => void
 }
 
 export const useStore = create<AppState>((set) => ({
@@ -107,4 +113,9 @@ export const useStore = create<AppState>((set) => ({
 
   pendingCapture: null,
   setPendingCapture: (pendingCapture) => set({ pendingCapture }),
+
+  captureStatus: null,
+  setCaptureStatus: (captureStatus) => set({ captureStatus }),
+  captureError: null,
+  setCaptureError: (captureError) => set({ captureError }),
 }))

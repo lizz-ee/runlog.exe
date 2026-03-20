@@ -75,45 +75,31 @@
 - [ ] Weapon performance scoring — combined survival rate + K/D + loot per weapon, best/worst weapon per shell and per map
 
 ### Processing Queue
-- [ ] Completed items disappear on app restart — need to persist queue state or auto-save/discard recordings
+- [x] Completed items disappear on app restart — now restores .done recordings to queue with SAVE/DISCARD buttons
 
 ### UI Enhancements
-- [ ] Pipeline pill-shaped segments (Marathon HUD style) — replace dots with connected pill groups per phase, labels inside
-- [ ] Sidebar badge counts — unviewed run reports, processing items awaiting KEEP/DELETE on Live page
-- [ ] Remove "RUN #" from processing queue items — internal detail, not user-facing
+- [x] Pipeline pill-shaped segments (Marathon HUD style) — PipelineProgress component with geometric shapes, color-coded stages, animated active state
+- [x] Remove "RUN #" from processing queue items — internal detail, not user-facing
 - [ ] Export data (CSV/JSON) for runs, stats, spawn data
 
 ### Live Page — Processing Stage Visibility
 The processing queue currently shows a single status label per item (e.g. "ANALYZING STATS"). With 10 stages across two phases, users need better visibility into where each item is in the pipeline.
 
 **Plan:**
-- [ ] Add a horizontal stage progress bar to each processing item card
-  - Visual pipeline: dots/segments for each stage, connected by lines
-  - Completed stages = green, active stage = pulsing yellow, upcoming = dim/muted
-  - Stages grouped into Phase 1 (FRAMES → STATS → SAVE → ✓) and Phase 2 (COMPRESS → GAMEPLAY → CLIPS → ✓)
-  - Phase 1 and Phase 2 visually separated (gap or divider)
-- [ ] Show elapsed time per item (timer starts when item leaves `queued`)
-- [ ] Add sub-status text under active stage (e.g. "Retry: searching forward +45s", "Escalating to 15fps")
-  - Backend: add optional `status_detail` string field to processing items
-  - Update `_update_processing_item()` to accept detail text
-  - Sprinkle `on_phase` calls with detail strings at retry/escalation points in video_processor.py
-- [ ] Show what Phase 1 found vs missed (spawn coords ✓, stats tab ✓, loadout ✗)
-  - Backend: expose `loading_screen_found`, `stats_tab_found`, `loadout_tab_found` flags in status
-  - Frontend: show as small check/x indicators when phase1_done
-- [ ] Error messages — attach error reason text to failed items instead of just "FAILED"
+- [x] Add a horizontal stage progress bar to each processing item card — PipelineProgress component with grouped stages, color-coded, animated
+- ~~Show elapsed time per item~~ — removed, didn't work well in practice
+- [x] Add sub-status text under active stage — detail text now renders left of pipeline shapes
+- [x] Show what Phase 1 found vs missed — ✓/✗ MAP, STATS, LOADOUT indicators shown after Phase 1 completes
+- [x] Error messages — failed items now show error detail text below "FAILED" label (with hover for full text)
 
 ### Live Page — Queue Overview Header
 The QUEUE status card currently jams all active stage counts into one text line ("2 ANALYZING STATS | 1 SAVING | 3 QUEUED") which overflows and is hard to scan.
 
-**Plan:**
-- [ ] Replace the single QUEUE card with a wider pipeline overview strip (span full width or 2-3 cols)
-  - Horizontal flow of stage nodes: QUEUED → FRAMES → STATS → SAVE → P1 ✓ → COMPRESS → GAMEPLAY → CLIPS → DONE
-  - Each node shows its count (number badge) — 0 = dim, >0 = lit up with color
-  - Active stages pulse/glow, completed stages solid green, queued dim
-  - Items visually "flow" left to right through the pipeline
-- [ ] Keep ENGINE, RECORDING, DURATION as separate cards (top row)
-- [ ] Add total items count + completed/failed summary (e.g. "7 total // 4 done // 1 error")
-- [ ] Clicking a stage node could scroll to / filter the queue list below to items in that stage
+**Status:** Redesigned — pill-based summary with TOTAL/DONE/FAILED counts. Pipeline overview with stage nodes below.
+- [x] Replace the single QUEUE card with pipeline overview strip
+- [x] Add total items count + completed/failed summary
+- ~~Keep ENGINE, RECORDING, DURATION as separate cards~~ — not needed
+- ~~Clicking a stage node to filter queue~~ — not needed
 
 ### Capture Improvements
 - [x] Unified OCR scan region — three regions: DEPLOY, ENDGAME, LOBBY
@@ -138,32 +124,33 @@ The QUEUE status card currently jams all active stage counts into one text line 
 - [x] Window finder fix — match by title "marathon" (exact), exclude "runlog" windows
 - [x] Endgame screenshots sent to Phase 1 Call 2 for killed_by accuracy
 - [x] 4K end frames in iterative 20-frame batches
-- [ ] Readyup screenshots per phase — one from READY UP, one from RUN, one from DEPLOYING (instead of rolling buffer)
+- [x] Readyup screenshots per phase — slot 1=READY_UP, slot 2=RUN, slot 3=DEPLOYING. One per phase, overwrites within same phase (keeps latest)
+- [x] State machine timeout recovery — deploy state resets after 90s (backed out), endgame resets + stops recording after 30min (crash/disconnect)
 - [ ] Death screen detection for mid-match death location tracking
 - [ ] Custom clip trimming UI (adjust start/end of auto-generated clips)
 
 ### Detection Feed Aesthetic
-- [ ] Boot sequence animation — Marathon-style [WAKE] terminal when engine initializes (SEN checks, dotted leader lines, NN REVIEW COMPLETE)
+- ~~Boot sequence animation~~ — overkill, app already has boot sequence on startup
 - [ ] More Marathon data-ticker elements — random symbols, technical readouts, ambient data decoration
 - [ ] Reference Marathon art style (TRANSLINK VECT-Φ9, MATRIX BREACH DETECTED, etc.)
 
 ### Overlay
-- [ ] Move overlay update to App.tsx — currently in Live.tsx, stops updating on other pages
-- [ ] Boot sequence style for overlay initialization
+- [x] Move overlay update to App.tsx — polling + overlay + toasts now run globally from App.tsx via Zustand store
+- ~~Boot sequence style for overlay initialization~~ — not needed
 
 ### SYS.CONFIG Settings
-- [ ] Video encoder selection — HEVC (smaller) vs H.264 (compatible)
+- [ ] Video encoder selection UI — HEVC (smaller) vs H.264 (compatible). Currently hardcoded to HEVC for testing
 - [ ] Recording bitrate slider
 - [ ] Recording FPS — 30 vs 60
 - [ ] OCR polling rate
-- [ ] Overlay opacity/size options
+- [ ] Overlay opacity/size options — position/corner/nudge/toggle done, opacity and size still hardcoded (260x30)
 
 ### Processing Queue Bugs
-- [ ] "FAILED" false positive — Processing queue shows FAILED but run actually completed both phases and appears in Run Reports. DB check for summary was added but still not catching it. Need to debug with logs to find the actual failure path.
-- [ ] Marker file cleanup — `.encoded`, `.p1done`, `.done`, `.endgame` marker files accumulate in recordings folder and never get cleaned up. Should be deleted after successful processing or on app startup.
+- [x] "FAILED" false positive — Fixed: `_update_processing_item()` was missing `p1_failed` parameter, causing TypeError → caught by except → set to "error" instead of "done"
+- [x] Marker file cleanup — `.encoded`, `.p1done`, `.done`, `.endgame` markers now cleaned up on SAVE and DISCARD
 
 ### Processing Pipeline
-- [ ] Separate concurrency limits for Phase 1 vs Phase 2 — Phase 1 (stats extraction) is fast now, shouldn't be bottlenecked by Phase 2 (video narrative). Allow unlimited Phase 1 concurrent, cap Phase 2 (gameplay video analysis) at 2 concurrent.
+- [x] Separate concurrency limits for Phase 1 vs Phase 2 — P1 pool (4 workers, fast), P2 pool (2 workers, heavy). Phase 1 completes and submits to P2 pool, freeing P1 workers immediately.
 
 ### Phase 2 Prompt Quality
 - [ ] Highlights prompt tuning — tighter criteria, better timestamp accuracy, better clip type selection
@@ -176,13 +163,14 @@ The QUEUE status card currently jams all active stage counts into one text line 
 - [ ] CLI calls don't report tokens — only track for API-based analysis
 
 ### Video & Clips
-- [ ] KEEP button should store the full recording path on the run record
-- [ ] Debrief page — add "Watch Full Run" link for kept recordings (opens in system player since 4K won't play in-app)
-- [ ] DELETE button should clean up both 4K and 1080p clip files
+- [x] KEEP button should store the full recording path on the run record
+- [x] Debrief page — "FULL RUN" card in highlights grid for kept recordings, plays inline in the video player
+- [x] Delete clips from Run Reports — X button on hover, cyberpunk confirmation dialog ("SYS.WARN // PERMANENT.ACTION")
+- [x] DELETE button should clean up 4K recording, thumbnail, and marker files — clips folder preserved for Run Reports
 
 ### Data Quality
 - [x] Sonnet should return `null` (not 0) for stats it couldn't find — prompt + schema change
-- [ ] Frontend/stats should skip nulls in calculations (don't count "unknown" as 0 kills)
+- [x] Frontend/stats should skip nulls in calculations — nulls treated as 0 in sums (correct behavior: unknown = don't count)
 - [ ] Shell detection accuracy — Vandal/Thief confusion persists despite facial geometry descriptions and high thinking. May need per-shell training examples or different approach
 
 ### Data
