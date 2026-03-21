@@ -464,6 +464,42 @@ def delete_clip(body: dict):
     return JSONResponse(content={"status": "deleted", "filename": filename})
 
 
+@router.post("/recording/delete-kept")
+def delete_kept_recording(body: dict):
+    """Delete a kept full recording and clear recording_path on the run."""
+    run_id = body.get("run_id")
+    if not run_id:
+        raise HTTPException(status_code=400, detail="run_id required")
+
+    from ..database import SessionLocal
+    from ..models import Run
+    db = SessionLocal()
+    try:
+        run = db.query(Run).filter(Run.id == run_id).first()
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
+        if not run.recording_path:
+            raise HTTPException(status_code=404, detail="No recording to delete")
+
+        recording_path = run.recording_path
+
+        # Delete mp4, thumbnail, and sprite sheet
+        if os.path.exists(recording_path):
+            os.remove(recording_path)
+        for suffix in ("_thumb.jpg", "_sprite.jpg"):
+            asset_path = recording_path.replace(".mp4", suffix)
+            if os.path.exists(asset_path):
+                os.remove(asset_path)
+
+        # Clear recording_path on the run
+        run.recording_path = None
+        db.commit()
+    finally:
+        db.close()
+
+    return JSONResponse(content={"status": "deleted", "run_id": run_id})
+
+
 class ClipCutRequest(BaseModel):
     source: str
     in_point: float

@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { format } from 'date-fns'
 import axios from 'axios'
-import { getRuns, updateRun, getClips, getClipUrl, apiBase, toggleFavorite, cutClip } from '../lib/api'
+import { getRuns, updateRun, getClips, getClipUrl, apiBase, toggleFavorite, cutClip, deleteClip, deleteKeptRecording } from '../lib/api'
 import { useStore } from '../lib/store'
 import type { Run, Clip } from '../lib/types'
 
@@ -459,7 +459,7 @@ function ClipTimeline({ src, clipPath, label, onClose, onClipCreated, onPlayClip
 }
 
 /* ── Clip Pill — pill-shaped card with sprite scrub ── */
-function ClipPill({ label, thumbnail, sprite, spriteCols, spriteRows, spriteFrames, isActive, onPlay }: {
+function ClipPill({ label, thumbnail, sprite, spriteCols, spriteRows, spriteFrames, isActive, onPlay, onDelete }: {
   label: string
   thumbnail: string | null
   sprite: string | null
@@ -468,11 +468,13 @@ function ClipPill({ label, thumbnail, sprite, spriteCols, spriteRows, spriteFram
   spriteFrames: number | null
   isActive: boolean
   onPlay: (e: React.MouseEvent) => void
+  onDelete?: () => void
 }) {
   const pillRef = useRef<HTMLDivElement>(null)
   const [scrubbing, setScrubbing] = useState(false)
   const [scrubProgress, setScrubProgress] = useState(0)
   const [spritePos, setSpritePos] = useState<{ x: number; y: number } | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (!sprite || !spriteCols || !spriteRows || !spriteFrames || !pillRef.current) return
@@ -570,6 +572,44 @@ function ClipPill({ label, thumbnail, sprite, spriteCols, spriteRows, spriteFram
           </div>
         </div>
       </button>
+
+      {/* Hover delete X */}
+      {onDelete && !confirmDelete && (
+        <button
+          onClick={(e) => { e.stopPropagation(); setConfirmDelete(true) }}
+          className="absolute top-1 right-1 z-20 w-5 h-5 flex items-center justify-center rounded-full bg-black/70 text-m-text-muted/60 hover:text-m-red hover:bg-black/90 transition-all opacity-0 group-hover/clip:opacity-100"
+          title="Delete"
+        >
+          <svg width="8" height="8" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <path d="M2 2l8 8M10 2l-8 8"/>
+          </svg>
+        </button>
+      )}
+
+      {/* Confirmation overlay */}
+      {confirmDelete && (
+        <div className="absolute inset-0 z-20 rounded-2xl bg-black/85 flex flex-col items-center justify-center gap-3 p-4"
+          onClick={(e) => e.stopPropagation()}>
+          <span className="text-[10px] font-mono font-bold tracking-widest text-m-red text-center leading-relaxed">
+            DELETE?<br />
+            <span className="text-m-text-muted/60 text-[8px]">THIS CANNOT BE UNDONE</span>
+          </span>
+          <div className="flex gap-2">
+            <button
+              onClick={(e) => { e.stopPropagation(); setConfirmDelete(false); onDelete?.() }}
+              className="label-tag px-3 py-1 border border-m-red/60 text-m-red hover:bg-m-red/20 transition-all text-[9px]"
+            >
+              CONFIRM
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); setConfirmDelete(false) }}
+              className="label-tag px-3 py-1 border border-m-border/60 text-m-text-muted hover:text-m-text transition-all text-[9px]"
+            >
+              CANCEL
+            </button>
+          </div>
+        </div>
+      )}
 
     </div>
   )
@@ -1111,6 +1151,15 @@ export function RunRow({ run, isExpanded, onToggle, onToggleFavorite, onUpdate, 
                             spriteFrames={estFrames}
                             isActive={playingClip === relPath}
                             onPlay={(e) => { e.stopPropagation(); setPlayingClip(relPath) }}
+                            onDelete={async () => {
+                              try {
+                                await deleteKeptRecording(run.id)
+                                if (playingClip === relPath) setPlayingClip(null)
+                                onUpdate()
+                                refreshLocalClips()
+                                setFolderSizeTick(t => t + 1)
+                              } catch (e) { console.error('Failed to delete recording:', e) }
+                            }}
                           />
                         )
                       })()}
@@ -1125,6 +1174,14 @@ export function RunRow({ run, isExpanded, onToggle, onToggleFavorite, onUpdate, 
                           spriteFrames={clip.sprite_frames}
                           isActive={playingClip === clip.filename}
                           onPlay={(e) => { e.stopPropagation(); setPlayingClip(clip.filename) }}
+                          onDelete={async () => {
+                            try {
+                              await deleteClip(clip.filename)
+                              if (playingClip === clip.filename) setPlayingClip(null)
+                              refreshLocalClips()
+                              setFolderSizeTick(t => t + 1)
+                            } catch (e) { console.error('Failed to delete clip:', e) }
+                          }}
                         />
                       ))}
                     </div>

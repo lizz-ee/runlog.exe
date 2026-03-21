@@ -180,6 +180,14 @@ export async function getClips(): Promise<Clip[]> {
   return data.clips
 }
 
+export async function deleteClip(filename: string): Promise<void> {
+  await api.post('/capture/clip/delete', { filename })
+}
+
+export async function deleteKeptRecording(runId: number): Promise<void> {
+  await api.post('/capture/recording/delete-kept', { run_id: runId })
+}
+
 export function getClipUrl(filename: string): string {
   return `${apiBase}/api/capture/clips/${filename}`
 }
