@@ -125,6 +125,7 @@ function ClipTimeline({ src, clipPath, label, onClose, onClipCreated, onPlayClip
   const [clipName, setClipName] = useState('')
   const [isCreating, setIsCreating] = useState(false)
   const [isLooping, setIsLooping] = useState(true)
+  const [draggingMarker, setDraggingMarker] = useState<'in' | 'out' | null>(null)
 
   // Seek from mouse position on timeline
   const seekFromEvent = useCallback((e: MouseEvent | React.MouseEvent) => {
@@ -136,18 +137,43 @@ function ClipTimeline({ src, clipPath, label, onClose, onClipCreated, onPlayClip
     setCurrentTime(time)
   }, [duration])
 
-  // Global mouse handlers for timeline drag
+  // Convert mouse X to time on timeline
+  const mouseToTime = useCallback((e: MouseEvent) => {
+    if (!timelineRef.current || !duration) return null
+    const rect = timelineRef.current.getBoundingClientRect()
+    const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width))
+    return (x / rect.width) * duration
+  }, [duration])
+
+  // Global mouse handlers for timeline drag + marker drag
   useEffect(() => {
-    if (!isSeeking) return
-    const handleMove = (e: MouseEvent) => seekFromEvent(e)
-    const handleUp = () => setIsSeeking(false)
+    if (!isSeeking && !draggingMarker) return
+    const handleMove = (e: MouseEvent) => {
+      if (draggingMarker) {
+        const time = mouseToTime(e)
+        if (time === null) return
+        if (draggingMarker === 'in') {
+          const clamped = outPoint !== null ? Math.min(time, outPoint - 0.1) : time
+          setInPoint(Math.max(0, clamped))
+        } else {
+          const clamped = inPoint !== null ? Math.max(time, inPoint + 0.1) : time
+          setOutPoint(Math.min(duration, clamped))
+        }
+      } else {
+        seekFromEvent(e)
+      }
+    }
+    const handleUp = () => {
+      setIsSeeking(false)
+      setDraggingMarker(null)
+    }
     window.addEventListener('mousemove', handleMove)
     window.addEventListener('mouseup', handleUp)
     return () => {
       window.removeEventListener('mousemove', handleMove)
       window.removeEventListener('mouseup', handleUp)
     }
-  }, [isSeeking, seekFromEvent])
+  }, [isSeeking, draggingMarker, seekFromEvent, mouseToTime, inPoint, outPoint, duration])
 
   // Focus name input when naming mode activates
   useEffect(() => {
@@ -308,23 +334,35 @@ function ClipTimeline({ src, clipPath, label, onClose, onClipCreated, onPlayClip
             />
           )}
 
-          {/* IN marker */}
+          {/* IN marker — draggable */}
           {inPoint !== null && duration > 0 && (
             <div
               className="absolute top-0 bottom-0 w-[2px] bg-[#c8ff00]"
               style={{ left: `${(inPoint / duration) * 100}%` }}
             >
-              <span className="absolute -top-3.5 left-1/2 -translate-x-1/2 text-[7px] font-mono font-bold text-[#c8ff00] tracking-widest drop-shadow-[0_0_4px_rgba(200,255,0,0.5)]">IN</span>
+              <span
+                className={`absolute -top-4 left-1/2 -translate-x-1/2 text-[8px] font-mono font-bold tracking-widest cursor-ew-resize select-none px-1 py-0.5 rounded transition-colors ${
+                  draggingMarker === 'in' ? 'text-m-cyan bg-m-cyan/10' : 'text-[#c8ff00] hover:text-m-cyan'
+                }`}
+                style={{ zIndex: 30, textShadow: '0 0 4px rgba(200,255,0,0.5)' }}
+                onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggingMarker('in') }}
+              >IN</span>
             </div>
           )}
 
-          {/* OUT marker */}
+          {/* OUT marker — draggable */}
           {outPoint !== null && duration > 0 && (
             <div
               className="absolute top-0 bottom-0 w-[2px] bg-[#c8ff00]"
               style={{ left: `${(outPoint / duration) * 100}%` }}
             >
-              <span className="absolute -top-3.5 left-1/2 -translate-x-1/2 text-[7px] font-mono font-bold text-[#c8ff00] tracking-widest drop-shadow-[0_0_4px_rgba(200,255,0,0.5)]">OUT</span>
+              <span
+                className={`absolute -top-4 left-1/2 -translate-x-1/2 text-[8px] font-mono font-bold tracking-widest cursor-ew-resize select-none px-1 py-0.5 rounded transition-colors ${
+                  draggingMarker === 'out' ? 'text-m-cyan bg-m-cyan/10' : 'text-[#c8ff00] hover:text-m-cyan'
+                }`}
+                style={{ zIndex: 30, textShadow: '0 0 4px rgba(200,255,0,0.5)' }}
+                onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggingMarker('out') }}
+              >OUT</span>
             </div>
           )}
 
@@ -351,7 +389,16 @@ function ClipTimeline({ src, clipPath, label, onClose, onClipCreated, onPlayClip
           <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', height: '100%' }}>
           {/* LEFT column — loop + IN, right-aligned */}
           <div className="flex items-center justify-end gap-2">
-            <button onClick={(e) => { e.stopPropagation(); setIsLooping(!isLooping) }}
+            <button onClick={(e) => {
+              e.stopPropagation()
+              const newLooping = !isLooping
+              setIsLooping(newLooping)
+              if (newLooping && videoRef.current) {
+                // Restart: jump to IN if set, otherwise start of video
+                videoRef.current.currentTime = inPoint ?? 0
+                videoRef.current.play()
+              }
+            }}
               className={`label-tag px-2 py-1 border transition-all flex items-center ${
                 isLooping
                   ? 'border-[#c8ff00]/60 text-[#c8ff00] bg-[#c8ff00]/10'

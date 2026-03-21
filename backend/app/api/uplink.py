@@ -114,7 +114,7 @@ def tool_get_session_summary(db: Session, session_id: int = None, **kwargs) -> d
     # If no new session has been created this app launch, this is recalled data
     from ..main import current_session_id
     if current_session_id is None and not session_id:
-        session_code = session_code + "//RECALL"
+        session_code = "RECALL//" + session_code
 
     runs = db.query(Run).filter(Run.session_id == session.id).all()
     total = len(runs)

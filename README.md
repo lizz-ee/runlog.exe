@@ -46,15 +46,19 @@ runlog.exe is a desktop companion app that **automatically records and analyzes*
 - **Phase 2 (Async, Medium Thinking):** Compresses full video, sends to Claude for narrative analysis — letter grade (S through F), 2-4 paragraph run report written in second person, and timestamped highlight moments
 - **Auto-resume:** Unprocessed recordings from previous sessions are automatically queued on startup
 
-### Highlight Clips
-- **Auto-generated** from Phase 2 analysis at highlight timestamps
+### Highlight Clips + Custom Clip Editor
+- **Auto-generated** from Phase 2 — mandatory clips: every PVP kill, death, extraction + all notable combat
+- **Custom clip creation** — set IN/OUT points on any video, name the clip, instant stream copy
+- **Pill-shaped cards** — rounded thumbnails with sprite sheet hover scrub (mouse left/right to preview)
+- **Scrub bar** — green cursor follows mouse position on pill hover
+- **Video player** — pill-shaped with custom seekbar, draggable IN/OUT markers, loop toggle
+- **Draggable markers** — hover IN/OUT labels to highlight, click-drag to nudge position
 - **Priority system:** PvP kills > deaths > close calls > extractions > combat > loot
-- **Visual verification** — AI must confirm on-screen action before clipping (no menus, no empty rooms)
+- **Visual verification** — AI must confirm on-screen action before clipping
 - **Multi-kill combining** — consecutive PvP kills within 20s merged into one clip
 - **Stream copy** — instant cuts from original 4K footage, no re-encoding
-- **Keep or delete** from the Live monitor
-- **Delete individual clips** from Run Reports with confirmation dialog
-- **Full run playback** — kept recordings appear as inline video cards in Run Reports
+- **Sprite sheets** — auto-generated for every clip (3fps, min 30 frames, cap 300)
+- **Delete cleanup** — removes mp4 + thumbnail + sprite, updates UI immediately
 
 ### Interactive Maps
 - **4 maps:** Perimeter, Dire Marsh, Outpost, Cryo Archive
@@ -66,26 +70,27 @@ runlog.exe is a desktop companion app that **automatically records and analyzes*
 - **New spawn discovery** — auto-detected spawns named `VCTR//X:Y` (coordinate reference), staged in bracket area for user to position and rename
 - **Double-click to rename** any spawn point, bracket shrinks as spawns are named
 
-### Run Records
+### TRANSMISSIONS (Unified Run Records + Reports)
 - Chronological log of all extraction runs with pagination (21 per page)
-- Filter by outcome (Exfiltrated / KIA) and map
-- Expandable rows showing full combat, loot, and squad details
-- Unviewed run indicator (cyan accent)
+- **Filters:** outcome (ALL/EXFIL/KIA), grade (S/A/B/C/D/F), map, favorites
+- **Grade badges** with rarity tier colors — S=gold, A=purple, B=blue, C=green, D/F=grey
+- **Expandable cards:** DATE, SQUAD, PRIMARY/SECONDARY, INVENTORY (start→end delta with +/- coloring), KILLED BY with full damage contributor kill feed or EXTRACTED//CLEAN
+- **Favorites system** — hexagon toggle per run, filter to show only favorites
+- **Pill-shaped clip cards** — rounded thumbnails with sprite sheet hover scrub (3fps, min 30 frames)
+- **Clip editor** — ClipTimeline video player with custom seekbar, draggable IN/OUT markers, loop toggle, CREATE CLIP with custom naming
+- **Custom clip creation** — ffmpeg stream copy, auto-generates thumbnail + sprite sheet, appears immediately
+- **Debrief section** — expandable AI narrative summary per run
+- **Unviewed rows** — cyan grid overlay + tinted background, re-notified after Phase 2 completion
 
-### Run Reports
-- **Letter grades** (S through F) with color coding
-- **AI-generated narrative summaries** — story-style run reports
-- **Highlight gallery** — thumbnail grid of all clips for each run with inline video player
-- **Unviewed badge** — cyan sidebar indicator + left border accent on unread reports
-- Paginated grid view (21 per page)
-
-### Stats Dashboard
+### TERMINAL (Dashboard)
+- **Header:** `LVL//:N:` showing player level from latest run
 - **Hero stats:** Total runs, survival rate, K/D ratio, total play time
 - **Favorites:** Most-used shell, weapon, map, squad mate
 - **Economy:** Total loot extracted, average per run, best and worst runs
 - **Combat:** PVE kills, runner kills, deaths, crew revives
 - **Time by map:** Breakdown of play time across all maps
-- **Recent runs:** Last 7 runs with expandable details
+- **Recent runs:** Last 7 runs using shared RunRow component (same cards as TRANSMISSIONS)
+- **VAULT.VALUE chart** — area chart tracking vault value over time per run
 
 ### NEURAL.LINK (Shells + Runners)
 Combined page for your combat assets and squad network.
@@ -113,6 +118,7 @@ Living AI intel page — auto-generated briefings, trend charts, and conversatio
 - **Terminal chat** — CRT-style interface with scanlines, ask UPLINK anything about your stats
 - **11 AI tools** — read-only DB queries for overview, maps, shells, spawns, squads, weapons, deaths, trends
 - **Session tracking** — sessions created on first run (:01A: format), empty sessions don't count
+- **RECALL indicator** — `RECALL//:NNA:` when viewing previous session's data, clears when new run logged
 - **Dual model support** — separate model selection for capture (Sonnet) and UPLINK (Haiku)
 - **Tactical AI personality** — terse, data-first, addresses you as "Runner"
 
@@ -182,9 +188,12 @@ A single extraction run / match.
 - `duration_seconds`
 - `squad_size`, `squad_members` (JSON)
 - `primary_weapon`, `secondary_weapon`
-- `killed_by`, `killed_by_damage`
-- `player_gamertag`
+- `killed_by`, `killed_by_damage`, `killed_by_weapon`
+- `damage_contributors` (JSON — all players/enemies from death screen)
+- `player_gamertag`, `player_level`, `vault_value`
+- `starting_loadout_value` (gear value going into run)
 - `grade` (S/A/B/C/D/F), `summary` (AI narrative)
+- `recording_path`, `is_favorite`, `viewed`
 - `screenshot_path`, `notes`, `created_at`
 
 ### Session
@@ -210,10 +219,10 @@ A map location where you deployed.
 │  ┌─────────────────────┐  ┌───────────────────────────────┐  │
 │  │   Electron Main     │  │      React Frontend (Vite)    │  │
 │  │                     │  │                               │  │
-│  │  backend-manager    │  │  Dashboard    Run History     │  │
-│  │  (spawns Python)    │  │  Maps         Debrief         │  │
-│  │                     │  │  Shells       Squad           │  │
-│  │  recording-manager  │  │  Live Monitor Settings        │  │
+│  │  backend-manager    │  │  TERMINAL     TRANSMISSIONS   │  │
+│  │  (spawns Python)    │  │  NEURAL.LINK  Maps            │  │
+│  │                     │  │  UPLINK       DETECT.EXE      │  │
+│  │  recording-manager  │  │  SYS.CONFIG                   │  │
 │  │  (monitors Marathon)│  │                               │  │
 │  │                     │  │  Zustand store + Axios API    │  │
 │  │  System tray        │  │                               │  │
@@ -249,7 +258,7 @@ A map location where you deployed.
 │  │                                                       │   │
 │  │  /api/runs       (CRUD)        /api/capture (engine)  │   │
 │  │  /api/runners    (CRUD)        /api/spawns  (heatmap) │   │
-│  │  /api/weapons    (CRUD)        /api/screenshot (parse)│   │
+│  │  /api/weapons    (CRUD)        /api/uplink  (AI chat) │   │
 │  │  /api/sessions   (CRUD)        /api/stats   (aggs)    │   │
 │  │  /api/squad      (stats)       /api/settings (config) │   │
 │  │                                                       │   │
@@ -273,7 +282,10 @@ A map location where you deployed.
 - `POST /api/capture/recording/keep` — Save a recording
 - `POST /api/capture/recording/delete` — Delete a recording
 - `POST /api/capture/recording/retry` — Retry a failed recording
-- `POST /api/capture/clip/delete` — Delete an individual clip
+- `POST /api/capture/recording/retry-phase2` — Retry Phase 2 only (narrative)
+- `POST /api/capture/clip/delete` — Delete an individual clip + thumbnail + sprite
+- `POST /api/capture/clip/cut` — Create custom clip (IN/OUT points, custom name, stream copy)
+- `GET /api/capture/folder-size/{folder}` — Get total size of a run's clips folder
 
 ### Spawn Points
 - `POST /api/spawns/parse` — Upload spawn screenshot, get location via Claude Vision
@@ -290,6 +302,8 @@ A map location where you deployed.
 - `POST /api/runs` — Create a run
 - `GET /api/runs/{id}` — Get run details
 - `PUT /api/runs/{id}` — Update a run
+- `POST /api/runs/{id}/favorite` — Toggle favorite status
+- `POST /api/runs/{id}/viewed` — Mark as viewed
 
 ### Runners
 - `GET /api/runners` — List runners

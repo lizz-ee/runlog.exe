@@ -9,57 +9,97 @@
 - [x] OCR-based game state detection — three regions: OCR.DEPLOY (map name → start), OCR.ENDGAME (RUN_COMPLETE → timestamp), OCR.LOBBY (PREPARE → stop, READY_UP → screenshot, SEARCHING → visual)
 - [x] No debounce — act on first OCR match (prevents missed detections on fast screen transitions)
 - [x] Ready-up screenshot capture (full-screen + loadout crop) for shell/loadout identification
-- [x] Deploy screenshot capture for map name and spawn coordinates
+- [x] Deploy screenshot capture — 3-shot burst (500ms intervals) for map name and spawn coordinates, full + crop versions
 - [x] Marathon.exe process detection (recording-manager in Electron)
 - [x] System tray notifications for capture events
 - [x] Auto-resume unprocessed recordings on startup
 - [x] No minimum recording threshold — every DEPLOY-triggered recording is processed
+- [x] Overlay HUD — lazy show (only when Marathon detected), always-on-top, draggable, 30fps throttle
+- [x] Stale frame cleared when Marathon closes (detection feed shows AWAITING SIGNAL)
+- [x] Backend stale process kill on startup (kills old Python backend on port 8000)
 
 ### Video Processing Pipeline (Done)
-- [x] Two-phase analysis (Phase 1: fast stats, Phase 2: async narrative + clips)
-- [x] Frame extraction — start (90s @ 0.5fps) and end (30s @ 5fps) windows
-- [x] Claude Sonnet integration for frame analysis + video analysis
-- [x] Spawn coordinate extraction from deployment loading screen
+- [x] Two-phase analysis — Phase 1: split prompts (Call 1 screenshots + Call 2 end frames), Phase 2: narrative + clips
+- [x] Phase 1 Call 1: screenshots → map, coordinates, shell, loadout value, player level, vault value, squad, weapons
+- [x] Phase 1 Call 2: end frames → stats, kills, deaths, revives, loot, duration, weapons, killed_by, damage_contributors
+- [x] Phase 2: video → grade (survival-first grading), summary, highlights → clips + sprite sheets
+- [x] Spawn coordinate extraction from deploy crop screenshots
 - [x] Iterative spawn search — forward in 45s chunks, no cap, searches entire video
 - [x] Iterative stats search — backward in 30s chunks through entire video
 - [x] Adaptive fps escalation — 5 → 10 → 15 → 20 → 30fps if Sonnet needs more frames
 - [x] Fuzzy spawn point matching (Euclidean distance threshold)
-- [x] Grade system (S through F)
+- [x] Grade system (S through F) — survival-first, weighted: 35% survival, 25% runner kills, 15% loot, 10% revives, 5% PvE
 - [x] AI narrative summaries (second-person run reports)
-- [x] Highlight clip cutting (stream copy, no re-encoding)
-- [x] Clip thumbnails auto-generated
+- [x] Mandatory highlight clips: every PVP kill, death, extraction — plus all notable combat moments
+- [x] Clip thumbnails auto-generated (endgame screenshot for full recordings)
+- [x] Sprite sheet generation for hover scrub (3fps, min 30 frames, cap 300)
 - [x] Processing queue with real-time status tracking
-- [x] Legacy single-pass fallback pipeline
+- [x] Pipeline dots with P2 failure coloring + RETRY button
+- [x] Phase 2 re-marks run as unviewed after grade + summary + clips all ready
+- [x] Phase 2 CLI JSON extraction hardened (backwards scan, repeat-JSON prompt)
+
+### TRANSMISSIONS Page (Done — merged Run Records + Run Reports)
+- [x] Unified page combining stats + highlights + debrief
+- [x] Grade badges with rarity colors (S=gold, A=purple, B=blue, C=green, D/F=grey)
+- [x] Filters: ALL/EXFIL/KIA outcome, grade S/A/B/C/D/F, ALL ZONES map, favorites hexagon
+- [x] Expanded view: DATE, CHANGE SHELL, SQUAD, PRIMARY/SECONDARY, INVENTORY (start→end delta), KILLED BY with damage_contributors or EXTRACTED//CLEAN
+- [x] Pill-shaped clip cards with sprite sheet hover scrub + scrub bar with green cursor
+- [x] ClipTimeline video player: seekbar, draggable IN/OUT markers, loop toggle, CREATE CLIP with naming
+- [x] Custom clip creation via ffmpeg stream copy + auto thumbnail + sprite generation
+- [x] Clips appear immediately after creation (local state refresh)
+- [x] Delete removes mp4 + thumb + sprite, closes player if playing, refreshes UI
+- [x] Favorite system: hexagon toggle (green), filter button, is_favorite DB column + API
+- [x] Unviewed rows: cyan grid overlay + tinted background
+- [x] Pagination: 21 per page
+- [x] All pages auto-refresh on Phase 1 + Phase 2 completion
+
+### TERMINAL Page (Done — was OVERVIEW/Dashboard)
+- [x] Header shows LVL//:N: from latest run's player_level
+- [x] VAULT.VALUE trend chart (area chart, all runs with vault_value)
+- [x] Recent runs (7) using shared RunRow component from TRANSMISSIONS
+- [x] Hero stats, favorites, economy, combat, time by map
+
+### NEURAL.LINK (Done)
+- [x] Shells: 7 shell cards sorted by weighted score (10% base + 35% survival + 25% runner kills + 5% PvE + 10% revives + 15% loot)
+- [x] Squad/Runners: top 7 squad mates, gamertag normalization (strip #tag), self-exclusion (most common gamertag)
+- [x] Glitch effect (animate-rgb-split) on selected shell/runner name only
+- [x] Long gamertag font scaling
+
+### UPLINK (Done)
+- [x] Session code: :NNA: or RECALL//:NNA: when no new runs this launch
+- [x] Session debrief stats, AI briefing with skeleton loading
+- [x] 3 trend charts: survival, loot, runner eliminations
+- [x] CRT terminal chat with streaming
+- [x] Auto-refresh on Phase 1 + Phase 2
 
 ### Interactive Maps (Done)
-- [x] Perimeter map with spawn heatmap
-- [x] Dire Marsh map with spawn heatmap
-- [x] Outpost map with spawn heatmap
+- [x] Perimeter, Dire Marsh, Outpost maps with spawn heatmaps
 - [x] Draggable spawn markers with coordinate persistence
-- [x] Per-spawn tooltips (survival %, streak, loot, weapon/shell favorites, killed-by)
-- [x] Spawn sorting (name, survival, loot, streak)
-- [x] Per-map stat cards (favorites, economy, combat, time)
+- [x] Per-spawn tooltips, spawn sorting, per-map stat cards
+- [x] Auto-refresh on Phase 1 + Phase 2
 
-### Data Quality (Done)
-- [x] Auto-link spawn points to runs (coordinate matching from loading screen)
-- [x] Runner/shell auto-creation from video analysis
-- [x] Session grouping
-- [x] Weapon tracking (primary/secondary per run)
-- [x] Damage contributor tracking (who killed you, with what)
-- [x] Player gamertag detection
+### DETECT.EXE (Done)
+- [x] Detection feed with CRT vignette (radial gradient + scanlines + boxShadow)
+- [x] Pipeline dots: P1/P2 phase coloring, P2 failure turns dots red
+- [x] RETRY button for Phase 2 failures, SAVE/DISCARD with file size for successes
+- [x] Processing queue with thumbnails (endgame screenshot)
 
-### UI (Done)
-- [x] Dashboard with hero stats, favorites, economy, combat, time breakdown
-- [x] Run History with pagination, filters (outcome, map), expandable details
-- [x] Run Reports with grades, narratives, highlight galleries, inline video player
-- [x] Live Capture Monitor with engine status, detection feed, processing queue
-- [x] Shells page — cyberpunk HUD cards, sorted by performance, all selectable
-- [x] Squad page — top 7 squad mates, per-mate stats, VS overall survival diff
-- [x] System tray integration
-- [x] Auto-backup (7 rolling SQLite snapshots)
-- [x] Settings page (API key config with test/save, setup guide)
-- [x] Cyberpunk splash screen with boot sequence
-- [x] Consistent cyberpunk aesthetic (// separators, dot notation, RUNLOG.EXE branding)
+### SYS.CONFIG (Done)
+- [x] Recording: encoder HEVC/H.264, bitrate, fps
+- [x] Processing: P1/P2 worker count sliders
+- [x] Overlay: position, opacity, size
+- [x] Auth: API Key vs Claude CLI, dual model selectors
+
+### Sidebar (Done)
+- [x] SYSTEM: TERMINAL, TRANSMISSIONS, NEURAL.LINK
+- [x] MAPS: Perimeter, Dire Marsh, Outpost, Cryo Archive (redacted)
+- [x] LIVE: UPLINK, DETECT.EXE
+- [x] SYS.CONFIG, unviewed badge on TRANSMISSIONS
+
+### Database Fields (Done)
+- [x] is_favorite, starting_loadout_value, player_level, vault_value
+- [x] killed_by_weapon, damage_contributors (JSON)
+- [x] All migrations auto-applied on startup
 
 ---
 
@@ -70,142 +110,32 @@
 - [ ] Add Cryo Archive spawn point data as games are played
 
 ### Stats & Charts
-- ~~Trends/charts on dashboard~~ — moved to UPLINK
-- ~~Per-map trends~~ — moved to UPLINK
 - [ ] Weapon performance scoring — combined survival rate + K/D + loot per weapon, best/worst weapon per shell and per map
 
-### Processing Queue
-- [x] Completed items disappear on app restart — now restores .done recordings to queue with SAVE/DISCARD buttons
-
 ### UI Enhancements
-- [x] Pipeline pill-shaped segments (Marathon HUD style) — PipelineProgress component with geometric shapes, color-coded stages, animated active state
-- [x] Remove "RUN #" from processing queue items — internal detail, not user-facing
 - [ ] Export data (CSV/JSON) for runs, stats, spawn data
 
-### Live Page — Processing Stage Visibility
-The processing queue currently shows a single status label per item (e.g. "ANALYZING STATS"). With 10 stages across two phases, users need better visibility into where each item is in the pipeline.
-
-**Plan:**
-- [x] Add a horizontal stage progress bar to each processing item card — PipelineProgress component with grouped stages, color-coded, animated
-- ~~Show elapsed time per item~~ — removed, didn't work well in practice
-- [x] Add sub-status text under active stage — detail text now renders left of pipeline shapes
-- [x] Show what Phase 1 found vs missed — ✓/✗ MAP, STATS, LOADOUT indicators shown after Phase 1 completes
-- [x] Error messages — failed items now show error detail text below "FAILED" label (with hover for full text)
-
-### Live Page — Queue Overview Header
-The QUEUE status card currently jams all active stage counts into one text line ("2 ANALYZING STATS | 1 SAVING | 3 QUEUED") which overflows and is hard to scan.
-
-**Status:** Redesigned — pill-based summary with TOTAL/DONE/FAILED counts. Pipeline overview with stage nodes below.
-- [x] Replace the single QUEUE card with pipeline overview strip
-- [x] Add total items count + completed/failed summary
-- ~~Keep ENGINE, RECORDING, DURATION as separate cards~~ — not needed
-- ~~Clicking a stage node to filter queue~~ — not needed
-
 ### Capture Improvements
-- [x] Unified OCR scan region — three regions: DEPLOY, ENDGAME, LOBBY
-- [x] Debug overlay on detection feed — shows OCR scan boxes with colored scanlines
-- [x] Instant queue appearance — recording shows in processing queue immediately
-- [x] OCR Detection System — DEPLOY (map name → start), ENDGAME (RUN_COMPLETE → timestamp), LOBBY (READY_UP → screenshot, PREPARE → stop, SEARCHING → visual)
-- [x] Per-run screenshot storage — readyup.jpg, readyup_loadout.jpg, deploy.jpg per run
-- [x] Shell detection via facial geometry + reference images (high thinking Sonnet)
-- [x] Loadout crop for item tier/value extraction
-- [x] No debounce — removed to prevent missed detections
-- [x] No minimum recording threshold — removed since DEPLOY trigger is reliable
-- [x] Rust capture engine — zero-copy GPU recording, replaced Python WGC+NVENC
-- [x] Removed ddagrab fallback (privacy concern — captured full display)
-- [x] OCR state machine — LOBBY → DEPLOY → ENDGAME → LOBBY, one region at a time for ~300ms detection
-- [x] EasyOCR on CPU — prevents GPU contention with game rendering + video encoding
-- [x] Background OCR thread — frame processing off capture callback, eliminates recording stutter
-- [x] Anti-throttling stack — process priority, GPU priority REALTIME, power throttle opt-out, powerSaveBlocker
-- [x] Recording overlay — always-on-top HUD, Marathon aesthetic, configurable position
-- [x] Rolling 3-shot readyup buffer — captures READY UP, RUN, DEPLOYING phases
-- [x] OCR frame screenshots — guaranteed correct content vs take_screenshot() timing issues
-- [x] New detection states — SELECT_ZONE, RUN, DEPLOYING, ELIMINATED, EXFILTRATED
-- [x] Window finder fix — match by title "marathon" (exact), exclude "runlog" windows
-- [x] Endgame screenshots sent to Phase 1 Call 2 for killed_by accuracy
-- [x] 4K end frames in iterative 20-frame batches
-- [x] Readyup screenshots per phase — slot 1=READY_UP, slot 2=RUN, slot 3=DEPLOYING. One per phase, overwrites within same phase (keeps latest)
-- [x] State machine timeout recovery — deploy state resets after 90s (backed out), endgame resets + stops recording after 30min (crash/disconnect)
 - [ ] Death screen detection for mid-match death location tracking
 
-### UPLINK — AI Intel Page (Done)
-- [x] Session debrief — stat blocks (runs, survival, kills, deaths, loot, revives)
-- [x] AI briefing — auto-generated narrative summary with skeleton loading states
-- [x] Trend charts — SURVIVAL.RATE, LOOT.VALUE, RUNNER.ELIMINATIONS per session
-- [x] CRT terminal chat — conversational AI with 11 read-only query tools
-- [x] Haiku/Sonnet configurable in SYS.CONFIG (separate from processing model)
-- [x] Supports both API key and CLI auth
-- [x] Ephemeral chat history
-- [x] UPLINK model selector in SYS.CONFIG
-
 ### Detection Feed Aesthetic
-- ~~Boot sequence animation~~ — overkill, app already has boot sequence on startup
 - [ ] More Marathon data-ticker elements — random symbols, technical readouts, ambient data decoration
 - [ ] Reference Marathon art style (TRANSLINK VECT-Φ9, MATRIX BREACH DETECTED, etc.)
 
-### Overlay
-- [x] Move overlay update to App.tsx — polling + overlay + toasts now run globally from App.tsx via Zustand store
-- ~~Boot sequence style for overlay initialization~~ — not needed
-
-### SYS.CONFIG Settings
-- [x] Video encoder selection UI — HEVC / H.264 toggle
-- [x] Recording bitrate slider (10-100 Mbps)
-- [x] Recording FPS — 30 / 60 toggle
-- [x] P1/P2 worker count sliders
-- [x] Overlay opacity slider (40-100%)
-- [x] Overlay size presets (SM/MD/LG)
-- [x] Nudge D-pad redesign with SVG arrows + Marathon aesthetic
-- [x] Auth mode selector — API Key vs Claude Account (CLI)
-- [x] Model selector — Sonnet / Haiku
-- [x] CLI status detection + install instructions
-- [x] Full page rebuild with Marathon cyberpunk aesthetic
-- ~~OCR polling rate~~ — not exposing, tuned internally
-
-### Processing Queue Bugs
-- [x] "FAILED" false positive — Fixed: `_update_processing_item()` was missing `p1_failed` parameter, causing TypeError → caught by except → set to "error" instead of "done"
-- [x] Marker file cleanup — `.encoded`, `.p1done`, `.done`, `.endgame` markers now cleaned up on SAVE and DISCARD
-
-### Processing Pipeline
-- [x] Separate concurrency limits for Phase 1 vs Phase 2 — P1 pool (4 workers, fast), P2 pool (2 workers, heavy). Phase 1 completes and submits to P2 pool, freeing P1 workers immediately.
-
 ### Phase 2 Prompt Quality
-- [x] Highlights prompt overhauled — priority ordering (pvp > death > close_call > extraction), visual verification requirement, no menus, multi-kill combining
 - [ ] Story/summary prompt tuning — more accurate narratives, review against actual gameplay
 
-### Processing Metrics (Backend — JSON File)
-- [x] Per-run metrics logged to sonnet_metrics.json (recording, file size, resolution, frame extraction time, P1/P2 analysis time, total time, status, grade, clips count, map)
-- [ ] Add token usage tracking from API responses (input_tokens, output_tokens, cost estimate) — CLI calls don't report tokens
-- Note: Backend-only tracking for cost/performance analysis. No frontend exposure planned.
+### Processing Metrics
+- [ ] Add token usage tracking from API responses (input_tokens, output_tokens, cost estimate)
 
-### Video & Clips
-- [x] KEEP button should store the full recording path on the run record
-- [x] Debrief page — "FULL RUN" card in highlights grid for kept recordings, plays inline in the video player
-- [x] Delete clips from Run Reports — X button on hover, cyberpunk confirmation dialog ("SYS.WARN // PERMANENT.ACTION")
-- [x] DELETE button should clean up 4K recording, thumbnail, and marker files — clips folder preserved for Run Reports
-
-### Editor (Future)
-- [ ] Custom clip trimming UI (adjust start/end of auto-generated clips)
-- [ ] Timeline markers — when user keeps full recording, show AI-generated highlight clips as marked segments on the video timeline (clips become visual markers on the full run, not just standalone files)
+### Editor Enhancements
+- [ ] Timeline markers — show AI-generated highlight clips as marked segments on the video timeline
 
 ### Run Report Card Export (Future)
-- [ ] Export button on run row (archive, overview — right side near squad/timestamp)
-- [ ] Generates styled image card with Marathon cyberpunk aesthetic (scanlines, // separators, dot notation)
-- [ ] Card contents: grade, map, shell, runner kills (PvP), PvE kills, revives, outcome (EXTRACTED/ELIMINATED), loot value, AI narrative snippet, timestamp, RUNLOG.EXE branding
+- [ ] Export button on run row
+- [ ] Generates styled image card with Marathon cyberpunk aesthetic
+- [ ] Card contents: grade, map, shell, kills, outcome, loot, narrative snippet, RUNLOG.EXE branding
 - [ ] Dark background, Discord-friendly aspect ratio
-- [ ] Open question: clip thumbnail as background/inset? Gamertag on card?
-
-### Data Quality
-- [x] Sonnet should return `null` (not 0) for stats it couldn't find — prompt + schema change
-- [x] Frontend/stats should skip nulls in calculations — nulls treated as 0 in sums (correct behavior: unknown = don't count)
-- [x] Shell detection — detailed facial geometry prompts (face shape, distinguishing marks per shell), action + profile reference images, manual shell picker UI for corrections
 
 ### Data
 - [ ] Death heatmap (map game coordinates to map image, mark death locations)
-
-### NEURAL.LINK
-- [x] Glitch effect (animate-rgb-split) on shell names and runner gamertags — subtle red/cyan flicker, always-on
-
-### Run Page Redesign
-- [ ] Combine Run Records + Run Reports into a single unified page — expandable rows with inline highlights/reports
-- [ ] Favorites system — cyberpunk emblem on run cards (toggle to lock in), filter toggle at top to show favorited runs
-- [ ] Run report export for Discord — styled image card with Marathon aesthetic
