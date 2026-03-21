@@ -173,7 +173,7 @@ export default function Shells() {
             {/* Info */}
             <div className="bg-m-card">
               <div className="px-4 py-2 border-b border-m-border">
-                <p className="label-tag text-m-green">INFO</p>
+                <p className="label-tag text-m-green">OPERATIONS</p>
               </div>
               <div className="divide-y divide-m-border">
                 <ColStat label="FAVORITE WEAPON" value={selectedShell.favorite_weapon ?? '—'} />

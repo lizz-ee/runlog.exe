@@ -91,19 +91,15 @@ export default function Squad() {
         <>
           {/* Hero stats */}
           <div className="grid grid-cols-5 gap-[1px] bg-m-border">
-            <StatBlock label="RUNS TOGETHER" value={String(selectedMate.runs)} accent />
+            <StatBlock label="RUNS" value={String(selectedMate.runs)} accent />
             <StatBlock
               label="SURVIVAL RATE"
               value={`${selectedMate.survival_rate}%`}
               color={selectedMate.survival_rate >= 50 ? 'green' : 'red'}
             />
-            <StatBlock
-              label="VS OVERALL"
-              value={`${selectedMate.survival_diff >= 0 ? '+' : ''}${selectedMate.survival_diff}%`}
-              color={selectedMate.survival_diff >= 0 ? 'green' : 'red'}
-            />
             <StatBlock label="K/D" value={selectedMate.kd.toFixed(2)} color={selectedMate.kd >= 1 ? 'green' : 'red'} />
             <StatBlock label="AVG LOOT" value={`$${selectedMate.avg_loot.toLocaleString()}`} color="yellow" />
+            <StatBlock label="TOTAL TIME" value={formatTime(selectedMate.time)} color="cyan" />
           </div>
 
           {/* Detail columns — COMBAT, ECONOMY, OPERATIONS */}
