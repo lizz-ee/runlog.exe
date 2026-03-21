@@ -40,7 +40,7 @@ def _get_model_config():
 
 
 # -- Frame extraction settings (easy to tune) -------------------------------
-FRAME_RESOLUTION = 2000       # long edge px for extracted frames — keeps API token usage reasonable
+FRAME_RESOLUTION = 3840       # long edge px — native 4K for legible stats/text in screenshots
 FRAME_DURATION_START = 90     # seconds from start (loading screen can be 0-90s depending on session spawn wait)
 FRAME_FPS_START = 0.5         # deployment loading screen — static, 0.5fps is plenty (~45 frames)
 FRAME_FPS_END = 5             # post-match tabs — flip fast, need higher fps
@@ -647,6 +647,16 @@ Use null for anything not visible."""
         # Prepend endgame screenshots to the first batch — they show who killed the player
         all_images = endgame_screenshots + all_end_frames
         print(f"[processor] {len(endgame_screenshots)} endgame screenshots + {len(all_end_frames)} end frames")
+
+        # Save copies of end frames to screenshots folder for debugging
+        import shutil
+        screenshots_dir = os.path.dirname(deploy_jpg) if os.path.exists(deploy_jpg) else None
+        if screenshots_dir:
+            endframes_dir = os.path.join(screenshots_dir, "endframes")
+            os.makedirs(endframes_dir, exist_ok=True)
+            for frame_path in all_end_frames:
+                shutil.copy2(frame_path, os.path.join(endframes_dir, os.path.basename(frame_path)))
+            print(f"[processor] Saved {len(all_end_frames)} end frames to {endframes_dir}")
         batches = [all_images[i:i + BATCH_SIZE] for i in range(0, len(all_images), BATCH_SIZE)]
 
         for batch_idx, batch in enumerate(batches):

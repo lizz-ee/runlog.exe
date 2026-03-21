@@ -179,7 +179,7 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
       <div className="relative" style={{ marginRight: 196 }}>
       <div
         ref={mapRef}
-        className="relative w-full select-none"
+        className="relative w-full select-none border border-m-green/20"
         style={{ aspectRatio: '1.414', cursor: dragState ? 'grabbing' : 'default' }}
         onMouseMove={onMouseMove}
         onMouseUp={onMouseUp}
