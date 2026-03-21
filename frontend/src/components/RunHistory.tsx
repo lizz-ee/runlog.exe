@@ -830,15 +830,15 @@ export default function RunHistory() {
       </div>
 
       {/* Column headers */}
-      <div className="grid grid-cols-[36px_6px_auto_1fr_40px_40px_30px_30px_75px_50px_18px] items-center gap-x-3 px-4 py-2 border-b border-m-border">
+      <div className="grid grid-cols-[36px_6px_auto_1fr_30px_30px_30px_30px_75px_50px_18px] items-center gap-x-3 px-4 py-2 border-b border-m-border">
         <span className="label-tag text-m-text-muted text-center">GRADE</span>
         <span />
         <span className="label-tag text-m-text-muted">SHELL</span>
         <span className="label-tag text-m-text-muted">LOCATION</span>
         <span className="label-tag text-m-text-muted text-right">PVE</span>
         <span className="label-tag text-m-text-muted text-right">RNR</span>
-        <span className="label-tag text-m-text-muted text-right">DEATH</span>
-        <span className="label-tag text-m-text-muted text-right">REV</span>
+        <span className="label-tag text-m-text-muted text-right">DTH</span>
+        <span className="label-tag text-m-text-muted text-right">RVV</span>
         <span className="label-tag text-m-text-muted text-right">LOOT</span>
         <span className="label-tag text-m-text-muted text-right">TIME</span>
         <span />
@@ -931,7 +931,7 @@ export function RunRow({ run, isExpanded, onToggle, onToggleFavorite, onUpdate, 
   // Refetch folder size on expand and after deletions
   useEffect(() => {
     if (isExpanded) refreshFolderSize()
-  }, [isExpanded, folderSizeTick])
+  }, [isExpanded, folderSizeTick, refreshFolderSize])
 
   const gc = run.grade ? (GRADE_COLORS[run.grade] || GRADE_COLORS.D) : null
 
@@ -940,7 +940,7 @@ export function RunRow({ run, isExpanded, onToggle, onToggleFavorite, onUpdate, 
       {/* Collapsed row */}
       <div
         onClick={onToggle}
-        className={`relative grid grid-cols-[36px_6px_auto_1fr_40px_40px_30px_30px_75px_50px_18px] items-center gap-x-3 px-4 py-3 transition-colors cursor-pointer ${
+        className={`relative grid grid-cols-[36px_6px_auto_1fr_30px_30px_30px_30px_75px_50px_18px] items-center gap-x-3 px-4 py-3 transition-colors cursor-pointer ${
           !run.viewed
             ? 'bg-m-cyan/[0.04] border-l-2 border-l-m-cyan/40 hover:bg-m-cyan/[0.08]'
             : 'bg-m-card hover:bg-m-surface'
@@ -981,17 +981,17 @@ export function RunRow({ run, isExpanded, onToggle, onToggleFavorite, onUpdate, 
           )}
         </span>
 
-        <span className={`text-xs font-mono text-right ${run.combatant_eliminations ? 'text-m-green' : 'text-m-text-muted'}`}>
+        <span className={`text-xs font-mono text-right ${run.combatant_eliminations ? 'text-white' : 'text-m-text-muted'}`}>
           {run.combatant_eliminations || 0}<span className="text-m-text-muted text-2xs"> PVE</span>
         </span>
         <span className={`text-xs font-mono text-right ${run.runner_eliminations ? 'text-m-cyan' : 'text-m-text-muted'}`}>
           {run.runner_eliminations || 0}<span className="text-m-text-muted text-2xs"> RNR</span>
         </span>
         <span className={`text-xs font-mono text-right ${run.deaths ? 'text-m-red' : 'text-m-text-muted'}`}>
-          {run.deaths}<span className="text-m-text-muted text-2xs"> D</span>
+          {run.deaths}<span className="text-m-text-muted text-2xs"> DTH</span>
         </span>
         <span className={`text-xs font-mono text-right ${run.crew_revives ? 'text-m-green' : 'text-m-text-muted'}`}>
-          {run.crew_revives || 0}<span className="text-m-text-muted text-2xs"> R</span>
+          {run.crew_revives || 0}<span className="text-m-text-muted text-2xs"> RVV</span>
         </span>
         <span className={`text-xs font-mono text-right ${
           run.loot_value_total >= 0 ? 'text-m-yellow' : 'text-m-red'
