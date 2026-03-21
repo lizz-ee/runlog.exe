@@ -139,7 +139,7 @@ export default function Uplink() {
       <div className="mb-4">
         <p className="label-tag text-m-green">LIVE // UPLINK</p>
         <h2 className="text-xl font-display font-black tracking-wider text-m-text mt-1">
-          UPLINK <span className="text-m-green/40 text-lg">{(summary as any)?.session_code || ''}</span>
+          {(summary as any)?.session_code || 'UPLINK'}
         </h2>
       </div>
 
