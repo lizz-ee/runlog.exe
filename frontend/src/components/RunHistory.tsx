@@ -283,9 +283,9 @@ function RunRow({ run }: { run: Run }) {
             {/* Left column - Run details */}
             <div className="space-y-2">
               <p className="label-tag text-m-green mb-2">RUN DETAILS</p>
+              <ShellPicker run={run} />
               <DetailRow label="MAP" value={run.map_name ?? '—'} />
               <DetailRow label="SPAWN" value={run.spawn_location ?? 'Unknown'} />
-              <ShellPicker run={run} />
               <DetailRow label="OUTCOME" value={run.survived ? 'Exfiltrated' : 'Eliminated'}
                 color={run.survived ? 'green' : 'red'} />
               {run.killed_by && (
@@ -317,7 +317,6 @@ function RunRow({ run }: { run: Run }) {
               ) : (
                 <DetailRow label="SQUAD" value="Solo" />
               )}
-              <DetailRow label="DATE" value={format(new Date(run.date), 'yyyy.MM.dd HH:mm:ss')} />
             </div>
           </div>
 

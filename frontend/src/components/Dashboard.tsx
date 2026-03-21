@@ -226,9 +226,9 @@ function RunRow({ run, onViewed }: { run: Run; onViewed?: () => void }) {
           <div className="grid grid-cols-3 gap-6">
             <div className="space-y-2">
               <p className="label-tag text-m-green mb-2">RUN DETAILS</p>
+              <DetailRow label="SHELL" value={run.shell_name ?? 'Unknown'} />
               <DetailRow label="MAP" value={run.map_name ?? '—'} />
               <DetailRow label="SPAWN" value={run.spawn_location ?? 'Unknown'} />
-              <DetailRow label="SHELL" value={run.shell_name ?? 'Unknown'} />
               <DetailRow label="OUTCOME" value={run.survived ? 'Exfiltrated' : 'Eliminated'}
                 color={run.survived ? 'green' : 'red'} />
               {run.killed_by && (
@@ -256,7 +256,6 @@ function RunRow({ run, onViewed }: { run: Run; onViewed?: () => void }) {
               ) : (
                 <DetailRow label="SQUAD" value="Solo" />
               )}
-              <DetailRow label="DATE" value={format(new Date(run.date), 'yyyy.MM.dd HH:mm:ss')} />
             </div>
           </div>
           {/* Link to Run Report */}
