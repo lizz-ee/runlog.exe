@@ -153,7 +153,6 @@ export default function Shells() {
               <div className="divide-y divide-m-border">
                 <ColStat label="PVE KILLS" value={String(selectedShell.pve_kills)} color={selectedShell.pve_kills > 0 ? 'green' : undefined} />
                 <ColStat label="RUNNER KILLS" value={String(selectedShell.pvp_kills)} color={selectedShell.pvp_kills > 0 ? 'cyan' : undefined} />
-                <ColStat label="TOTAL KILLS" value={String(selectedShell.kills)} />
                 <ColStat label="DEATHS" value={String(selectedShell.deaths)} color={selectedShell.deaths > 0 ? 'red' : undefined} />
                 <ColStat label="REVIVES" value={String(selectedShell.revives)} color={selectedShell.revives > 0 ? 'green' : undefined} />
               </div>
@@ -168,7 +167,6 @@ export default function Shells() {
                 <ColStat label="TOTAL LOOT" value={`$${selectedShell.loot.toLocaleString()}`} color={selectedShell.loot > 0 ? 'yellow' : undefined} />
                 <ColStat label="AVG LOOT/RUN" value={`$${selectedShell.avg_loot.toLocaleString()}`} color={selectedShell.avg_loot > 0 ? 'yellow' : undefined} />
                 <ColStat label="EXFILTRATED" value={String(selectedShell.survived)} color={selectedShell.survived > 0 ? 'green' : undefined} />
-                <ColStat label="KIA" value={String(selectedShell.runs - selectedShell.survived)} color={selectedShell.runs - selectedShell.survived > 0 ? 'red' : undefined} />
               </div>
             </div>
 

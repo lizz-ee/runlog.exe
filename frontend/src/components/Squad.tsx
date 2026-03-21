@@ -106,20 +106,8 @@ export default function Squad() {
             <StatBlock label="AVG LOOT" value={`$${selectedMate.avg_loot.toLocaleString()}`} color="yellow" />
           </div>
 
-          {/* Detail columns */}
+          {/* Detail columns — COMBAT, ECONOMY, OPERATIONS */}
           <div className="grid grid-cols-3 gap-[1px] bg-m-border">
-            <div className="bg-m-card">
-              <div className="px-4 py-2 border-b border-m-border">
-                <p className="label-tag text-m-green">OPERATIONS</p>
-              </div>
-              <div className="divide-y divide-m-border">
-                <ColStat label="RUNS TOGETHER" value={String(selectedMate.runs)} />
-                <ColStat label="EXFILTRATED" value={String(selectedMate.survived)} color="green" />
-                <ColStat label="KIA" value={String(selectedMate.runs - selectedMate.survived)} color={selectedMate.runs - selectedMate.survived > 0 ? 'red' : undefined} />
-                <ColStat label="AVG RUN TIME" value={formatDuration(selectedMate.avg_time)} color="cyan" />
-                <ColStat label="TOTAL TIME" value={formatTime(selectedMate.time)} color="cyan" />
-              </div>
-            </div>
             <div className="bg-m-card">
               <div className="px-4 py-2 border-b border-m-border">
                 <p className="label-tag text-m-green">COMBAT</p>
@@ -127,7 +115,6 @@ export default function Squad() {
               <div className="divide-y divide-m-border">
                 <ColStat label="PVE KILLS" value={String(selectedMate.pve_kills)} color="green" />
                 <ColStat label="RUNNER KILLS" value={String(selectedMate.pvp_kills)} color="cyan" />
-                <ColStat label="TOTAL KILLS" value={String(selectedMate.kills)} />
                 <ColStat label="DEATHS" value={String(selectedMate.deaths)} color={selectedMate.deaths > 0 ? 'red' : undefined} />
                 <ColStat label="REVIVES" value={String(selectedMate.revives)} color={selectedMate.revives > 0 ? 'green' : undefined} />
               </div>
@@ -140,6 +127,17 @@ export default function Squad() {
                 <ColStat label="TOTAL LOOT" value={`$${selectedMate.loot.toLocaleString()}`} color="yellow" />
                 <ColStat label="AVG LOOT/RUN" value={`$${selectedMate.avg_loot.toLocaleString()}`} color="yellow" />
                 <ColStat label="AVG KILLS/RUN" value={String(selectedMate.avg_kills)} />
+              </div>
+            </div>
+            <div className="bg-m-card">
+              <div className="px-4 py-2 border-b border-m-border">
+                <p className="label-tag text-m-green">OPERATIONS</p>
+              </div>
+              <div className="divide-y divide-m-border">
+                <ColStat label="RUNS TOGETHER" value={String(selectedMate.runs)} />
+                <ColStat label="EXFILTRATED" value={String(selectedMate.survived)} color="green" />
+                <ColStat label="AVG RUN TIME" value={formatDuration(selectedMate.avg_time)} color="cyan" />
+                <ColStat label="TOTAL TIME" value={formatTime(selectedMate.time)} color="cyan" />
               </div>
             </div>
           </div>
