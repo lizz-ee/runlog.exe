@@ -198,9 +198,9 @@ export default function Uplink() {
             <div className="px-5 py-4 min-h-[80px]">
               {briefingLoading && !briefing ? (
                 <div className="space-y-2.5">
-                  <div className="h-2.5 bg-m-border/15 w-[85%] animate-pulse" />
-                  <div className="h-2.5 bg-m-border/10 w-[65%] animate-pulse" />
-                  <div className="h-2.5 bg-m-border/8 w-[75%] animate-pulse" />
+                  <div className="h-2.5 bg-[#0a0a12] w-[85%] animate-pulse" />
+                  <div className="h-2.5 bg-[#080810] w-[65%] animate-pulse" />
+                  <div className="h-2.5 bg-[#0a0a12] w-[75%] animate-pulse" />
                 </div>
               ) : briefing ? (
                 <div className="text-xs font-mono text-m-text leading-relaxed whitespace-pre-wrap">
@@ -352,10 +352,10 @@ function TrendPanel({ title, data, domain, suffix, prefix }: {
         )}
       </div>
 
-      <div className="bg-m-card border border-m-border p-2" style={{ height: 200 }}>
+      <div className="bg-m-card border border-m-border" style={{ height: 180 }}>
         {hasData ? (
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={data}>
+            <AreaChart data={data} margin={{ top: 10, right: 15, bottom: 5, left: 5 }}>
               <defs>
                 <linearGradient id={`grad-${title.replace(/\s/g, '')}`} x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#c8ff00" stopOpacity={0.15} />
