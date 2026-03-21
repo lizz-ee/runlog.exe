@@ -108,7 +108,7 @@ def detect_game_state(jpeg_bytes: bytes, scan_mode: str = 'lobby') -> dict | Non
             if 'DEPLOYING' in lobby_text:
                 print(f"[ocr] LOBBY: \"{lobby_text}\" -> DEPLOYING")
                 return {'type': 'deploying', 'map_name': None, 'text': lobby_text}
-            if 'RUN' in lobby_text and 'COMPLETE' not in lobby_text and 'RUN TIME' not in lobby_text:
+            if 'RUN' in lobby_text and 'COMPLETE' not in lobby_text and 'RUN TIME' not in lobby_text and 'RUNNER' not in lobby_text:
                 print(f"[ocr] LOBBY: \"{lobby_text}\" -> RUN")
                 return {'type': 'run', 'map_name': None, 'text': lobby_text}
             if 'READY UP' in lobby_text or 'READYUP' in lobby_text or 'READY_UP' in lobby_text:

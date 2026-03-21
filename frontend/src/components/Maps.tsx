@@ -193,12 +193,21 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
         }}
       >
         {mapImage ? (
-          <img
-            src={mapImage}
-            alt={selectedMap}
-            className="absolute inset-0 w-full h-full pointer-events-none"
-            draggable={false}
-          />
+          <>
+            <img
+              src={mapImage}
+              alt={selectedMap}
+              className="absolute inset-0 w-full h-full pointer-events-none"
+              draggable={false}
+            />
+            {/* CRT scanlines + vignette overlay */}
+            <div className="absolute inset-0 pointer-events-none z-[1]"
+              style={{ backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(200,255,0,0.025) 2px, rgba(200,255,0,0.025) 3px)' }}
+            />
+            <div className="absolute inset-0 pointer-events-none z-[1]"
+              style={{ boxShadow: 'inset 0 0 60px rgba(0,0,0,0.5), inset 0 0 120px rgba(0,0,0,0.3)' }}
+            />
+          </>
         ) : (
           <div className="absolute inset-0 flex items-center justify-center">
             <p className="label-tag text-m-text-muted">NO MAP IMAGE</p>

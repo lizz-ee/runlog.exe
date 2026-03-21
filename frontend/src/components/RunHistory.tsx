@@ -627,13 +627,16 @@ export function matchRunClips(run: Run, clips: Clip[]): Clip[] {
     String(d.getMinutes()).padStart(2, '0'),
     String(d.getSeconds()).padStart(2, '0'),
   ].join('')
+  // Primary: match by clip timestamp (from clip filename)
   const directMatch = clips.filter(c => c.run_timestamp === runTs)
   if (directMatch.length > 0) return directMatch
-  const runEpoch = d.getTime() / 1000
-  return clips.filter(c => {
-    const diff = c.created - runEpoch
-    return diff >= 0 && diff < 7200
-  })
+  // Secondary: match by run_folder name (recording start timestamp)
+  const folderTs = `run_${runTs}`
+  const folderMatch = clips.filter(c => c.run_folder === folderTs)
+  if (folderMatch.length > 0) return folderMatch
+  // No fallback — clips must match by timestamp or folder name.
+  // The 2-hour window caused cross-contamination between back-to-back runs.
+  return []
 }
 
 /* ── Main Component ── */

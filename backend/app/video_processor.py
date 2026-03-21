@@ -204,7 +204,7 @@ Extract ALL of this information from the video:
   "damage_contributors": [
     {"name": "gamertag", "damage": number, "finished": true/false}
   ] or null — ALL players/enemies who dealt damage to you on the death screen (the finisher has "finished": true, others contributed damage but didn't land the killing blow. e.g. [{"name": "Azuka", "damage": 81, "finished": true}, {"name": "WarNer", "damage": 88, "finished": false}, {"name": "Falling", "damage": 25, "finished": false}]),
-  "spawn_coordinates": "two decimal numbers from the deployment loading screen, e.g. [10.564070, 195.869476]" or null,
+  "spawn_coordinates": "two decimal numbers from the deployment loading screen (a BLACK or BLUE screen with yellow/green text showing map name and coordinates). The numbers are stacked vertically in small text BELOW the map description. Read EACH digit carefully — typically 6+ decimal digits like [522.803894, -39.408157]. DOUBLE-CHECK by re-examining the image before returning. Return null if unclear rather than guessing." or null,
   "spawn_location": "zone name visible on the in-game map or HUD if identifiable" or null,
   "grade": "YOUR rating of how well the player performed: S, A, B, C, D, or F (this is NOT from the game UI, YOU assign this grade based on the criteria below)",
   "highlights": [
@@ -578,7 +578,7 @@ Read the price tag color, NOT the item art color.
 Extract and return ONLY valid JSON:
 {{
   "map_name": "Perimeter" or "Outpost" or "Dire Marsh" or "Cryo Archive" or null,
-  "spawn_coordinates": [x, y] from deployment screen or null,
+  "spawn_coordinates": [x, y] from the deployment loading screen (a BLACK or BLUE screen showing the map name, description, and coordinates in yellow/green text). The coordinates are TWO decimal numbers stacked vertically in small text BELOW the map description (below "AGRICULTURAL AND HARVESTING OPERATIONS" etc.). Read EACH digit carefully — these are typically 6+ decimal digits like 522.803894 and -39.408157. DOUBLE-CHECK your reading: re-examine the image and verify every digit before returning. If you cannot read them clearly, return null rather than guessing. Format: [first_number, second_number] or null,
   "shell_name": "Assassin" or "Destroyer" or "Recon" or "Thief" or "Triage" or "Vandal" or null,
   "player_gamertag": "gamertag of LOCAL player (CENTER character)" or null,
   "squad_members": ["all", "gamertags", "visible above each character"] or null — include ALL members (local player is center, mates are left/right),
