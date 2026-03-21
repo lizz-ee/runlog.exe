@@ -48,6 +48,7 @@ export default function Uplink() {
   const [briefingLoading, setBriefingLoading] = useState(false)
   const [survivalTrend, setSurvivalTrend] = useState<TrendPoint[]>([])
   const [lootTrend, setLootTrend] = useState<TrendPoint[]>([])
+  const [killsTrend, setKillsTrend] = useState<TrendPoint[]>([])
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [totalRuns, setTotalRuns] = useState(0)
@@ -59,6 +60,7 @@ export default function Uplink() {
     axios.get(`${apiBase}/api/uplink/session-summary`).then(({ data }) => setSummary(data)).catch(() => {})
     axios.get(`${apiBase}/api/uplink/trends?stat=survival&range=all&group_by=session`).then(({ data }) => setSurvivalTrend(data)).catch(() => {})
     axios.get(`${apiBase}/api/uplink/trends?stat=loot&range=all&group_by=session`).then(({ data }) => setLootTrend(data)).catch(() => {})
+    axios.get(`${apiBase}/api/uplink/trends?stat=runner_kills&range=all&group_by=session`).then(({ data }) => setKillsTrend(data)).catch(() => {})
     axios.get(`${apiBase}/api/runs/recent`).then(({ data }) => setTotalRuns(data.length)).catch(() => {})
   }, [])
 
@@ -222,6 +224,7 @@ export default function Uplink() {
           {/* ─── TREND CHARTS — oscilloscope style ─── */}
           <TrendPanel title="TRENDS // SURVIVAL.RATE" data={survivalTrend} domain={[0, 100]} suffix="%" />
           <TrendPanel title="TRENDS // LOOT.EXTRACTED" data={lootTrend} prefix="$" />
+          <TrendPanel title="TRENDS // RUNNER.ELIMINATIONS" data={killsTrend} />
         </div>
 
         {/* ═══════════════════════════════════════ */}
