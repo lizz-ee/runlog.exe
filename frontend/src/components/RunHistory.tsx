@@ -1190,7 +1190,7 @@ export function RunRow({ run, isExpanded, onToggle, onToggleFavorite, onUpdate, 
 
       {/* Delete confirmation dialog */}
       {deleteTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={() => setDeleteTarget(null)}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70" onClick={(e) => { e.stopPropagation(); setDeleteTarget(null) }}>
           <div className="bg-m-card border border-m-red/40 p-6 max-w-sm mx-4 space-y-4" onClick={e => e.stopPropagation()}>
             <div className="space-y-1">
               <p className="label-tag text-m-red">SYS.WARN // PERMANENT.ACTION</p>
@@ -1206,13 +1206,10 @@ export function RunRow({ run, isExpanded, onToggle, onToggleFavorite, onUpdate, 
                 onClick={() => {
                   axios.post(`${apiBase}/api/capture/clip/delete`, { filename: deleteTarget })
                     .then(() => {
-                      // Close player if the deleted clip is currently playing
                       if (playingClip === deleteTarget) setPlayingClip(null)
                       setDeleteTarget(null)
-                      setTimeout(() => {
-                        setFolderSizeTick(t => t + 1)
-                        refreshLocalClips()
-                      }, 300)
+                      setFolderSizeTick(t => t + 1)
+                      refreshLocalClips()
                     })
                 }}
                 className="label-tag px-4 py-1.5 border border-m-red/60 text-m-red hover:bg-m-red-glow transition-all"
