@@ -126,7 +126,7 @@ export default function Squad() {
               <div className="divide-y divide-m-border">
                 <ColStat label="TOTAL LOOT" value={`$${selectedMate.loot.toLocaleString()}`} color="yellow" />
                 <ColStat label="AVG LOOT/RUN" value={`$${selectedMate.avg_loot.toLocaleString()}`} color="yellow" />
-                <ColStat label="AVG KILLS/RUN" value={String(selectedMate.avg_kills)} />
+                <ColStat label="EXFILTRATED" value={String(selectedMate.survived)} color="green" />
               </div>
             </div>
             <div className="bg-m-card">
@@ -135,7 +135,6 @@ export default function Squad() {
               </div>
               <div className="divide-y divide-m-border">
                 <ColStat label="RUNS TOGETHER" value={String(selectedMate.runs)} />
-                <ColStat label="EXFILTRATED" value={String(selectedMate.survived)} color="green" />
                 <ColStat label="AVG RUN TIME" value={formatDuration(selectedMate.avg_time)} color="cyan" />
                 <ColStat label="TOTAL TIME" value={formatTime(selectedMate.time)} color="cyan" />
               </div>
