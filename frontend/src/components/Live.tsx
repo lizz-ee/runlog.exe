@@ -109,7 +109,7 @@ function PipelineProgress({ status, detail, p1Failed, p2Failed }: {
 
         return (
           <div key={stage.key} className={`flex items-center ${phaseGap ? 'ml-2' : 'ml-[3px]'} ${i === 0 ? 'ml-0' : ''}`}>
-            <div className="relative group">
+            <div>
               <svg width="8" height="8" viewBox="0 0 8 8" className={`${colorClass} ${spin ? 'animate-spin-slow' : ''}`} style={{
                 ...(spin ? { animationDuration: '3s' } : {}),
                 ...(isActive ? { filter: 'drop-shadow(0 0 3px currentColor)' } : {}),
@@ -124,11 +124,6 @@ function PipelineProgress({ status, detail, p1Failed, p2Failed }: {
                   <polygon points="4,0.5 7.5,7 0.5,7" fill="currentColor" />
                 )}
               </svg>
-              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:block z-20">
-                <div className="bg-m-black border border-m-border px-1.5 py-0.5 text-[8px] font-mono text-m-text-muted whitespace-nowrap">
-                  {PHASE_LABELS[stage.key] || stage.key.toUpperCase()}
-                </div>
-              </div>
             </div>
           </div>
         )

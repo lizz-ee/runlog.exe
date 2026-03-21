@@ -104,7 +104,7 @@ Analyze the gameplay and provide:
 Return ONLY valid JSON:
 {
   "grade": "S, A, B, C, D, or F — YOUR rating based on the criteria below",
-  "summary": "A narrative story of this run written in second person (you). 2-4 paragraphs. Describe the flow like a sports commentator recap — the drop, early looting, key fights, turning points, and how it ended. Make it engaging and specific.",
+  "summary": "A narrative story of this run written in second person (you). Scale length to match the run: F/D grade or under 3 min = 1-2 sentences (quick death, not much to say); C grade or 3-5 min = 1 short paragraph; B grade or 5-10 min = 1-2 paragraphs; A/S grade or 10+ min = 2-4 paragraphs (full story treatment). Describe the flow like a sports commentator recap — the drop, key fights, turning points, and how it ended. Make it engaging and specific.",
   "highlights": [
     {
       "timestamp_seconds": number (seconds from start of video when the action STARTS),
@@ -215,7 +215,7 @@ Extract ALL of this information from the video:
       "description": "Brief description of what happened"
     }
   ],
-  "summary": "A narrative story of this run written in second person (you). 2-4 paragraphs. Describe the flow of the run like a sports commentator recap — the drop, early looting, key fights, turning points, and how it ended. Make it engaging and specific to what actually happened."
+  "summary": "A narrative story of this run written in second person (you). Scale length to match the run: F/D grade or under 3 min = 1-2 sentences (quick death, not much to say); C grade or 3-5 min = 1 short paragraph; B grade or 5-10 min = 1-2 paragraphs; A/S grade or 10+ min = 2-4 paragraphs (full story treatment). Describe the flow like a sports commentator recap — the drop, key fights, turning points, and how it ended. Make it engaging and specific to what actually happened."
 }
 
 GRADING CRITERIA for "grade":

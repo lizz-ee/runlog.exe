@@ -251,7 +251,7 @@ class AutoCapture:
 
     # State timeouts — fall back to lobby if stuck too long
     _STATE_TIMEOUTS = {
-        'deploy': 90,     # 90s without finding map name → probably backed out
+        'deploy': 30,     # 30s without finding map name → probably backed out
         'endgame': 1800,  # 30min without RUN_COMPLETE → game crashed or alt-tabbed
     }
 
@@ -260,6 +260,7 @@ class AutoCapture:
         last_seq = -1
         self._scan_state = 'lobby'  # lobby | deploy | endgame | postgame
         self._state_changed_at = time.time()
+        deploy_cycle = 0  # Counter for lobby re-check while in deploy state
         while self._running:
             with self._frame_lock:
                 frame = self._latest_frame
@@ -278,6 +279,21 @@ class AutoCapture:
                     if self._recording and old_state == 'endgame':
                         print(f"[capture] Stopping orphaned recording due to timeout")
                         self._stop_recording()
+
+                # While in deploy state, check lobby every 3rd cycle to detect
+                # if user cancelled matchmaking and returned to lobby
+                if self._scan_state == 'deploy':
+                    deploy_cycle += 1
+                    if deploy_cycle % 3 == 0:
+                        lobby_result = detect_game_state(frame, scan_mode='lobby')
+                        if lobby_result and lobby_result['type'] in ('prepare', 'select_zone', 'ready_up'):
+                            print(f"[capture] Lobby re-detected ({lobby_result['type']}) while in deploy — returning to lobby state")
+                            self._scan_state = 'lobby'
+                            self._state_changed_at = time.time()
+                            deploy_cycle = 0
+                            continue
+                else:
+                    deploy_cycle = 0
 
                 result = detect_game_state(frame, scan_mode=self._scan_state)
                 if self._running:
@@ -410,18 +426,30 @@ class AutoCapture:
                 self._save_deploy_shot(screenshots_dir, "deploy_1", frame_jpeg)
                 print(f"[capture] Deploy shot 1/3 saved: {map_name}")
 
-                # Shots 2 & 3: delayed 500ms and 1000ms (catch blue loading screen with coordinates)
+                # Shots 2 & 3: wait for genuinely new frames (1s and 2s after shot 1)
                 def _delayed_deploy_shots():
-                    time.sleep(0.5)
+                    prev_seq = self._frame_seq
+                    # Shot 2: wait up to 2s for a new frame, ~1s after shot 1
+                    time.sleep(1.0)
+                    for _ in range(10):
+                        if self._frame_seq != prev_seq:
+                            break
+                        time.sleep(0.1)
                     frame2 = self._latest_frame
                     if frame2:
                         self._save_deploy_shot(screenshots_dir, "deploy_2", frame2)
-                        print(f"[capture] Deploy shot 2/3 saved")
-                    time.sleep(0.5)
+                        print(f"[capture] Deploy shot 2/3 saved (seq {self._frame_seq})")
+                    # Shot 3: wait for another new frame, ~2s after shot 1
+                    prev_seq = self._frame_seq
+                    time.sleep(1.0)
+                    for _ in range(10):
+                        if self._frame_seq != prev_seq:
+                            break
+                        time.sleep(0.1)
                     frame3 = self._latest_frame
                     if frame3:
                         self._save_deploy_shot(screenshots_dir, "deploy_3", frame3)
-                        print(f"[capture] Deploy shot 3/3 saved")
+                        print(f"[capture] Deploy shot 3/3 saved (seq {self._frame_seq})")
 
                 threading.Thread(target=_delayed_deploy_shots, daemon=True).start()
 

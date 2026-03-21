@@ -460,8 +460,8 @@ fn main() {
                 pending.take().unwrap()
             };
 
-            // Downsample 4K → 1920px
-            let ocr_scale = 2;
+            // Full resolution — 4K frames for OCR + screenshot quality
+            let ocr_scale = 1;
             let ow = frame_data.width / ocr_scale;
             let oh = frame_data.height / ocr_scale;
 
@@ -483,7 +483,7 @@ fn main() {
 
             // JPEG encode + emit
             let mut jpeg_buf = Vec::with_capacity(64 * 1024);
-            let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_buf, 60);
+            let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_buf, 85);
             if encoder.encode(&rgb_buf, ow as u32, oh as u32, image::ExtendedColorType::Rgb8).is_ok() {
                 use base64::Engine;
                 let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg_buf);

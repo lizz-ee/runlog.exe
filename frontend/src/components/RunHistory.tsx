@@ -1101,9 +1101,10 @@ export function RunRow({ run, isExpanded, onToggle, onToggleFavorite, onUpdate, 
               >
                 <span className={`text-[10px] transition-transform ${highlightsOpen ? 'rotate-90' : ''}`}>▷</span>
                 HIGHLIGHTS
-                {activeClips.length > 0 && (
-                  <span className="text-m-cyan text-[9px]">{activeClips.length} CLIP{activeClips.length !== 1 ? 'S' : ''}</span>
-                )}
+                {(activeClips.length > 0 || run.recording_path) && (() => {
+                  const total = activeClips.length + (run.recording_path ? 1 : 0)
+                  return <span className="text-m-cyan text-[9px]">{total} CLIP{total !== 1 ? 'S' : ''}</span>
+                })()}
               </button>
               {activeClips[0]?.run_folder && (
                 <button
