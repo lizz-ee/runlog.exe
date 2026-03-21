@@ -159,8 +159,8 @@ export default function Uplink() {
                   <HexStat label="RUNS" value={String(summary!.run_count)} sub="SESSION" />
                   <HexStat label="SURV%" value={`${summary!.survival_rate ?? 0}%`} sub={`${summary!.survived ?? 0}/${summary!.run_count}`}
                     color={(summary!.survival_rate ?? 0) >= 50 ? '#c8ff00' : '#ff4444'} />
-                  <HexStat label="R.KILL" value={String(summary!.total_runner_kills ?? 0)} sub={`${summary!.avg_runner_kills_per_run ?? 0}/RUN`} />
                   <HexStat label="PVE" value={String(summary!.total_pve_kills ?? 0)} sub={`${summary!.avg_pve_kills_per_run ?? 0}/RUN`} />
+                  <HexStat label="R.KILL" value={String(summary!.total_runner_kills ?? 0)} sub={`${summary!.avg_runner_kills_per_run ?? 0}/RUN`} />
                   <HexStat label="REVIVE" value={String(summary!.total_revives ?? 0)} sub="CREW" color="#c8ff00" />
                   <HexStat label="LOOT" value={`$${(summary!.total_loot ?? 0).toLocaleString()}`} sub="EXTRACTED" color="#ffcc00" />
                 </>
@@ -168,8 +168,8 @@ export default function Uplink() {
                 <>
                   <HexStat label="RUNS" value="—" sub="SESSION" />
                   <HexStat label="SURV%" value="—" sub="—/—" />
-                  <HexStat label="R.KILL" value="—" sub="—/RUN" />
                   <HexStat label="PVE" value="—" sub="—/RUN" />
+                  <HexStat label="R.KILL" value="—" sub="—/RUN" />
                   <HexStat label="REVIVE" value="—" sub="CREW" />
                   <HexStat label="LOOT" value="$—" sub="PENDING" />
                 </>
