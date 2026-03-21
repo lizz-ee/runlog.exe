@@ -45,6 +45,24 @@ with engine.connect() as conn:
     if "viewed" not in existing_cols:
         conn.execute(text("ALTER TABLE runs ADD COLUMN viewed BOOLEAN DEFAULT 0"))
         conn.commit()
+    if "is_favorite" not in existing_cols:
+        conn.execute(text("ALTER TABLE runs ADD COLUMN is_favorite BOOLEAN DEFAULT 0"))
+        conn.commit()
+    if "starting_loadout_value" not in existing_cols:
+        conn.execute(text("ALTER TABLE runs ADD COLUMN starting_loadout_value FLOAT"))
+        conn.commit()
+    if "player_level" not in existing_cols:
+        conn.execute(text("ALTER TABLE runs ADD COLUMN player_level INTEGER"))
+        conn.commit()
+    if "vault_value" not in existing_cols:
+        conn.execute(text("ALTER TABLE runs ADD COLUMN vault_value FLOAT"))
+        conn.commit()
+    if "killed_by_weapon" not in existing_cols:
+        conn.execute(text("ALTER TABLE runs ADD COLUMN killed_by_weapon VARCHAR(100)"))
+        conn.commit()
+    if "damage_contributors" not in existing_cols:
+        conn.execute(text("ALTER TABLE runs ADD COLUMN damage_contributors JSON"))
+        conn.commit()
 
 # Seed spawn points from reference data if table is empty
 from .database import SessionLocal
@@ -102,10 +120,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Serve uploaded screenshots
-os.makedirs(settings.media_upload_dir, exist_ok=True)
-app.mount("/media", StaticFiles(directory=settings.media_upload_dir), name="media")
 
 app.include_router(api_router)
 

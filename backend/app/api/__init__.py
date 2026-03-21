@@ -1,6 +1,5 @@
 from fastapi import APIRouter
 
-from .screenshot import router as screenshot_router
 from .runs import router as runs_router
 from .runners import router as runners_router
 from .loadouts import router as loadouts_router
@@ -16,7 +15,6 @@ from .uplink import router as uplink_router
 api_router = APIRouter(prefix="/api")
 
 api_router.include_router(settings_router, prefix="/settings", tags=["settings"])
-api_router.include_router(screenshot_router, prefix="/screenshot", tags=["screenshot"])
 api_router.include_router(runs_router, prefix="/runs", tags=["runs"])
 api_router.include_router(runners_router, prefix="/runners", tags=["runners"])
 api_router.include_router(loadouts_router, prefix="/loadouts", tags=["loadouts"])

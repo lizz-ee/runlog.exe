@@ -52,6 +52,11 @@ export interface Run {
   secondary_weapon: string | null
   killed_by: string | null
   killed_by_damage: number | null
+  killed_by_weapon: string | null
+  damage_contributors: { name: string; damage: number; finished: boolean }[] | null
+  starting_loadout_value: number | null
+  player_level: number | null
+  vault_value: number | null
   grade: string | null
   summary: string | null
   spawn_location: string | null
@@ -59,6 +64,7 @@ export interface Run {
   player_gamertag: string | null
   recording_path: string | null
   viewed: boolean | null
+  is_favorite: boolean | null
   created_at: string
 }
 
@@ -211,7 +217,9 @@ export interface ProcessingItem {
   p1_ended_at?: string | null
   p2_started_at?: string | null
   p2_ended_at?: string | null
+  file_size_mb?: number | null
   p1_failed?: boolean
+  p2_failed?: boolean
   loading_screen_found?: boolean
   stats_tab_found?: boolean
   loadout_tab_found?: boolean
@@ -258,6 +266,10 @@ export interface Clip {
   run_folder: string | null
   created: number
   thumbnail: string | null
+  sprite: string | null
+  sprite_cols: number | null
+  sprite_rows: number | null
+  sprite_frames: number | null
 }
 
 export interface ShellStats {
@@ -277,6 +289,7 @@ export interface ShellStats {
   avg_loot: number
   avg_time: number
   favorite_weapon: string | null
+  score: number
 }
 
-export type View = 'dashboard' | 'history' | 'shells' | 'squad' | 'map-perimeter' | 'map-dire-marsh' | 'map-outpost' | 'map-cryo-archive' | 'live' | 'highlights' | 'uplink' | 'settings'
+export type View = 'dashboard' | 'history' | 'shells' | 'squad' | 'map-perimeter' | 'map-dire-marsh' | 'map-outpost' | 'map-cryo-archive' | 'live' | 'uplink' | 'settings'

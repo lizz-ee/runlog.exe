@@ -48,6 +48,10 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
   const [renameValue, setRenameValue] = useState('')
   const mapRef = useRef<HTMLDivElement>(null)
 
+  const { captureStatus } = useStore()
+  const lastRunId = captureStatus?.last_result?.run_id
+  const doneCount = captureStatus?.processing_items?.filter(i => i.status === 'done').length ?? 0
+
   const mapData = MAPS[selectedMap]
   const currentStats = mapStats.find((s) => s.map === selectedMap)
   const currentHeatmap = heatmap.find((h) => h.map === selectedMap)
@@ -82,12 +86,12 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
       .catch(() => setSpawns(fallback))
 
     setDirty(new Set())
-  }, [selectedMap])
+  }, [selectedMap, lastRunId, doneCount])
 
   useEffect(() => {
     getMapStats().then(setMapStats)
     getSpawnHeatmap().then(setHeatmap)
-  }, [selectedMap])
+  }, [selectedMap, lastRunId, doneCount])
 
   const toPercent = useCallback((clientX: number, clientY: number) => {
     if (!mapRef.current) return { x: 0, y: 0 }

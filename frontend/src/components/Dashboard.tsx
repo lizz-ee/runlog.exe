@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useStore } from '../lib/store'
-import { getOverviewStats, getRecentRuns, markRunViewed, markAllRunsViewed } from '../lib/api'
+import { getOverviewStats, getRecentRuns, markRunViewed, markAllRunsViewed, getClips, toggleFavorite, getRuns } from '../lib/api'
+import { RunRow, matchRunClips } from './RunHistory'
+import { AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts'
 
-import { format } from 'date-fns'
-import type { Run } from '../lib/types'
+import type { Run, Clip } from '../lib/types'
 
 function formatTime(seconds: number): string {
   const h = Math.floor(seconds / 3600)
@@ -20,20 +21,68 @@ function formatDuration(seconds: number | null): string {
 }
 
 export default function Dashboard() {
-  const { stats, runs, setStats, setRuns, setView, refreshUnviewed } = useStore()
+  const { stats, runs, setStats, setRuns, setView, refreshUnviewed, captureStatus } = useStore()
+  const [clips, setClipsState] = useState<Clip[]>([])
+  const [expanded, setExpanded] = useState<Set<number>>(new Set())
+  const [vaultData, setVaultData] = useState<{ value: number }[]>([])
+
+  // Refresh triggers: new run (P1) or processing item completes (P2)
+  const lastRunId = captureStatus?.last_result?.run_id
+  const doneCount = captureStatus?.processing_items?.filter(i => i.status === 'done').length ?? 0
 
   useEffect(() => {
     getOverviewStats().then(setStats)
     getRecentRuns(20).then(setRuns)
+    getClips().then(setClipsState).catch(() => {})
+    getRuns({ limit: 500 }).then(allRuns => {
+      const points = allRuns
+        .filter(r => r.vault_value != null)
+        .reverse()
+        .map(r => ({ value: r.vault_value! }))
+      setVaultData(points)
+    }).catch(() => {})
+  }, [lastRunId, doneCount])
+
+  const refreshRuns = useCallback(() => {
+    getRecentRuns(20).then(setRuns).catch(() => {})
   }, [])
+
+  const handleToggleFavorite = async (e: React.MouseEvent, runId: number) => {
+    e.stopPropagation()
+    try {
+      const result = await toggleFavorite(runId)
+      setRuns(runs.map(r => r.id === runId ? { ...r, is_favorite: result.is_favorite } : r))
+    } catch {}
+  }
+
+  const toggleExpand = (runId: number) => {
+    setExpanded(prev => {
+      const next = new Set(prev)
+      if (next.has(runId)) next.delete(runId)
+      else {
+        next.add(runId)
+        const run = runs.find(r => r.id === runId)
+        if (run && !run.viewed) {
+          markRunViewed(runId).then(() => {
+            setRuns(runs.map(r => r.id === runId ? { ...r, viewed: true } : r))
+            refreshUnviewed()
+          }).catch(() => {})
+        }
+      }
+      return next
+    })
+  }
 
   return (
     <div className="max-w-7xl mx-auto space-y-4">
       {/* Header */}
       <div>
-        <p className="label-tag text-m-green">SYSTEM // OVERVIEW</p>
+        <p className="label-tag text-m-green">SYSTEM // TERMINAL</p>
         <h2 className="text-xl font-display font-black tracking-wider text-m-text mt-1">
-          DASHBOARD
+          {(() => {
+            const latestLevel = runs.find(r => r.player_level != null)?.player_level
+            return latestLevel != null ? `LVL//:${latestLevel}:` : 'TERMINAL'
+          })()}
         </h2>
       </div>
 
@@ -148,132 +197,74 @@ export default function Dashboard() {
         ) : (
           <div className="border border-1 border-m-green/20 divide-y divide-m-border">
             {runs.slice(0, 7).map((run) => (
-              <RunRow key={run.id} run={run} onViewed={() => {
-                setRuns(runs.map(r => r.id === run.id ? { ...r, viewed: true } : r))
-                refreshUnviewed()
-              }} />
+              <RunRow
+                key={run.id}
+                run={run}
+                isExpanded={expanded.has(run.id)}
+                onToggle={() => toggleExpand(run.id)}
+                onToggleFavorite={(e) => handleToggleFavorite(e, run.id)}
+                onUpdate={refreshRuns}
+                clips={matchRunClips(run, clips)}
+              />
             ))}
           </div>
         )}
       </div>
-    </div>
-  )
-}
 
-function RunRow({ run, onViewed }: { run: Run; onViewed?: () => void }) {
-  const [expanded, setExpanded] = useState(false)
-  const isUnviewed = run.viewed === false || run.viewed === null
-
-  return (
-    <div>
-      <div
-        onClick={() => {
-          setExpanded(!expanded)
-          if (isUnviewed && !expanded) {
-            markRunViewed(run.id).then(() => onViewed?.()).catch(() => {})
-          }
-        }}
-        className={`grid grid-cols-[50px_6px_110px_auto_1fr_40px_40px_30px_30px_75px_50px] items-center gap-x-3 px-4 py-3 transition-colors cursor-pointer ${
-          isUnviewed
-            ? 'bg-m-cyan/[0.04] border-l-2 border-l-m-cyan/40 hover:bg-m-cyan/[0.08]'
-            : 'bg-m-card border-l-2 border-l-transparent hover:bg-m-surface'
-        }`}
-      >
-        <span className={`label-tag px-2 py-0.5 border border-1 text-center ${
-          run.survived
-            ? 'border-m-green/30 text-m-green bg-m-green-glow'
-            : 'border-m-red/30 text-m-red bg-m-red-glow'
-        }`}>
-          {run.survived ? 'EXFIL' : 'KIA'}
-        </span>
-        <div className={`w-1.5 h-8 ${run.survived ? 'bg-m-green' : 'bg-m-red'}`} />
-        <span className="label-tag text-m-text-muted">
-          {format(new Date(run.date), 'yyyy.MM.dd HH:mm')}
-        </span>
-        <span className="text-xs text-m-cyan tracking-wider uppercase truncate">
-          {run.shell_name ?? '—'}
-        </span>
-        <span className="text-xs text-m-text tracking-wider uppercase truncate">
-          {run.map_name ?? 'UNKNOWN'}
-          {run.spawn_location && (
-            <span className="text-m-text-muted"> — {run.spawn_location}</span>
+      {/* VAULT.VALUE Chart */}
+      <div>
+        <div className="flex justify-between items-center mb-1.5">
+          <span className="label-tag text-m-text-muted">VAULT.VALUE</span>
+          {vaultData.length > 0 && (
+            <span className="text-[7px] font-mono text-m-text-muted/40 tracking-wider">
+              {vaultData.length} DATAPOINT{vaultData.length !== 1 ? 'S' : ''}
+            </span>
           )}
-        </span>
-        <span className={`text-xs font-mono text-right ${run.combatant_eliminations ? 'text-m-green' : 'text-m-text-muted'}`}>
-          {run.combatant_eliminations || 0}<span className="text-m-text-muted text-2xs"> PVE</span>
-        </span>
-        <span className={`text-xs font-mono text-right ${run.runner_eliminations ? 'text-m-cyan' : 'text-m-text-muted'}`}>
-          {run.runner_eliminations || 0}<span className="text-m-text-muted text-2xs"> RNR</span>
-        </span>
-        <span className={`text-xs font-mono text-right ${run.deaths ? 'text-m-red' : 'text-m-text-muted'}`}>
-          {run.deaths}<span className="text-m-text-muted text-2xs"> D</span>
-        </span>
-        <span className={`text-xs font-mono text-right ${run.crew_revives ? 'text-m-green' : 'text-m-text-muted'}`}>
-          {run.crew_revives || 0}<span className="text-m-text-muted text-2xs"> R</span>
-        </span>
-        <span className={`text-xs font-mono text-right ${
-          run.loot_value_total >= 0 ? 'text-m-yellow' : 'text-m-red'
-        }`}>
-          ${run.loot_value_total.toLocaleString()}
-        </span>
-        <span className="text-xs font-mono text-m-text-muted text-right">
-          {formatDuration(run.duration_seconds)}
-        </span>
-      </div>
-
-      {expanded && (
-        <div className="px-6 py-4 bg-m-surface border-t border-m-border">
-          <div className="grid grid-cols-3 gap-6">
-            <div className="space-y-2">
-              <p className="label-tag text-m-green mb-2">RUN DETAILS</p>
-              <DetailRow label="SHELL" value={run.shell_name ?? 'Unknown'} />
-              <DetailRow label="MAP" value={run.map_name ?? '—'} />
-              <DetailRow label="SPAWN" value={run.spawn_location ?? 'Unknown'} />
-              <DetailRow label="OUTCOME" value={run.survived ? 'Exfiltrated' : 'Eliminated'}
-                color={run.survived ? 'green' : 'red'} />
-              {run.killed_by && (
-                <DetailRow label="KILLED BY" value={`${run.killed_by}${run.killed_by_damage ? ` (${run.killed_by_damage} DMG)` : ''}`} color="red" />
-              )}
-              <DetailRow label="DURATION" value={formatDuration(run.duration_seconds)} />
-            </div>
-            <div className="space-y-2">
-              <p className="label-tag text-m-green mb-2">COMBAT</p>
-              <DetailRow label="PVE KILLS" value={String(run.combatant_eliminations || 0)} color="green" />
-              <DetailRow label="RUNNER KILLS" value={String(run.runner_eliminations || 0)} color="cyan" />
-              <DetailRow label="DEATHS" value={String(run.deaths)} color={run.deaths > 0 ? 'red' : undefined} />
-              <DetailRow label="REVIVES" value={String(run.crew_revives || 0)} color="green" />
-            </div>
-            <div className="space-y-2">
-              <p className="label-tag text-m-green mb-2">LOOT & SQUAD</p>
-              <DetailRow label="INVENTORY" value={`$${run.loot_value_total.toLocaleString()}`}
-                color={run.loot_value_total >= 0 ? 'yellow' : 'red'} />
-              <DetailRow label="PRIMARY" value={run.primary_weapon ?? '—'} />
-              <DetailRow label="SECONDARY" value={run.secondary_weapon ?? '—'} />
-              {run.squad_members && run.squad_members.length > 0 ? (
-                run.squad_members.map((m, i) => (
-                  <DetailRow key={i} label={i === 0 ? 'SQUAD' : ''} value={m} />
-                ))
-              ) : (
-                <DetailRow label="SQUAD" value="Solo" />
-              )}
-            </div>
-          </div>
-          {/* Link to Run Report */}
-          {run.summary && (
-            <div className="mt-3 pt-3 border-t border-m-border">
-              <button
-                onClick={(e) => { e.stopPropagation(); useStore.getState().setFocusRunId(run.id); useStore.getState().setView('highlights') }}
-                className="label-tag px-3 py-1.5 border border-m-border text-m-text-muted hover:text-m-green hover:border-m-green/40 transition-all"
-              >
-                VIEW REPORT →
-              </button>
+        </div>
+        <div className="bg-m-card border border-m-border" style={{ height: 180 }}>
+          {vaultData.length > 1 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={vaultData} margin={{ top: 5, right: 15, bottom: 5, left: -5 }}>
+                <defs>
+                  <linearGradient id="grad-vault" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#c8ff00" stopOpacity={0.15} />
+                    <stop offset="100%" stopColor="#c8ff00" stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1a1a2e" />
+                <XAxis hide />
+                <YAxis tick={{ fontSize: 8, fill: '#555', fontFamily: 'monospace' }} axisLine={{ stroke: '#1a1a2e' }} tickLine={false}
+                  tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
+                <Tooltip
+                  contentStyle={{ background: '#0a0a0f', border: '1px solid #1a1a2e', fontSize: 10, fontFamily: 'monospace' }}
+                  labelStyle={{ display: 'none' }}
+                  formatter={(v: number) => [`$${v.toLocaleString()}`, 'VAULT']}
+                />
+                <Area type="monotone" dataKey="value" stroke="#c8ff00" strokeWidth={2} fill="url(#grad-vault)"
+                  dot={{ r: 3, fill: '#c8ff00', stroke: '#c8ff00', strokeWidth: 1 }}
+                  activeDot={{ r: 5, fill: '#c8ff00', stroke: '#050508', strokeWidth: 2 }} />
+              </AreaChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-full relative">
+              <div className="absolute inset-0 opacity-[0.04]" style={{
+                backgroundImage: 'linear-gradient(to right, rgba(200,255,0,0.3) 1px, transparent 1px), linear-gradient(to bottom, rgba(200,255,0,0.3) 1px, transparent 1px)',
+                backgroundSize: '20% 25%',
+              }} />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="text-center space-y-2">
+                  <p className="text-xs font-mono text-m-text-muted/30 tracking-widest">AWAITING DATA</p>
+                  <p className="text-[9px] font-mono text-m-text-muted/20">Vault value tracked per run</p>
+                </div>
+              </div>
             </div>
           )}
         </div>
-      )}
+      </div>
     </div>
   )
 }
+
 
 function StatBlock({
   label, value, color, small, accent,
@@ -313,12 +304,3 @@ function ColStat({ label, value, color }: { label: string; value: string; color?
   )
 }
 
-function DetailRow({ label, value, color }: { label: string; value: string; color?: 'green' | 'red' | 'yellow' | 'cyan' }) {
-  const c = color === 'green' ? 'text-m-green' : color === 'red' ? 'text-m-red' : color === 'yellow' ? 'text-m-yellow' : color === 'cyan' ? 'text-m-cyan' : 'text-m-text'
-  return (
-    <div className="flex justify-between">
-      <span className="text-[9px] text-m-text-muted uppercase">{label}</span>
-      <span className={`text-[10px] font-mono ${c}`}>{value}</span>
-    </div>
-  )
-}

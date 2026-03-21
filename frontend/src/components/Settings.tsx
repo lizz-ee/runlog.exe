@@ -104,7 +104,7 @@ export default function Settings() {
   const [cliStatus, setCliStatus] = useState<{ installed: boolean; authenticated: boolean; path: string | null } | null>(null)
 
   useEffect(() => {
-    getSettings().then(setConfig).catch(console.error)
+    getSettings().then(setConfig).catch(() => {})
     checkCli()
 
     const runlog = (window as any).runlog
@@ -126,7 +126,7 @@ export default function Settings() {
   }, [])
 
   function saveConfig(key: string, value: any) {
-    updateConfig(key, value).catch(console.error)
+    updateConfig(key, value).catch(() => {})
     setConfig(prev => prev ? { ...prev, [key]: value } : prev)
   }
 

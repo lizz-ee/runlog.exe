@@ -45,6 +45,16 @@ export async function markAllRunsViewed(): Promise<void> {
   await api.post('/runs/viewed/all')
 }
 
+export async function toggleFavorite(id: number): Promise<{ is_favorite: boolean }> {
+  const { data } = await api.post(`/runs/${id}/favorite`)
+  return data
+}
+
+export async function cutClip(source: string, inPoint: number, outPoint: number, name: string): Promise<{ status: string; filename: string; duration: number }> {
+  const { data } = await api.post('/capture/clip/cut', { source, in_point: inPoint, out_point: outPoint, name })
+  return data
+}
+
 // Settings
 export interface AppSettings {
   has_api_key: boolean

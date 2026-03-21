@@ -72,13 +72,6 @@ def unviewed_count(db: Session = Depends(get_db)):
     return JSONResponse(content={"count": count})
 
 
-@router.get("/unviewed/reports")
-def unviewed_reports_count(db: Session = Depends(get_db)):
-    """Get count of unviewed run reports (runs with summary but not viewed)."""
-    count = db.query(func.count(Run.id)).filter(Run.viewed == False, Run.summary.isnot(None)).scalar()
-    return JSONResponse(content={"count": count})
-
-
 @router.post("/{run_id}/viewed")
 def mark_viewed(run_id: int, db: Session = Depends(get_db)):
     """Mark a run as viewed."""
@@ -96,3 +89,14 @@ def mark_all_viewed(db: Session = Depends(get_db)):
     db.query(Run).filter(Run.viewed == False).update({"viewed": True})
     db.commit()
     return JSONResponse(content={"status": "ok"})
+
+
+@router.post("/{run_id}/favorite")
+def toggle_favorite(run_id: int, db: Session = Depends(get_db)):
+    """Toggle favorite status on a run."""
+    run = db.query(Run).filter(Run.id == run_id).first()
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    run.is_favorite = not run.is_favorite
+    db.commit()
+    return JSONResponse(content={"status": "ok", "is_favorite": run.is_favorite})

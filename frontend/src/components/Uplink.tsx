@@ -44,7 +44,7 @@ const PHOSPHOR_GLOW = {
 
 export default function Uplink() {
   const [summary, setSummary] = useState<SessionSummary | null>(null)
-  const { uplinkMessages: messages, setUplinkMessages: setMessages, uplinkBriefing: briefing, setUplinkBriefing: setBriefing } = useStore()
+  const { uplinkMessages: messages, setUplinkMessages: setMessages, uplinkBriefing: briefing, setUplinkBriefing: setBriefing, captureStatus } = useStore()
   const [briefingLoading, setBriefingLoading] = useState(false)
   const [survivalTrend, setSurvivalTrend] = useState<TrendPoint[]>([])
   const [lootTrend, setLootTrend] = useState<TrendPoint[]>([])
@@ -56,13 +56,16 @@ export default function Uplink() {
   const inputRef = useRef<HTMLInputElement>(null)
   const briefingRunCount = useRef(0)
 
+  const lastRunId = captureStatus?.last_result?.run_id
+  const doneCount = captureStatus?.processing_items?.filter(i => i.status === 'done').length ?? 0
+
   useEffect(() => {
     axios.get(`${apiBase}/api/uplink/session-summary`).then(({ data }) => setSummary(data)).catch(() => {})
     axios.get(`${apiBase}/api/uplink/trends?stat=survival&range=all&group_by=session`).then(({ data }) => setSurvivalTrend(data)).catch(() => {})
     axios.get(`${apiBase}/api/uplink/trends?stat=loot&range=all&group_by=session`).then(({ data }) => setLootTrend(data)).catch(() => {})
     axios.get(`${apiBase}/api/uplink/trends?stat=runner_kills&range=all&group_by=session`).then(({ data }) => setKillsTrend(data)).catch(() => {})
     axios.get(`${apiBase}/api/runs/recent`).then(({ data }) => setTotalRuns(data.length)).catch(() => {})
-  }, [])
+  }, [lastRunId, doneCount])
 
   useEffect(() => {
     const currentRuns = summary?.run_count ?? 0

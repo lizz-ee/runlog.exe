@@ -157,6 +157,11 @@ class AutoCapture:
 
         self._recorder.stop()
 
+        # Clear stale frame so detection feed shows "AWAITING SIGNAL" instead of frozen game screen
+        with self._frame_lock:
+            self._latest_frame = None
+        self._last_detection = None
+
         if self._executor:
             self._executor.shutdown(wait=False)
 
@@ -182,7 +187,9 @@ class AutoCapture:
                     "created_at": i.get("created_at"),
                     "thumbnail": i.get("thumbnail"),
                     "detail": i.get("detail"),
+                    "file_size_mb": i.get("file_size_mb"),
                     "p1_failed": i.get("p1_failed"),
+                    "p2_failed": i.get("p2_failed"),
                     "loading_screen_found": i.get("loading_screen_found"),
                     "stats_tab_found": i.get("stats_tab_found"),
                     "loadout_tab_found": i.get("loadout_tab_found"),
@@ -311,6 +318,22 @@ class AutoCapture:
         count = sum(1 for p in phases if os.path.exists(os.path.join(self.recordings_dir, f"{name}_buf_{p}.jpg")))
         return count
 
+    def _save_deploy_shot(self, screenshots_dir: str, name: str, frame_jpeg: bytes):
+        """Save a deploy screenshot — full + center crop."""
+        try:
+            with open(os.path.join(screenshots_dir, f"{name}.jpg"), "wb") as f:
+                f.write(frame_jpeg)
+            # Center crop for coordinate readability
+            img = Image.open(io.BytesIO(frame_jpeg))
+            w, h = img.size
+            crop_w, crop_h = int(w * 0.4), int(h * 0.5)
+            left = (w - crop_w) // 2
+            top = (h - crop_h) // 2
+            crop = img.crop((left, top, left + crop_w, top + crop_h))
+            crop.save(os.path.join(screenshots_dir, f"{name}_crop.jpg"), "JPEG", quality=85)
+        except Exception as e:
+            print(f"[capture] Deploy shot save failed ({name}): {e}")
+
     def _move_buffer(self, name: str, screenshots_dir: str):
         """Move all phase screenshots (full + crop) to the run screenshots folder."""
         import shutil
@@ -371,7 +394,7 @@ class AutoCapture:
             except Exception as e:
                 print(f"[capture] Failed to save readyup screenshot: {e}")
 
-        # --- DEPLOY: single screenshot + start recording + move readyup buffer ---
+        # --- DEPLOY: 3-shot burst + start recording + move readyup buffer ---
         elif det_type == 'deploy' and not self._recording:
             import shutil
             map_name = result.get('map_name', 'Unknown')
@@ -383,10 +406,24 @@ class AutoCapture:
                 screenshots_dir = os.path.join(self.clips_dir, rec_name, "screenshots")
                 os.makedirs(screenshots_dir, exist_ok=True)
 
-                # Save single deploy screenshot (OCR frame — guaranteed correct)
-                with open(os.path.join(screenshots_dir, "deploy.jpg"), "wb") as f:
-                    f.write(frame_jpeg)
-                print(f"[capture] Deploy screenshot saved: {map_name}")
+                # Shot 1: immediate (may catch contract screen — too early)
+                self._save_deploy_shot(screenshots_dir, "deploy_1", frame_jpeg)
+                print(f"[capture] Deploy shot 1/3 saved: {map_name}")
+
+                # Shots 2 & 3: delayed 500ms and 1000ms (catch blue loading screen with coordinates)
+                def _delayed_deploy_shots():
+                    time.sleep(0.5)
+                    frame2 = self._latest_frame
+                    if frame2:
+                        self._save_deploy_shot(screenshots_dir, "deploy_2", frame2)
+                        print(f"[capture] Deploy shot 2/3 saved")
+                    time.sleep(0.5)
+                    frame3 = self._latest_frame
+                    if frame3:
+                        self._save_deploy_shot(screenshots_dir, "deploy_3", frame3)
+                        print(f"[capture] Deploy shot 3/3 saved")
+
+                threading.Thread(target=_delayed_deploy_shots, daemon=True).start()
 
                 # Move readyup buffer to run folder (3 shots)
                 readyup_moved = self._move_buffer('readyup', screenshots_dir)
@@ -511,6 +548,13 @@ class AutoCapture:
         except ValueError:
             pass
 
+        # Get file size
+        file_size_mb = None
+        try:
+            file_size_mb = round(os.path.getsize(filepath) / (1024 * 1024), 1)
+        except Exception:
+            pass
+
         with self._processing_lock:
             self._processing_items.append({
                 "file": filename,
@@ -520,6 +564,7 @@ class AutoCapture:
                 "duration_seconds": round(duration),
                 "created_at": created_at,
                 "thumbnail": None,
+                "file_size_mb": file_size_mb,
             })
 
         if not skip_thumbnail:
@@ -533,17 +578,24 @@ class AutoCapture:
             thumb_name = filename.replace(".mp4", "_thumb.jpg")
             thumb_path = os.path.join(self.recordings_dir, thumb_name)
             if not (os.path.exists(thumb_path) and os.path.getsize(thumb_path) > 5000):
-                try:
-                    seek = max(1, int(duration * 0.5))
-                    subprocess.run(
-                        ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
-                         '-ss', str(seek), '-i', filepath,
-                         '-vframes', '1', '-vf', 'scale=384:-1',
-                         '-q:v', '5', thumb_path],
-                        capture_output=True, timeout=15,
-                    )
-                except Exception:
-                    pass
+                # Prefer endgame screenshot (RUN_COMPLETE / death screen)
+                run_tag = filename.replace(".mp4", "")
+                endgame_jpg = os.path.join(self.clips_dir, run_tag, "screenshots", "endgame.jpg")
+                if os.path.exists(endgame_jpg):
+                    import shutil
+                    shutil.copy2(endgame_jpg, thumb_path)
+                else:
+                    try:
+                        seek = max(1, int(duration * 0.5))
+                        subprocess.run(
+                            ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
+                             '-ss', str(seek), '-i', filepath,
+                             '-vframes', '1', '-vf', 'scale=384:-1',
+                             '-q:v', '5', thumb_path],
+                            capture_output=True, timeout=15,
+                        )
+                    except Exception:
+                        pass
             if os.path.exists(thumb_path) and os.path.getsize(thumb_path) > 5000:
                 with self._processing_lock:
                     for item in self._processing_items:
@@ -553,7 +605,7 @@ class AutoCapture:
 
         threading.Thread(target=_gen_thumb, daemon=True).start()
 
-    def _update_processing_item(self, filepath: str, status: str, run_id: int | None = None, detail: str | None = None, p1_failed: bool | None = None):
+    def _update_processing_item(self, filepath: str, status: str, run_id: int | None = None, detail: str | None = None, p1_failed: bool | None = None, p2_failed: bool | None = None):
         filename = os.path.basename(filepath)
         from datetime import datetime, timezone
         now = datetime.now(timezone.utc).isoformat()
@@ -566,6 +618,8 @@ class AutoCapture:
                         item["run_id"] = run_id
                     if p1_failed is not None:
                         item["p1_failed"] = p1_failed
+                    if p2_failed is not None:
+                        item["p2_failed"] = p2_failed
                     if detail is not None:
                         item["detail"] = detail
                     elif status != old_status:
@@ -606,6 +660,27 @@ class AutoCapture:
         if os.path.exists(filepath):
             self._process_queue.put(filepath)
             print(f"[capture] Re-queued for processing: {filename}")
+
+    def retry_phase2(self, filename: str):
+        """Retry Phase 2 for a run where narrative failed. Keeps Phase 1 data."""
+        filepath = os.path.join(self.recordings_dir, filename)
+        run_id = None
+        with self._processing_lock:
+            for item in self._processing_items:
+                if item["file"] == filename:
+                    run_id = item.get("run_id")
+                    item["status"] = "analyzing_gameplay"
+                    item.pop("p2_failed", None)
+                    # Remove .done marker so it can be reprocessed
+                    done_marker = filepath + ".done"
+                    if os.path.exists(done_marker):
+                        os.remove(done_marker)
+                    break
+        if run_id and os.path.exists(filepath):
+            self._p2_executor.submit(self._process_phase2, filepath, run_id)
+            print(f"[capture] Retrying Phase 2 for run #{run_id}: {filename}")
+            return True
+        return False
 
     # -- Processing (dispatcher + workers) -----------------------------
 
@@ -737,7 +812,7 @@ class AutoCapture:
                 except Exception:
                     p2_failed = True
 
-            self._update_processing_item(filepath, "done", run_id=run_id, p1_failed=p2_failed)
+            self._update_processing_item(filepath, "done", run_id=run_id, p2_failed=p2_failed)
             try:
                 with open(filepath + ".done", "w") as f:
                     f.write(str(run_id))

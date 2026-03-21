@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getShellStats } from '../lib/api'
+import { useStore } from '../lib/store'
 import type { ShellStats } from '../lib/types'
 import Squad from './Squad'
 
@@ -26,7 +27,7 @@ const ALL_SHELLS = ['triage', 'vandal', 'recon', 'thief', 'destroyer', 'assassin
 const EMPTY_SHELL: ShellStats = {
   runner_id: 0, runner_name: '', runs: 0, survived: 0, survival_rate: 0,
   kills: 0, pve_kills: 0, pvp_kills: 0, deaths: 0, revives: 0, kd: 0,
-  loot: 0, avg_loot: 0, time: 0, avg_time: 0, favorite_weapon: null,
+  loot: 0, avg_loot: 0, time: 0, avg_time: 0, favorite_weapon: null, score: 0,
 }
 
 function getShellImage(name: string): string | null {
@@ -50,18 +51,21 @@ export default function Shells() {
   const [shells, setShells] = useState<ShellStats[]>([])
   const [selected, setSelected] = useState<string | null>(null)
 
+  const { captureStatus } = useStore()
+  const lastRunId = captureStatus?.last_result?.run_id
+  const doneCount = captureStatus?.processing_items?.filter(i => i.status === 'done').length ?? 0
+
   useEffect(() => {
     getShellStats().then((data) => {
       setShells(data)
-      // Select the best shell (most runs) by default
-      if (data.length > 0) {
+      if (!selected && data.length > 0) {
         const sorted = [...data].sort((a, b) => b.runs - a.runs)
         setSelected(sorted[0].runner_name.toLowerCase())
-      } else {
+      } else if (!selected) {
         setSelected('triage')
       }
-    }).catch(console.error)
-  }, [])
+    }).catch(() => {})
+  }, [lastRunId, doneCount])
 
   // Build shell map and sort: shells with data sorted by score (best first), then shells with no data
   const shellMap = new Map(shells.map((s) => [s.runner_name.toLowerCase(), s]))
@@ -286,7 +290,7 @@ function ShellCard({ name, img, runs, survivalRate, hasData, isSelected, rank, o
         {/* Name */}
         <p className={`text-xs tracking-[0.15em] font-bold uppercase transition-all duration-300 ${
           isSelected
-            ? 'text-[#c8ff00] drop-shadow-[0_0_8px_rgba(200,255,0,0.3)]'
+            ? 'text-[#c8ff00] drop-shadow-[0_0_8px_rgba(200,255,0,0.3)] animate-rgb-split'
             : 'text-m-text group-hover:text-[#c8ff00]/80'
         }`}>
           {name}

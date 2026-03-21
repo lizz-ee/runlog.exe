@@ -53,23 +53,26 @@ function getStageIndex(status: string): number {
   return idx >= 0 ? idx : -1
 }
 
-function PipelineProgress({ status, detail, p1Failed }: {
+function PipelineProgress({ status, detail, p1Failed, p2Failed }: {
   status: string
   detail?: string | null
   p1Failed?: boolean
+  p2Failed?: boolean
 }) {
   const currentIdx = getStageIndex(status)
   if (currentIdx < 0) return null
 
   const isP1Failed = status === 'phase1_failed' || !!p1Failed
-  const p1EndIdx = PIPELINE_STAGES.findIndex(s => s.key === 'phase1_done')
+  const isP2Failed = !!p2Failed
+  const p1EndIdx = PIPELINE_STAGES.findIndex(s => s.key === 'saving')  // P1 stages: 0-3
+  const p2StartIdx = PIPELINE_STAGES.findIndex(s => s.key === 'analyzing_gameplay')  // P2 stages: 4-6
 
   // Shape per stage: P0 (circle), P1 (triangle, square, circle), P2 (triangle, square, circle)
   const SHAPES = ['circle', 'triangle', 'square', 'circle', 'triangle', 'square', 'circle'] as const
 
   return (
     <div className="flex items-center gap-0">
-      {/* Detail text + P1 flags before shapes */}
+      {/* Detail text + flags before shapes */}
       <div className="flex flex-col items-end mr-2 gap-0">
         {status !== 'done' && status !== 'queued' && status !== 'encoding' && (
           <span className={`text-[9px] font-mono tracking-wider ${isP1Failed ? 'text-m-red' : 'text-m-cyan'}`}>
@@ -88,9 +91,12 @@ function PipelineProgress({ status, detail, p1Failed }: {
         const isDone = status === 'done'
         const phaseGap = i === 1 || i === 4  // Gap between P0/P1 and P1/P2
         const shape = SHAPES[i]
+        const isP2Stage = i >= p2StartIdx
 
         const colorClass = isDone
-          ? (isP1Failed && i <= p1EndIdx ? 'text-m-red/60' : 'text-m-green')
+          ? (isP1Failed && i <= p1EndIdx ? 'text-m-red/60'
+            : isP2Failed && isP2Stage ? 'text-m-red/60'
+            : 'text-m-green')
           : isP1Failed && i <= p1EndIdx
             ? (isActive ? 'text-m-red' : isCompleted ? 'text-m-red/60' : 'text-m-border/40')
             : isCompleted
@@ -199,25 +205,14 @@ export default function Live() {
 
       {/* Detection Feed — cyberpunk terminal with CSS overlays */}
       <div>
-        <div className={`relative overflow-hidden bg-m-black border-2 transition-colors duration-500 ${
-          status?.recording ? 'border-m-red/50' : 'border-m-border'
-        }`}>
-          {/* Corner brackets — flush to edges */}
-          <div className="absolute top-0 left-0 w-5 h-5 border-l-2 border-t-2 border-m-green/40 z-20 pointer-events-none" />
-          <div className="absolute top-0 right-0 w-5 h-5 border-r-2 border-t-2 border-m-green/40 z-20 pointer-events-none" />
-          <div className="absolute bottom-0 left-0 w-5 h-5 border-l-2 border-b-2 border-m-green/40 z-20 pointer-events-none" />
-          <div className="absolute bottom-0 right-0 w-5 h-5 border-r-2 border-b-2 border-m-green/40 z-20 pointer-events-none" />
-
-
-          {/* Scanline overlay */}
-          <div className="absolute inset-0 z-10 pointer-events-none opacity-30"
-            style={{ background: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.15) 2px, rgba(0,0,0,0.15) 4px)' }}
-          />
-
-          {/* Vignette */}
-          <div className="absolute inset-0 z-10 pointer-events-none"
-            style={{ background: 'radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.5) 100%)' }}
-          />
+        <div className={`relative overflow-hidden border-2 transition-colors duration-500 ${
+          status?.recording ? 'border-m-red/50' : 'border-m-green/10'
+        }`} style={{ background: 'radial-gradient(ellipse at center, #080812 0%, #030306 70%)' }}>
+          {/* CRT effects — identical to UPLINK chat terminal */}
+          <div className="absolute inset-0 pointer-events-none z-10"
+            style={{ backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(200,255,0,0.025) 2px, rgba(200,255,0,0.025) 3px)' }} />
+          <div className="absolute inset-0 pointer-events-none z-10"
+            style={{ boxShadow: 'inset 0 0 60px rgba(0,0,0,0.5), inset 0 0 120px rgba(0,0,0,0.3)' }} />
 
           {/* Top-left overlay: Engine + Detection */}
           <div className="absolute top-3 left-3 z-20 pointer-events-none feed-overlay-block feed-overlay-block-left">
@@ -508,6 +503,41 @@ export default function Live() {
                             : '▸ DISCARDING RECORDING...'}
                         </span>
                       </div>
+                    ) : item.status === 'done' && item.p2_failed ? (
+                      <>
+                        <div className="flex flex-col items-center gap-1">
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => {
+                                axios.post(`${apiBase}/api/capture/recording/retry-phase2`, { filename: item.file })
+                                  .then(() => addToast({ type: 'info', title: 'RETRYING NARRATIVE', body: item.file }))
+                                  .catch(() => addToast({ type: 'error', title: 'RETRY FAILED', body: item.file }))
+                              }}
+                              className="label-tag px-2 py-1 border border-m-cyan/40 text-m-cyan hover:bg-m-cyan/10 transition-all"
+                            >
+                              RETRY
+                            </button>
+                            <button
+                              onClick={() => {
+                                setDismissing(prev => ({ ...prev, [item.file]: 'deleting' }))
+                                axios.post(`${apiBase}/api/capture/recording/delete`, { filename: item.file })
+                                  .then(() => {
+                                    setTimeout(() => {
+                                      addToast({ type: 'info', title: 'RECORDING DISCARDED', body: item.file })
+                                      setDismissing(prev => { const n = { ...prev }; delete n[item.file]; return n })
+                                    }, 1500)
+                                  })
+                              }}
+                              className="label-tag px-2 py-1 border border-m-red/40 text-m-red hover:bg-m-red-glow transition-all"
+                            >
+                              DISCARD
+                            </button>
+                          </div>
+                          <span className="text-[8px] font-mono text-m-red/60 tracking-wider">
+                            NARRATIVE FAILED{item.file_size_mb ? ` · ${item.file_size_mb >= 1000 ? `${(item.file_size_mb / 1000).toFixed(1)}GB` : `${item.file_size_mb}MB`}` : ''}
+                          </span>
+                        </div>
+                      </>
                     ) : item.status === 'done' ? (
                       <>
                         <div className="flex flex-col items-center gap-1">
@@ -551,9 +581,11 @@ export default function Live() {
                           DISCARD
                         </button>
                           </div>
-                          <span className="text-[8px] font-mono text-m-text-muted/50 tracking-wider">FULL RECORDING</span>
+                          <span className="text-[8px] font-mono text-m-text-muted/50 tracking-wider">
+                            FULL RECORDING{item.file_size_mb ? ` · ${item.file_size_mb >= 1000 ? `${(item.file_size_mb / 1000).toFixed(1)}GB` : `${item.file_size_mb}MB`}` : ''}
+                          </span>
                         </div>
-                        <PipelineProgress status={item.status} detail={item.detail} p1Failed={item.p1_failed} />
+                        <PipelineProgress status={item.status} detail={item.detail} p1Failed={item.p1_failed} p2Failed={item.p2_failed} />
                       </>
                     ) : item.status === 'error' ? (
                       <div className="flex items-center gap-3">
@@ -601,7 +633,7 @@ export default function Live() {
                         </div>
                       </div>
                     ) : (
-                      <PipelineProgress status={item.status} detail={item.detail} p1Failed={item.p1_failed} />
+                      <PipelineProgress status={item.status} detail={item.detail} p1Failed={item.p1_failed} p2Failed={item.p2_failed} />
                     )}
                   </div>
                 </div>

@@ -42,7 +42,17 @@ class BackendManager {
    * Start the Python backend. Returns a promise that resolves when healthy.
    */
   async start() {
-    // Check if backend is already running (dev mode or previous instance)
+    // In production, kill any stale backend on our port before spawning fresh
+    if (!isDev) {
+      try {
+        await new Promise((resolve) => {
+          const { exec } = require('child_process')
+          exec(`for /f "tokens=5" %a in ('netstat -ano ^| findstr :${this.port} ^| findstr LISTENING') do taskkill /F /PID %a`, { shell: 'cmd.exe' }, () => resolve())
+        })
+      } catch {}
+    }
+
+    // Check if backend is already running (dev mode)
     const alreadyUp = await this._healthCheck()
     if (alreadyUp) {
       this.onStatus('ready', 'Backend already running')

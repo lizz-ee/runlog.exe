@@ -128,25 +128,15 @@ The QUEUE status card currently jams all active stage counts into one text line 
 - [x] State machine timeout recovery — deploy state resets after 90s (backed out), endgame resets + stops recording after 30min (crash/disconnect)
 - [ ] Death screen detection for mid-match death location tracking
 
-### UPLINK — AI Intel Page (Future)
-Lives in LIVE nav section (renamed from CAPTURE), below RUN REPORTS. AI-powered briefing + chat page.
-
-**Dashboard Panels (auto-generated on page load):**
-- [ ] Last session debrief — run count, survival rate, best run, loot totals
-- [ ] Performance trend — standout stats, week-over-week changes, rotating insights
-- [ ] AI briefing blurbs — auto-generated narrative summaries ("SESSION DEBRIEF: 6 runs, 3 extractions, Triage on Perimeter was your strongest pairing")
-- [ ] Trend charts — survival rate over time, loot over time, per-map performance (line graphs, crypto-style)
-
-**Chat Window:**
-- [ ] Conversational AI interface — ask questions about your stats, performance, loadouts, maps
-- [ ] Read-only DB access via pre-built query tools (get_runs_by_map, get_death_stats, get_performance_trend, etc.) — AI can never write/modify data
-- [ ] Haiku by default, model configurable in SYS.CONFIG
-- [ ] Supports both API key and CLI auth (same dual-path as processing)
-- [ ] Ephemeral chat history (clears on page leave / app restart) — dashboard panels make persistence unnecessary
-- [ ] AI has access to full run data, screenshots, and clips if needed for answering questions
-
-**SYS.CONFIG additions:**
-- [ ] UPLINK model selector (Haiku / Sonnet) — separate from processing model
+### UPLINK — AI Intel Page (Done)
+- [x] Session debrief — stat blocks (runs, survival, kills, deaths, loot, revives)
+- [x] AI briefing — auto-generated narrative summary with skeleton loading states
+- [x] Trend charts — SURVIVAL.RATE, LOOT.VALUE, RUNNER.ELIMINATIONS per session
+- [x] CRT terminal chat — conversational AI with 11 read-only query tools
+- [x] Haiku/Sonnet configurable in SYS.CONFIG (separate from processing model)
+- [x] Supports both API key and CLI auth
+- [x] Ephemeral chat history
+- [x] UPLINK model selector in SYS.CONFIG
 
 ### Detection Feed Aesthetic
 - ~~Boot sequence animation~~ — overkill, app already has boot sequence on startup
@@ -179,14 +169,13 @@ Lives in LIVE nav section (renamed from CAPTURE), below RUN REPORTS. AI-powered 
 - [x] Separate concurrency limits for Phase 1 vs Phase 2 — P1 pool (4 workers, fast), P2 pool (2 workers, heavy). Phase 1 completes and submits to P2 pool, freeing P1 workers immediately.
 
 ### Phase 2 Prompt Quality
-- [ ] Highlights prompt tuning — tighter criteria, better timestamp accuracy, better clip type selection
+- [x] Highlights prompt overhauled — priority ordering (pvp > death > close_call > extraction), visual verification requirement, no menus, multi-kill combining
 - [ ] Story/summary prompt tuning — more accurate narratives, review against actual gameplay
 
-### Processing Metrics (Backend)
-- [ ] Log per-phase timing to database (frame extraction, P1 analysis, compression, P2 analysis, clip cutting)
-- [ ] Track token usage from Anthropic API responses (input_tokens, output_tokens, cost estimate)
-- [ ] Store metrics per-run in a processing_metrics table (run_id, phase, duration_seconds, tokens_in, tokens_out)
-- [ ] CLI calls don't report tokens — only track for API-based analysis
+### Processing Metrics (Backend — JSON File)
+- [x] Per-run metrics logged to sonnet_metrics.json (recording, file size, resolution, frame extraction time, P1/P2 analysis time, total time, status, grade, clips count, map)
+- [ ] Add token usage tracking from API responses (input_tokens, output_tokens, cost estimate) — CLI calls don't report tokens
+- Note: Backend-only tracking for cost/performance analysis. No frontend exposure planned.
 
 ### Video & Clips
 - [x] KEEP button should store the full recording path on the run record
@@ -208,7 +197,15 @@ Lives in LIVE nav section (renamed from CAPTURE), below RUN REPORTS. AI-powered 
 ### Data Quality
 - [x] Sonnet should return `null` (not 0) for stats it couldn't find — prompt + schema change
 - [x] Frontend/stats should skip nulls in calculations — nulls treated as 0 in sums (correct behavior: unknown = don't count)
-- [ ] Shell detection accuracy — Vandal/Thief confusion persists despite facial geometry descriptions and high thinking. May need per-shell training examples or different approach
+- [x] Shell detection — detailed facial geometry prompts (face shape, distinguishing marks per shell), action + profile reference images, manual shell picker UI for corrections
 
 ### Data
 - [ ] Death heatmap (map game coordinates to map image, mark death locations)
+
+### NEURAL.LINK
+- [x] Glitch effect (animate-rgb-split) on shell names and runner gamertags — subtle red/cyan flicker, always-on
+
+### Run Page Redesign
+- [ ] Combine Run Records + Run Reports into a single unified page — expandable rows with inline highlights/reports
+- [ ] Favorites system — cyberpunk emblem on run cards (toggle to lock in), filter toggle at top to show favorited runs
+- [ ] Run report export for Discord — styled image card with Marathon aesthetic

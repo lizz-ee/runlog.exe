@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getSquadStats } from '../lib/api'
+import { useStore } from '../lib/store'
 
 interface SquadMate {
   gamertag: string
@@ -37,12 +38,16 @@ export default function Squad() {
   const [mates, setMates] = useState<SquadMate[]>([])
   const [selected, setSelected] = useState<string | null>(null)
 
+  const { captureStatus } = useStore()
+  const lastRunId = captureStatus?.last_result?.run_id
+  const doneCount = captureStatus?.processing_items?.filter(i => i.status === 'done').length ?? 0
+
   useEffect(() => {
     getSquadStats(7).then((data) => {
       setMates(data)
-      if (data.length > 0) setSelected(data[0].gamertag)
-    }).catch(console.error)
-  }, [])
+      if (!selected && data.length > 0) setSelected(data[0].gamertag)
+    }).catch(() => {})
+  }, [lastRunId, doneCount])
 
   const selectedMate = mates.find((m) => m.gamertag === selected)
 
@@ -225,11 +230,11 @@ function SquadCard({ mate, rank, isSelected, onClick }: {
         }`} />
 
         {/* Gamertag — where shell name is */}
-        <span className={`text-xs tracking-[0.15em] font-bold uppercase transition-all duration-300 truncate max-w-full block ${
+        <span className={`tracking-[0.15em] font-bold uppercase transition-all duration-300 truncate max-w-full block ${
           isSelected
-            ? 'text-[#c8ff00] drop-shadow-[0_0_8px_rgba(200,255,0,0.3)]'
+            ? 'text-[#c8ff00] drop-shadow-[0_0_8px_rgba(200,255,0,0.3)] animate-rgb-split'
             : 'text-m-text group-hover:text-m-cyan'
-        }`} style={{ fontSize: mate.gamertag.split('#')[0].length > 12 ? '9px' : undefined }}>
+        }`} style={{ fontSize: mate.gamertag.split('#')[0].length > 16 ? '7px' : mate.gamertag.split('#')[0].length > 12 ? '9px' : '12px' }}>
           {mate.gamertag.split('#')[0]}
         </span>
         {mate.gamertag.includes('#') && (

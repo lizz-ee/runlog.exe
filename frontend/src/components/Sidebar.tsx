@@ -20,9 +20,9 @@ const sections: NavSection[] = [
   {
     title: 'SYSTEM',
     items: [
-      { view: 'dashboard', label: 'OVERVIEW', tag: '01' },
-      { view: 'shells', label: 'NEURAL.LINK', tag: '02' },
-      { view: 'history', label: 'RUN RECORDS', tag: '03' },
+      { view: 'dashboard', label: 'TERMINAL', tag: '01' },
+      { view: 'history', label: 'TRANSMISSIONS', tag: '02' },
+      { view: 'shells', label: 'NEURAL.LINK', tag: '03' },
     ],
   },
   {
@@ -39,7 +39,6 @@ const sections: NavSection[] = [
     items: [
       { view: 'uplink' as View, label: 'UPLINK', tag: '08' },
       { view: 'live' as View, label: 'DETECT.EXE', tag: '09' },
-      { view: 'highlights' as View, label: 'RUN REPORTS', tag: '10' },
     ],
   },
 ]
@@ -65,13 +64,12 @@ const VIEW_TO_MAP: Record<string, string> = {
 }
 
 export default function Sidebar() {
-  const { view, setView, stats, unviewedCount, refreshUnviewed, unviewedReportsCount, refreshUnviewedReports } = useStore()
+  const { view, setView, stats, unviewedCount, refreshUnviewed } = useStore()
   const [stagingCounts, setStagingCounts] = useState<Record<string, number>>({})
 
   useEffect(() => {
     refreshUnviewed()
-    refreshUnviewedReports()
-    const interval = setInterval(() => { refreshUnviewed(); refreshUnviewedReports() }, 5000)
+    const interval = setInterval(() => { refreshUnviewed() }, 5000)
     return () => clearInterval(interval)
   }, [])
 
@@ -167,10 +165,7 @@ export default function Sidebar() {
                   <span className={`text-xs tracking-[0.1em] font-medium ${item.disabled ? 'line-through decoration-m-red/60' : ''}`}>
                     {item.label}
                   </span>
-                  {item.view === 'dashboard' && unviewedCount > 0 && (
-                    <span className="text-m-cyan"><UnviewedBadge /></span>
-                  )}
-                  {item.view === 'highlights' && unviewedReportsCount > 0 && (
+                  {item.view === 'history' && unviewedCount > 0 && (
                     <span className="text-m-cyan"><UnviewedBadge /></span>
                   )}
                   {stagingCounts[item.view] > 0 && (

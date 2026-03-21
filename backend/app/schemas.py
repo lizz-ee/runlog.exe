@@ -147,12 +147,18 @@ class RunOut(BaseModel):
     secondary_weapon: Optional[str] = None
     killed_by: Optional[str] = None
     killed_by_damage: Optional[int] = None
+    killed_by_weapon: Optional[str] = None
+    damage_contributors: Optional[list] = None
+    starting_loadout_value: Optional[float] = None
+    player_level: Optional[int] = None
+    vault_value: Optional[float] = None
     grade: Optional[str] = None
     summary: Optional[str] = None
     shell_name: Optional[str] = None
     player_gamertag: Optional[str] = None
     recording_path: Optional[str] = None
     viewed: Optional[bool] = None
+    is_favorite: Optional[bool] = None
     created_at: datetime
 
     class Config:

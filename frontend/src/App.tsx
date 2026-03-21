@@ -8,7 +8,6 @@ import Dashboard from './components/Dashboard'
 import RunHistory from './components/RunHistory'
 import Maps from './components/Maps'
 import Live from './components/Live'
-import RunReports from './components/RunReports'
 import Shells from './components/Shells'
 import Squad from './components/Squad'
 import Settings from './components/Settings'
@@ -191,7 +190,6 @@ export default function App() {
         {view === 'squad' && <Squad />}
         {mapName && <Maps selectedMap={mapName} />}
         {view === 'live' && <Live />}
-        {view === 'highlights' && <RunReports />}
         {view === 'uplink' && <Uplink />}
         {view === 'settings' && <Settings />}
       </main>

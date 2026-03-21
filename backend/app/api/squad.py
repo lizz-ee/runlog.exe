@@ -14,28 +14,41 @@ def get_squad_stats(limit: int = Query(7, ge=1, le=7), db: Session = Depends(get
     if not runs:
         return []
 
-    # Get all known player gamertags to exclude self
-    self_tags = {
-        tag.lower() for (tag,) in
-        db.query(Run.player_gamertag).filter(Run.player_gamertag.isnot(None)).distinct().all()
-    }
+    # Get the MOST COMMON player gamertag as self (avoids misidentified squad mates)
+    from sqlalchemy import func
+    most_common = db.query(Run.player_gamertag, func.count(Run.player_gamertag).label('cnt')) \
+        .filter(Run.player_gamertag.isnot(None)) \
+        .group_by(Run.player_gamertag).order_by(func.count(Run.player_gamertag).desc()).first()
+    if most_common:
+        base_self = most_common[0].split('#')[0].lower()
+        self_tags = {base_self, most_common[0].lower()}
+    else:
+        self_tags = set()
 
-    # Aggregate stats per squad mate
+    # Aggregate stats per squad mate (normalize gamertags — strip #tag for grouping)
     mates: dict[str, dict] = {}
     for r in runs:
         if not r.squad_members or not isinstance(r.squad_members, list):
             continue
         for name in r.squad_members:
-            if not name or name.lower() in self_tags:
+            if not name:
                 continue
-            if name not in mates:
-                mates[name] = {
-                    "gamertag": name,
+            base_name = name.split('#')[0].lower()
+            if base_name in self_tags or name.lower() in self_tags:
+                continue
+            # Group by base name (before #) so "AmazighRais" and "AmazighRais#0781" merge
+            key = base_name
+            if key not in mates:
+                mates[key] = {
+                    "gamertag": name,  # keep the most detailed version
                     "runs": 0, "survived": 0,
                     "pve_kills": 0, "pvp_kills": 0, "deaths": 0, "revives": 0,
                     "loot": 0, "time": 0,
                 }
-            m = mates[name]
+            # Update gamertag to the version with # tag if available
+            if '#' in name and '#' not in mates[key]["gamertag"]:
+                mates[key]["gamertag"] = name
+            m = mates[key]
             m["runs"] += 1
             m["survived"] += 1 if r.survived else 0
             m["pve_kills"] += r.combatant_eliminations or 0

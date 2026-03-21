@@ -260,8 +260,8 @@ function createWindow() {
   })
   if (saved?.isMaximized) mainWindow.maximize()
 
-  // Create overlay on startup
-  createOverlay()
+  // Overlay is created lazily — only when Marathon is first detected
+  // (see recording manager status callback below)
 
   // Save position/size on move and resize
   mainWindow.on('resize', saveWindowState)
@@ -488,8 +488,7 @@ app.whenReady().then(async () => {
       console.log(`[recording] ${status}: ${message}`)
       sendToRenderer('recording-status', { status, message })
 
-      // Update overlay for key events (create on first event if not already)
-      if (!overlayWindow) createOverlay()
+      // Update overlay for key events
       if (status === 'recording_started') {
         updateOverlay('recording', '')
       } else if (status === 'recording_stopped') {

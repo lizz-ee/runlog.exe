@@ -46,71 +46,63 @@ FRAME_FPS_START = 0.5         # deployment loading screen — static, 0.5fps is 
 FRAME_FPS_END = 5             # post-match tabs — flip fast, need higher fps
 
 
-# -- Phase 1 prompt (stats extraction from frames) --------------------------
+# -- (Old PHASE1_PROMPT removed — split into Call 1 prompt (inline in _analyze_with_screenshots)
+# -- and PHASE1_CALL2_PROMPT (end-of-run frames) below) ----------------------
 
-PHASE1_PROMPT = """You are analyzing screenshots extracted from a Marathon (Bungie 2026 extraction shooter) gameplay recording.
 
-The images are organized in TWO groups:
-- **start_NNNN.jpg**: Frames from the FIRST 90 SECONDS of the run. Look for:
-  - DEPLOYMENT LOADING SCREEN: A full-screen colored background (blue, red, black, purple, or green) with the map name in large text and TWO DECIMAL COORDINATE NUMBERS at the bottom center (e.g. "10.564070" and "195.869476"). These are spawn coordinates — capture them EXACTLY.
-  - The lobby/loadout screen is NOT recorded — do not expect to see shell, squad, starting inventory, or equipped weapons in start frames. These come from end frames.
+# -- Phase 1 Call 2 prompt (end-of-run frames — stats, death, loot) -----------
 
-- **end_NNNN.jpg**: Frames from the LAST 30 SECONDS of the run. Look for:
-  - DEATH SCREEN: Who killed the player, weapon used, damage contributors list
-  - STATS tab: "EXFILTRATED" or death status, "Combatant Eliminations" (PvE), "Runner Eliminations" (PvP), "Crew Revives", "Inventory Value" (loot), "Run Time" (MM:SS)
-  - PROGRESS tab: Season level, faction ranks
-  - LOADOUT tab: Weapons extracted, "Wallet Balance" with gain amount, "Report Summary"
+PHASE1_CALL2_PROMPT = """You are analyzing end-of-run screenshots from a Marathon (Bungie 2026 extraction shooter) gameplay recording.
 
-Extract ALL visible data. The STATS tab is GROUND TRUTH — use its exact numbers.
+These images are from the LAST 30 SECONDS of the run. Look for:
+- **DEATH SCREEN**: "NEURAL LINK SEVERED" — shows who killed the player (gamertag#number), their damage, and ALL damage contributors with their damage numbers. Read EVERY contributor, do not skip any.
+- **STATS tab**: Shows "EXFILTRATED" or "ELIMINATED" status, "Combatant Eliminations" (PvE), "Runner Eliminations" (PvP), "Crew Revives", "Inventory Value" (loot), "Run Time" (MM:SS). The CENTER column is the local player's stats. USE THESE EXACT NUMBERS.
+- **PROGRESS tab**: Season level, faction ranks. Less important.
+- **LOADOUT tab**: Shows weapons extracted, backpack items, "Wallet Balance" with gain amount, "Report Summary".
+
+The STATS tab is GROUND TRUTH — use its exact numbers. Do NOT estimate from gameplay.
 
 Return ONLY valid JSON:
 {
-  "map_name": "Perimeter" or "Outpost" or "Dire Marsh" or "Cryo Archive" or null,
-  "shell_name": "character class visible on STATS tab — identify by FACIAL GEOMETRY (face shape, eyes, nose, mouth), not armor/helmet/colors which change with cosmetic skins. Shells: Assassin, Destroyer, Recon, Thief, Triage, Vandal" or null,
-  "player_gamertag": "local player's gamertag from STATS or LOADOUT tab" or null,
-  "squad_members": ["squad", "gamertags", "from end screens"] or null,
-  "survived": true if "EXFILTRATED" or "Exit Successful", false if died, or null if unclear,
+  "survived": true if "EXFILTRATED" or "Exit Successful", false if "ELIMINATED" or died, or null if unclear,
   "kills": total from STATS tab (Combatant + Runner Eliminations) or null if not visible,
-  "combatant_eliminations": exact number from STATS tab or null if not visible,
-  "runner_eliminations": exact number from STATS tab or null if not visible,
+  "combatant_eliminations": exact number from STATS tab "Combatant Eliminations" or null,
+  "runner_eliminations": exact number from STATS tab "Runner Eliminations" or null,
   "deaths": 0 if EXFILTRATED, 1 if died, or null if unclear,
-  "crew_revives": exact number from STATS tab or null if not visible,
-  "duration_seconds": convert "Run Time" MM:SS to total seconds or null if not visible,
-  "loot_value_total": "Inventory Value" from STATS tab or null if not visible. NEVER zero for survived runs. Check LOADOUT tab "Wallet Balance" gain if STATS not found.,
-  "primary_weapon": "weapon name" or null,
-  "secondary_weapon": "weapon name" or null,
-  "killed_by": "gamertag of finisher from death screen" or null,
+  "crew_revives": exact number from STATS tab "Crew Revives" or null,
+  "duration_seconds": convert STATS tab "Run Time" MM:SS to total seconds or null,
+  "loot_value_total": "Inventory Value" from STATS tab or null. NEVER zero for survived runs. Check LOADOUT tab "Wallet Balance" gain if STATS not found.,
+  "primary_weapon": "weapon name from LOADOUT tab" or null,
+  "secondary_weapon": "weapon name from LOADOUT tab" or null,
+  "killed_by": "exact gamertag#number of finisher from death screen" or null,
   "killed_by_weapon": "weapon from death screen" or null,
-  "damage_contributors": [{"name": "gamertag", "damage": number, "finished": true/false}] or null,
-  "spawn_coordinates": [10.564070, 195.869476] or null,
-  "spawn_location": "zone name if visible" or null,
-  "loading_screen_found": true if you found the deployment loading screen with coordinates,
+  "killed_by_damage": finisher's damage number from death screen or null,
+  "damage_contributors": [{"name": "gamertag", "damage": number, "finished": true/false}] or null — list ALL players/enemies from the death screen. The finisher has "finished": true. Include EVERY entry, even UESC Recruits or AI enemies.,
+  "player_gamertag": "local player's gamertag from STATS tab (CENTER column)" or null,
+  "squad_members": ["all", "squad", "gamertags", "from STATS tab columns"] or null — include ALL members shown,
   "stats_tab_found": true if you found the STATS tab with kill/loot numbers,
-  "stats_tab_needs_more_frames": true if you can SEE the stats tab but frames are flipping too fast to read the numbers clearly — set this to request higher fps re-extraction,
+  "stats_tab_needs_more_frames": true if stats tab is visible but too blurry/fast to read — request higher fps,
   "loadout_tab_found": true if you found the LOADOUT tab with weapons/wallet
 }
 
-IMPORTANT: Return null for ANY field you cannot confidently read from the screenshots. Do NOT guess or default to 0. A null means "I couldn't find this" — a 0 means "the STATS tab explicitly showed 0". These are different.
-If you can see post-match screens but they're blurry or transitioning between tabs too quickly, set stats_tab_needs_more_frames to true.
+IMPORTANT: Return null for ANY field you cannot confidently read. Do NOT guess or default to 0. null means "not found" — 0 means "the STATS tab explicitly showed 0". These are different.
 
 Return ONLY valid JSON, no markdown fences, no explanation."""
 
 
 # -- Phase 2 prompt (narrative only, for video) -----------------------------
 
-PHASE2_PROMPT = """You are analyzing a recorded gameplay video from Marathon (Bungie 2026 extraction shooter).
+PHASE2_PROMPT = """You are analyzing a recorded Marathon (Bungie 2026 extraction shooter) gameplay run.
 
-The run's stats have ALREADY been extracted accurately. Do NOT extract or return any stats EXCEPT killed_by — if the player died, look for the "NEURAL LINK SEVERED" death screen which shows the killer's gamertag (e.g. "PlayerName#1234"). Read this name carefully and exactly.
+The run's stats (kills, loot, survival, killed_by) have ALREADY been extracted by Phase 1. Do NOT extract or return any stats. Phase 2 is ONLY for narrative analysis.
 
-Watch the ENTIRE video and provide ONLY:
+Analyze the gameplay and provide:
 1. A performance GRADE
 2. A narrative SUMMARY of the run
-3. HIGHLIGHT timestamps for clip cutting (3-5 BEST moments only)
-4. killed_by — the gamertag of the player who killed you (from the NEURAL LINK SEVERED screen), or null if survived
+3. HIGHLIGHT timestamps for clip cutting
 
 Return ONLY valid JSON:
 {
-  "killed_by": "exact gamertag#number from NEURAL LINK SEVERED screen" or null,
   "grade": "S, A, B, C, D, or F — YOUR rating based on the criteria below",
   "summary": "A narrative story of this run written in second person (you). 2-4 paragraphs. Describe the flow like a sports commentator recap — the drop, early looting, key fights, turning points, and how it ended. Make it engaging and specific.",
   "highlights": [
@@ -123,19 +115,25 @@ Return ONLY valid JSON:
   ]
 }
 
-GRADING CRITERIA:
-- S: Exceptional — survived with high kills (8+), big loot haul, clean execution
-- A: Great run — survived, solid kills, good loot, few mistakes
-- B: Solid — survived with decent stats, or died but put up a great fight
-- C: Average — mediocre kills/loot, or died in an unremarkable way
-- D: Poor — died quickly with little to show for it
-- F: Disaster — died almost immediately, no kills, no loot
+GRADING CRITERIA — Marathon is an EXTRACTION shooter. Survival and loot matter MORE than kills.
+Weight: Survival (35%) > Runner Kills (25%) > Loot (15%) > Revives (10%) > PvE Kills (5%) > Base (10%)
 
-HIGHLIGHT RULES — READ CAREFULLY:
+- S: Extracted with high loot ($3k+), runner kills, long run (10+ min), clean execution. OR extracted with exceptional loot ($5k+) even without kills. The best of the best.
+- A: Extracted with good loot ($1k+), some kills, solid play. OR survived a long dangerous run (10+ min) with smart play and good loot even if kills were low. Squad revives boost this grade.
+- B: Extracted with modest loot, or died mid-run but put up a real fight — runner kills, extended combat, decent loot before dying. A respectable effort.
+- C: Extracted quickly with minimal loot and no kills (in and out, nothing notable). OR died in an average firefight without much impact. Forgettable run.
+- D: Died relatively quickly with little to show — few kills, low loot, short run (under 3 minutes).
+- F: Died almost immediately (under 1 minute), no kills, no loot. Nothing happened.
+
+HIGHLIGHT RULES:
 
 PRIORITY ORDER: pvp_kill > death > close_call > extraction > combat > loot > funny.
 
-1. Select 3-5 of the BEST moments. Quality over quantity.
+1. MANDATORY clips — ALWAYS include if they happen:
+   - Every PVP KILL (runner kill) — NEVER skip a runner kill, these are the most valuable clips
+   - The DEATH moment — if the player died, ALWAYS clip it
+   - The EXTRACTION — if the player extracted, ALWAYS clip the extraction sequence
+   You are guaranteed at least one of death or extraction every run, plus at least one other notable moment from gameplay. After mandatory clips, include ALL other notable combat moments, close calls, and loot finds. No hard cap — if a long run has 8 great moments, clip all 8. Short runs (under 3 min) will naturally have 2-3 clips. Long runs (10+ min) may have 5-10+. Quality still matters — don't clip filler.
 
 2. VISUAL VERIFICATION — For each highlight, you MUST describe what is ON SCREEN at that exact timestamp in the "description" field. If you see a menu, inventory, loadout screen, stats screen, loading screen, solid color screen, or the player staring at a wall/floor/empty room — DO NOT include it. Only clip frames showing active gameplay with visible action.
 
@@ -154,8 +152,7 @@ PRIORITY ORDER: pvp_kill > death > close_call > extraction > combat > loot > fun
 
 6. NEVER CLIP THESE:
    - Inventory, menu, loadout, or map screens
-   - Post-match stats screens (BLOODSOAKED / EXFILTRATED results)
-   - Deployment loading screen with coordinates
+   - Post-match stats screens (ELIMINATED / EXFILTRATED results)
    - Player walking/running with no enemies or events
    - Solid red/black/blue screens (death transitions, loading)
    - Any moment where no enemies, combat effects, or events are visible
@@ -173,15 +170,11 @@ VIDEO_PROMPT = """You are analyzing a recorded gameplay video from Marathon (Bun
 
 Analyze the ENTIRE video carefully. The video covers one complete run from lobby to end.
 
-You will see some or all of these phases:
-1. **LOBBY/READY UP** - Character in lobby, green "READY UP" button visible. You can see the SHELL (character class) name and thumbnail image, the equipped loadout/weapons, and a STARTING INVENTORY VALUE (currency amount, e.g. "$4,500" or "B28/148"). Capture these.
-2. **CONTRACT BRIEFING** - Appears after matchmaking, before deploying. Shows the active contract name (e.g. "BUILD MEETS CRAFT II"), contract type (e.g. "MULTI-ZONE"), objectives with progress bars, player username and season level at top. Also shows warning text about gear risk.
-3. **DEPLOYING** - Countdown screen, shows map name and spawn coordinates
-4. **LOADING SCREEN** - Full-screen colored background (blue, red, black, purple, or green) with map name in large text, description below, and TWO DECIMAL COORDINATE NUMBERS at the bottom center (e.g. "10.564070" and "195.869476"). These are spawn coordinates — VERY IMPORTANT to capture exactly.
-5. **GAMEPLAY** - First-person shooter gameplay. Player loots, fights enemies (Combatants/AI and Runners/players), explores
-6. **DEATH** - Screen showing who killed the player and with what weapon, OR
-7. **EXTRACTION** - Player reaches extraction point and escapes with loot
-8. **POST-MATCH SCREENS** - Three tabs that ALWAYS appear at the end, back-to-back. These are the GROUND TRUTH — data from these screens OVERRIDES any estimates from gameplay. You MUST check the last 30 seconds of the video for these:
+The video recording starts at deployment — lobby, contract briefing, and loading screen are NOT in the video (those are captured separately as screenshots). The video contains:
+1. **GAMEPLAY** - First-person shooter gameplay. Player loots, fights enemies (Combatants/AI and Runners/players), explores
+2. **DEATH** - Screen showing who killed the player and with what weapon, OR
+3. **EXTRACTION** - Player reaches extraction point and escapes with loot
+4. **POST-MATCH SCREENS** - Three tabs that ALWAYS appear at the end, back-to-back. These are the GROUND TRUTH — data from these screens OVERRIDES any estimates from gameplay. You MUST check the last 30 seconds of the video for these:
    - **STATS tab** (appears FIRST): Shows character model, "EXFILTRATED" or death status, "Combatant Eliminations" (PvE kills), "Runner Eliminations" (PvP kills), "Crew Revives", "Inventory Value" (THIS IS THE LOOT VALUE), and "Run Time" (MM:SS). USE THESE EXACT NUMBERS.
    - **PROGRESS tab** (appears SECOND): Shows season level, faction ranks (CyAc, NLI, Traxus, etc.), contract completion. Less important for stats.
    - **LOADOUT tab** (appears THIRD): Shows weapons extracted, backpack items (e.g. "7/16"), items retained/transmuted/auto-sold/auto-vaulted, "Wallet Balance" at bottom with gain (e.g. "(+480) 64,941"), and "Report Summary: Exfil Successful".
@@ -193,7 +186,9 @@ Extract ALL of this information from the video:
   "shell_name": "name of the Shell (character class) visible in lobby, e.g. Triage, Warlock, etc." or null,
   "player_gamertag": "the local player's gamertag/username. In the squad display, the local player is ALWAYS the CENTER member. Extract their gamertag exactly as shown." or null,
   "squad_members": ["list", "of", "all", "squad", "member", "gamertags"] or null — include ALL members shown in the squad UI (including the local player). The local player is the center member.,
-  "starting_loadout_value": starting inventory/currency value visible in lobby before deploying (number) or null,
+  "starting_loadout_value": the gear value number shown DIRECTLY ABOVE the loadout grid in the lobby/ready-up screen (has a gear/cog icon, e.g. "1.5K" = 1500, "3.2K" = 3200, "961" = 961). This is the total value of equipped gear going into the run. Convert K notation to full number. NOT the wallet balance from the top-left HUD bar. Or null if lobby screen not visible in video.,
+  "player_level": runner level number visible in the lobby HUD bar (the FIRST number, next to the green circular icon, e.g. 33) or null,
+  "vault_value": total vault value from lobby HUD bar (the LAST number on the far right, next to a gear/cog icon, e.g. 62079) or null,
   "survived": true if player extracted, false if died,
   "kills": total kills from STATS tab (Combatant Eliminations + Runner Eliminations). DO NOT estimate from gameplay — use the exact numbers from the STATS screen.,
   "combatant_eliminations": exact number from STATS tab "Combatant Eliminations" field,
@@ -274,7 +269,19 @@ def _extract_json(text: str) -> dict:
     # Find the first '{'
     start = text.find("{")
     if start == -1:
-        raise ValueError(f"No JSON object found in response: {text[:200]}")
+        # CLI sometimes outputs JSON mid-stream then commentary after.
+        # Try finding JSON in reversed line order (last JSON block wins)
+        lines = text.split("\n")
+        for i in range(len(lines) - 1, -1, -1):
+            if "{" in lines[i]:
+                remainder = "\n".join(lines[i:])
+                start = remainder.find("{")
+                if start != -1:
+                    text = remainder
+                    start = text.find("{")
+                    break
+        if start == -1:
+            raise ValueError(f"No JSON object found in response: {text[:200]}")
 
     candidate = text[start:]
 
@@ -468,9 +475,15 @@ def _analyze_with_screenshots(deploy_jpg: str, readyup_jpg: str, frames_dir: str
     # --- Call 1: Deployment + Loadout ---
     screenshots = []
     screenshot_dir = os.path.dirname(deploy_jpg)
-    # Single deploy screenshot
-    if os.path.exists(deploy_jpg):
-        screenshots.append(os.path.abspath(deploy_jpg).replace("\\", "/"))
+    # Deploy screenshots — 3-shot burst (deploy_1/2/3) + legacy single (deploy.jpg)
+    # Later shots are more likely to have the clear blue loading screen with coordinates
+    for deploy_name in ['deploy_3', 'deploy_2', 'deploy_1', 'deploy']:
+        full = os.path.join(screenshot_dir, f"{deploy_name}.jpg")
+        crop = os.path.join(screenshot_dir, f"{deploy_name}_crop.jpg")
+        if os.path.exists(crop):
+            screenshots.append(os.path.abspath(crop).replace("\\", "/"))
+        if os.path.exists(full):
+            screenshots.append(os.path.abspath(full).replace("\\", "/"))
     # Add phase screenshots (new naming: readyup.jpg, run.jpg, deploying.jpg + crops)
     for phase in ['readyup', 'run', 'deploying']:
         full = os.path.join(screenshot_dir, f"{phase}.jpg")
@@ -512,8 +525,10 @@ def _analyze_with_screenshots(deploy_jpg: str, readyup_jpg: str, frames_dir: str
 
         image_list = "\n".join(f"- {p}" for p in screenshots)
         prompt1 = f"""Read these Marathon (2026 extraction shooter) screenshots. You may receive multiple images:
-1. **deploy.jpg** — the deployment loading screen with map name and spawn coordinates.
-2. **readyup.jpg** (READY UP screen), **run.jpg** (RUN screen), **deploying.jpg** (DEPLOYING screen) — one screenshot from each pre-deployment phase. Each may also have a **_crop.jpg** version (center-cropped to focus on loadout/shell/HUD). Some may be black/loading screens — IGNORE those and use the ones with actual game content (shell visible, loadout grid, weapons, map name, crew size, gamertag). Pick the BEST image for each piece of data.
+1. **deploy_1/2/3.jpg** + **deploy_1/2/3_crop.jpg** — 3 burst shots of the deployment loading screen taken 500ms apart. The LATER shots (deploy_3, deploy_2) are more likely to show the actual blue loading screen with clear map name and spawn coordinates. The EARLIER shot (deploy_1) may catch the contract/lobby screen before the loading screen appears. **ALWAYS prefer _crop.jpg versions** — they are center-cropped and much easier to read. Use the CLEAREST image with visible coordinates. Legacy single deploy.jpg may also be present as fallback.
+2. **readyup.jpg** (READY UP screen), **run.jpg** (RUN screen), **deploying.jpg** (DEPLOYING screen) — one screenshot from each pre-deployment phase. Each may also have a **_crop.jpg** version (center-cropped to focus on loadout/shell/HUD). **ALWAYS examine _crop.jpg versions FIRST** — they are higher detail for the important center content. Fall back to full screenshots only if crops are missing or unclear. Some may be black/loading screens — IGNORE those and use the ones with actual game content (shell visible, loadout grid, weapons, map name, crew size, gamertag).
+
+**CRITICAL: These screenshots may span multiple lobbies** (player swapped lobbies or joined a friend). The screenshots have different file timestamps — **ALWAYS prefer the MOST RECENT screenshot** (by file modification time) for loadout, shell, weapons, squad, and map data. An older screenshot may show a previous lobby with a different kit, map, or squad. When data conflicts between screenshots (different map names, different loadouts, different squad), **trust the newest one**. The chronological order is: readyup (earliest) → run (middle) → deploying (latest/closest to deployment).
 
 {image_list}
 {f'{chr(10)}Shell reference images — use these to identify the shell:{shell_refs}' if shell_refs else ''}
@@ -549,19 +564,28 @@ Each item has a price tag with a value. The COLOR of the price tag indicates the
 - Gold = Legendary (highest)
 Read the price tag color, NOT the item art color.
 
-**FULL SCREEN INFO (from readyup.jpg):**
+**FULL SCREEN INFO (from readyup.jpg / run.jpg / deploying.jpg FULL screenshots, NOT crops):**
 - Map name (e.g. PERIMETER) and crew size (e.g. "Crew: Solo", "Crew: Duo")
-- Player gamertag (shown above the character)
-- Player level (number next to gamertag)
+- Player gamertag (shown above the LOCAL player's character, CENTER of screen)
+- Squad members: ALL gamertags visible above each character (local player is CENTER, squad mates are LEFT and RIGHT). Include ALL members including the local player.
+- Player level: the FIRST number in the top-left HUD bar (next to the green circular icon, e.g. 33)
+- Vault value: the LAST number in the top-left HUD bar (far right, next to a gear/cog icon, e.g. 62079)
+
+**LOADOUT VALUE (from _crop.jpg screenshots):**
+- The gear icon number shown DIRECTLY ABOVE the loadout grid (e.g. "1.5K" = 1500, "830", "3.3K" = 3300)
+- Convert K notation to full number
 
 Extract and return ONLY valid JSON:
 {{
   "map_name": "Perimeter" or "Outpost" or "Dire Marsh" or "Cryo Archive" or null,
   "spawn_coordinates": [x, y] from deployment screen or null,
   "shell_name": "Assassin" or "Destroyer" or "Recon" or "Thief" or "Triage" or "Vandal" or null,
-  "player_gamertag": "gamertag" or null,
+  "player_gamertag": "gamertag of LOCAL player (CENTER character)" or null,
+  "squad_members": ["all", "gamertags", "visible above each character"] or null — include ALL members (local player is center, mates are left/right),
   "crew_size": "Solo" or "Duo" or "Trio" or null,
-  "loadout_value": total loadout value as integer or null,
+  "loadout_value": total loadout value as integer (from gear icon above loadout grid, convert K notation) or null,
+  "player_level": runner level from top-left HUD bar (first number, green circle icon) or null,
+  "vault_value": total vault value from top-left HUD bar (last number, gear icon, far right) or null,
   "primary_weapon_value": value of primary weapon or null,
   "primary_weapon_tier": "common" or "uncommon" or "rare" or "epic" or "legendary" or null,
   "secondary_weapon_value": value of secondary weapon or null,
@@ -640,7 +664,7 @@ Use null for anything not visible."""
 {image_list2}
 
 These are from the END of a Marathon run — stats screens, death screen, loadout report.{missing_hint}
-{PHASE1_PROMPT}"""
+{PHASE1_CALL2_PROMPT}"""
 
             frames_parent = os.path.dirname(batch[0])
             cmd2 = [claude_bin, "-p", prompt2, "--model", _get_model_config()["cli"],
@@ -688,7 +712,11 @@ These are from the END of a Marathon run — stats screens, death screen, loadou
         raise RuntimeError("Both CLI calls returned no data")
 
     # Ensure required fields exist
-    analysis.setdefault('loading_screen_found', os.path.exists(deploy_jpg))
+    # Check if any deploy screenshot exists (numbered burst or legacy single)
+    _any_deploy = os.path.exists(deploy_jpg) or any(
+        os.path.exists(os.path.join(screenshot_dir, f"deploy_{i}.jpg")) for i in range(1, 4)
+    )
+    analysis.setdefault('loading_screen_found', _any_deploy)
     analysis.setdefault('stats_tab_found', analysis.get('kills') is not None)
     analysis.setdefault('loadout_tab_found', analysis.get('primary_weapon') is not None)
 
@@ -709,7 +737,7 @@ def analyze_frames_phase1(frames_dir: str) -> dict:
     # API can handle many images — send all
     if settings.anthropic_api_key:
         try:
-            return _analyze_frames_with_api(frame_paths, PHASE1_PROMPT)
+            return _analyze_frames_with_api(frame_paths, PHASE1_CALL2_PROMPT)
         except Exception as e:
             print(f"[processor] Phase 1 API failed: {e}")
             claude_bin = _find_claude_cli()
@@ -734,7 +762,7 @@ def analyze_frames_phase1(frames_dir: str) -> dict:
 
     claude_bin = _find_claude_cli()
     if claude_bin:
-        return _analyze_frames_with_cli(frame_paths, PHASE1_PROMPT)
+        return _analyze_frames_with_cli(frame_paths, PHASE1_CALL2_PROMPT)
 
     raise RuntimeError("No Claude auth available for Phase 1")
 
@@ -971,9 +999,9 @@ Use ffmpeg to extract frames from the video, then read them to analyze the gamep
 1. Use ffprobe to get the video duration
 2. Extract frames at 1fps using ffmpeg (to a temp directory)
 3. Read the extracted frames to understand the gameplay
-4. Output ONLY the final JSON result — no commentary, no explanations, no status updates
+4. After analyzing ALL frames, output the JSON result
 
-CRITICAL: Your FINAL output must be ONLY a valid JSON object. Do not output any text before or after the JSON.
+ABSOLUTE REQUIREMENT: After you have completed your analysis, your VERY LAST message must contain the JSON object. Do NOT say "the JSON was output above" or "see my previous response" — you MUST output the complete JSON again as your final output. Even if you already output it earlier, REPEAT IT as your last message. The JSON must start with {{ and end with }}.
 
 {PHASE2_PROMPT}"""
 
@@ -1169,6 +1197,37 @@ def analyze_video(video_path: str) -> dict:
 
 # -- Clip cutting -----------------------------------------------------------
 
+def _generate_sprite_sheet(video_path: str, duration: float):
+    """Generate a sprite sheet (thumbnail grid) for hover scrub preview."""
+    import math
+    sprite_path = video_path.replace(".mp4", "_sprite.jpg")
+    try:
+        # Frame count: 3 frames per second of clip, minimum 30, cap at 300
+        total_frames = min(300, max(30, int(duration * 3)))
+        fps = total_frames / max(1, duration)
+        cols = min(10, total_frames)
+        rows = math.ceil(total_frames / cols)
+
+        # Timeout scales with duration: at least 30s, up to 10min for long recordings
+        timeout = max(30, min(600, int(duration * 1.2)))
+
+        result = subprocess.run(
+            ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'warning',
+             '-i', video_path,
+             '-vf', f'fps={fps},scale=384:-1,tile={cols}x{rows}',
+             '-q:v', '5', '-frames:v', '1',
+             sprite_path],
+            capture_output=True, text=True, timeout=timeout,
+        )
+        if result.returncode == 0 and os.path.exists(sprite_path):
+            size_kb = os.path.getsize(sprite_path) / 1024
+            print(f"[processor] Sprite sheet: {os.path.basename(sprite_path)} ({total_frames} frames, {cols}x{rows}, {size_kb:.0f}KB)")
+        else:
+            print(f"[processor] Sprite generation failed: {result.stderr[:200]}")
+    except Exception as e:
+        print(f"[processor] Sprite error: {e}")
+
+
 def cut_clips(source_path: str, clips_dir: str, highlights: list[dict], run_timestamp: str | None = None) -> list[str]:
     """Cut highlight clips from the original recording using stream copy.
 
@@ -1229,6 +1288,9 @@ def cut_clips(source_path: str, clips_dir: str, highlights: list[dict], run_time
                     )
                 except Exception:
                     pass
+
+                # Generate sprite sheet for hover scrub
+                _generate_sprite_sheet(clip_path, dur)
             else:
                 print(f"[processor] Clip failed (empty): {filename}")
         except Exception as e:
@@ -1379,6 +1441,11 @@ def save_run_to_db(analysis: dict, run_date: datetime | None = None) -> int | No
             secondary_weapon=analysis.get("secondary_weapon"),
             killed_by=analysis.get("killed_by"),
             killed_by_damage=_get_finisher_damage(analysis),
+            killed_by_weapon=analysis.get("killed_by_weapon"),
+            damage_contributors=analysis.get("damage_contributors"),
+            starting_loadout_value=analysis.get("starting_loadout_value") or analysis.get("loadout_value"),
+            player_level=analysis.get("player_level"),
+            vault_value=analysis.get("vault_value"),
             player_gamertag=analysis.get("player_gamertag"),
             squad_members=analysis.get("squad_members"),
             spawn_point_id=spawn_point_id,
@@ -1420,9 +1487,6 @@ def update_run_phase2(run_id: int, phase2_data: dict) -> bool:
             run.grade = phase2_data["grade"]
         if phase2_data.get("summary"):
             run.summary = phase2_data["summary"]
-        # Phase 2 can correct killed_by from the video (more accurate than frame OCR)
-        if phase2_data.get("killed_by"):
-            run.killed_by = phase2_data["killed_by"]
 
         db.commit()
         db.close()
@@ -1537,7 +1601,10 @@ def process_recording(recording_path: str, clips_dir: str, on_phase=None) -> dic
     has_readyup = os.path.exists(readyup_jpg) or any(
         os.path.exists(os.path.join(run_screenshots, f"readyup_{i}.jpg")) for i in range(1, 4)
     )
-    has_screenshots = os.path.exists(deploy_jpg) or has_readyup
+    has_deploy = os.path.exists(deploy_jpg) or any(
+        os.path.exists(os.path.join(run_screenshots, f"deploy_{i}.jpg")) for i in range(1, 4)
+    )
+    has_screenshots = has_deploy or has_readyup
 
     # Read endgame timestamp if available
     endgame_ts = None
@@ -1762,6 +1829,19 @@ def process_recording_phase2(
             recording_path, clips_dir, highlights, run_timestamp=rec_basename
         )
         print(f"[processor-p2] Created {len(result['clips'])} clips")
+
+    # Re-mark as unviewed AFTER everything is done (grade, summary, clips all ready)
+    try:
+        from .database import SessionLocal
+        from .models import Run
+        db = SessionLocal()
+        run = db.query(Run).filter(Run.id == run_id).first()
+        if run:
+            run.viewed = False
+            db.commit()
+        db.close()
+    except Exception:
+        pass
 
     result["status"] = "success"
     print(f"[processor-p2] Phase 2 complete in {time.time() - pipeline_start:.0f}s")

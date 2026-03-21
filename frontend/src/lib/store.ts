@@ -49,11 +49,6 @@ interface AppState {
   setUnviewedCount: (count: number) => void
   refreshUnviewed: () => Promise<void>
 
-  // Unviewed reports
-  unviewedReportsCount: number
-  setUnviewedReportsCount: (count: number) => void
-  refreshUnviewedReports: () => Promise<void>
-
   // Pending captures from hotkeys
   pendingCapture: PendingCapture | null
   setPendingCapture: (capture: PendingCapture | null) => void
@@ -123,15 +118,6 @@ export const useStore = create<AppState>((set) => ({
     try {
       const count = await getUnviewedCount()
       set({ unviewedCount: count })
-    } catch {}
-  },
-
-  unviewedReportsCount: 0,
-  setUnviewedReportsCount: (unviewedReportsCount) => set({ unviewedReportsCount }),
-  refreshUnviewedReports: async () => {
-    try {
-      const { data } = await (await import('axios')).default.get(`${(await import('./api')).apiBase}/api/runs/unviewed/reports`)
-      set({ unviewedReportsCount: data.count })
     } catch {}
   },
 
