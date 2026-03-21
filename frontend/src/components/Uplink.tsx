@@ -355,7 +355,7 @@ function TrendPanel({ title, data, domain, suffix, prefix }: {
       <div className="bg-m-card border border-m-border" style={{ height: 180 }}>
         {hasData ? (
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={data} margin={{ top: 5, right: -5, bottom: -10, left: -15 }}>
+            <AreaChart data={data} margin={{ top: 5, right: 15, bottom: -10, left: -15 }}>
               <defs>
                 <linearGradient id={`grad-${title.replace(/\s/g, '')}`} x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#c8ff00" stopOpacity={0.15} />
