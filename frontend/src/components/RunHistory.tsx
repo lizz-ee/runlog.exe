@@ -459,7 +459,7 @@ function ClipTimeline({ src, clipPath, label, onClose, onClipCreated, onPlayClip
 }
 
 /* ── Clip Pill — pill-shaped card with sprite scrub ── */
-function ClipPill({ label, thumbnail, sprite, spriteCols, spriteRows, spriteFrames, isActive, onPlay, onDelete }: {
+function ClipPill({ label, thumbnail, sprite, spriteCols, spriteRows, spriteFrames, isActive, onPlay }: {
   label: string
   thumbnail: string | null
   sprite: string | null
@@ -468,7 +468,6 @@ function ClipPill({ label, thumbnail, sprite, spriteCols, spriteRows, spriteFram
   spriteFrames: number | null
   isActive: boolean
   onPlay: (e: React.MouseEvent) => void
-  onDelete: (e: React.MouseEvent) => void
 }) {
   const pillRef = useRef<HTMLDivElement>(null)
   const [scrubbing, setScrubbing] = useState(false)
@@ -572,14 +571,6 @@ function ClipPill({ label, thumbnail, sprite, spriteCols, spriteRows, spriteFram
         </div>
       </button>
 
-      {/* Delete X */}
-      <button
-        onClick={onDelete}
-        className="absolute top-1.5 right-1.5 w-5 h-5 flex items-center justify-center bg-m-black/80 rounded-full border border-m-border text-m-text-muted hover:text-m-red hover:border-m-red/40 transition-all opacity-0 group-hover/clip:opacity-100 text-[10px] font-mono z-10"
-        title="Delete clip"
-      >
-        X
-      </button>
     </div>
   )
 }
@@ -876,7 +867,6 @@ export function RunRow({ run, isExpanded, onToggle, onToggleFavorite, onUpdate, 
   const [highlightsOpen, setHighlightsOpen] = useState(false)
   const [debriefOpen, setDebriefOpen] = useState(false)
   const [playingClip, setPlayingClip] = useState<string | null>(null)
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [folderSize, setFolderSize] = useState<number | null>(null)
   const [folderSizeTick, setFolderSizeTick] = useState(0)
   // Local clips override — when user creates/deletes clips, fetch fresh from API
@@ -1121,7 +1111,6 @@ export function RunRow({ run, isExpanded, onToggle, onToggleFavorite, onUpdate, 
                             spriteFrames={estFrames}
                             isActive={playingClip === relPath}
                             onPlay={(e) => { e.stopPropagation(); setPlayingClip(relPath) }}
-                            onDelete={(e) => { e.stopPropagation(); setDeleteTarget(relPath) }}
                           />
                         )
                       })()}
@@ -1136,7 +1125,6 @@ export function RunRow({ run, isExpanded, onToggle, onToggleFavorite, onUpdate, 
                           spriteFrames={clip.sprite_frames}
                           isActive={playingClip === clip.filename}
                           onPlay={(e) => { e.stopPropagation(); setPlayingClip(clip.filename) }}
-                          onDelete={(e) => { e.stopPropagation(); setDeleteTarget(clip.filename) }}
                         />
                       ))}
                     </div>
@@ -1188,44 +1176,6 @@ export function RunRow({ run, isExpanded, onToggle, onToggleFavorite, onUpdate, 
         </div>
       )}
 
-      {/* Delete confirmation dialog */}
-      {deleteTarget && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70" onClick={(e) => { e.stopPropagation(); setDeleteTarget(null) }}>
-          <div className="bg-m-card border border-m-red/40 p-6 max-w-sm mx-4 space-y-4" onClick={e => e.stopPropagation()}>
-            <div className="space-y-1">
-              <p className="label-tag text-m-red">SYS.WARN // PERMANENT.ACTION</p>
-              <p className="text-sm font-mono text-m-text">
-                THIS OPERATION WILL PURGE THE SELECTED FOOTAGE FROM LOCAL STORAGE. THIS ACTION CANNOT BE REVERSED.
-              </p>
-            </div>
-            <p className="text-[10px] font-mono text-m-text-muted tracking-wider truncate">
-              TARGET: {deleteTarget}
-            </p>
-            <div className="flex gap-3 pt-2">
-              <button
-                onClick={() => {
-                  axios.post(`${apiBase}/api/capture/clip/delete`, { filename: deleteTarget })
-                    .then(() => {
-                      if (playingClip === deleteTarget) setPlayingClip(null)
-                      setDeleteTarget(null)
-                      setFolderSizeTick(t => t + 1)
-                      refreshLocalClips()
-                    })
-                }}
-                className="label-tag px-4 py-1.5 border border-m-red/60 text-m-red hover:bg-m-red-glow transition-all"
-              >
-                CONFIRM PURGE
-              </button>
-              <button
-                onClick={() => setDeleteTarget(null)}
-                className="label-tag px-4 py-1.5 border border-m-border text-m-text-muted hover:text-m-text hover:border-m-green/40 transition-all"
-              >
-                ABORT
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
