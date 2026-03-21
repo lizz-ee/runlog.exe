@@ -112,7 +112,7 @@ export default function RunHistory() {
       <div>
         <p className="label-tag text-m-green">SYSTEM // RUN.RECORDS</p>
         <h2 className="text-xl font-display font-black tracking-wider text-m-text mt-1">
-          RUN HISTORY
+          RECORDS
         </h2>
       </div>
 
@@ -286,8 +286,6 @@ function RunRow({ run }: { run: Run }) {
               <DetailRow label="MAP" value={run.map_name ?? '—'} />
               <DetailRow label="SPAWN" value={run.spawn_location ?? 'Unknown'} />
               <ShellPicker run={run} />
-              <DetailRow label="PRIMARY" value={run.primary_weapon ?? '—'} />
-              <DetailRow label="SECONDARY" value={run.secondary_weapon ?? '—'} />
               <DetailRow label="OUTCOME" value={run.survived ? 'Exfiltrated' : 'Eliminated'}
                 color={run.survived ? 'green' : 'red'} />
               {run.killed_by && (
@@ -303,7 +301,6 @@ function RunRow({ run }: { run: Run }) {
               <DetailRow label="RUNNER KILLS" value={String(run.runner_eliminations || 0)} color="cyan" />
               <DetailRow label="DEATHS" value={String(run.deaths)} color={run.deaths > 0 ? 'red' : undefined} />
               <DetailRow label="REVIVES" value={String(run.crew_revives || 0)} color="green" />
-              <DetailRow label="TOTAL KILLS" value={String((run.combatant_eliminations || 0) + (run.runner_eliminations || 0))} />
             </div>
 
             {/* Right column - Loot & Squad */}
@@ -311,6 +308,8 @@ function RunRow({ run }: { run: Run }) {
               <p className="label-tag text-m-green mb-2">LOOT & SQUAD</p>
               <DetailRow label="INVENTORY" value={`$${run.loot_value_total.toLocaleString()}`}
                 color={run.loot_value_total >= 0 ? 'yellow' : 'red'} />
+              <DetailRow label="PRIMARY" value={run.primary_weapon ?? '—'} />
+              <DetailRow label="SECONDARY" value={run.secondary_weapon ?? '—'} />
               {run.squad_members && run.squad_members.length > 0 ? (
                 run.squad_members.map((m, i) => (
                   <DetailRow key={i} label={i === 0 ? 'SQUAD' : ''} value={m} />

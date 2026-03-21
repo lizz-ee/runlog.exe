@@ -229,8 +229,6 @@ function RunRow({ run, onViewed }: { run: Run; onViewed?: () => void }) {
               <DetailRow label="MAP" value={run.map_name ?? '—'} />
               <DetailRow label="SPAWN" value={run.spawn_location ?? 'Unknown'} />
               <DetailRow label="SHELL" value={run.shell_name ?? 'Unknown'} />
-              <DetailRow label="PRIMARY" value={run.primary_weapon ?? '—'} />
-              <DetailRow label="SECONDARY" value={run.secondary_weapon ?? '—'} />
               <DetailRow label="OUTCOME" value={run.survived ? 'Exfiltrated' : 'Eliminated'}
                 color={run.survived ? 'green' : 'red'} />
               {run.killed_by && (
@@ -244,12 +242,13 @@ function RunRow({ run, onViewed }: { run: Run; onViewed?: () => void }) {
               <DetailRow label="RUNNER KILLS" value={String(run.runner_eliminations || 0)} color="cyan" />
               <DetailRow label="DEATHS" value={String(run.deaths)} color={run.deaths > 0 ? 'red' : undefined} />
               <DetailRow label="REVIVES" value={String(run.crew_revives || 0)} color="green" />
-              <DetailRow label="TOTAL KILLS" value={String((run.combatant_eliminations || 0) + (run.runner_eliminations || 0))} />
             </div>
             <div className="space-y-2">
               <p className="label-tag text-m-green mb-2">LOOT & SQUAD</p>
               <DetailRow label="INVENTORY" value={`$${run.loot_value_total.toLocaleString()}`}
                 color={run.loot_value_total >= 0 ? 'yellow' : 'red'} />
+              <DetailRow label="PRIMARY" value={run.primary_weapon ?? '—'} />
+              <DetailRow label="SECONDARY" value={run.secondary_weapon ?? '—'} />
               {run.squad_members && run.squad_members.length > 0 ? (
                 run.squad_members.map((m, i) => (
                   <DetailRow key={i} label={i === 0 ? 'SQUAD' : ''} value={m} />

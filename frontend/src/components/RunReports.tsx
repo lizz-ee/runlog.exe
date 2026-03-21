@@ -102,7 +102,7 @@ export default function RunReports() {
         <div>
           <p className="label-tag text-m-green">CAPTURE // RUN.REPORTS</p>
           <h2 className="text-xl font-display font-black tracking-wider text-m-text mt-1">
-            DEBRIEF
+            REPORTS
           </h2>
         </div>
         <div className="bg-m-card border border-m-border p-10 text-center">
@@ -119,7 +119,7 @@ export default function RunReports() {
         <div>
           <p className="label-tag text-m-green">CAPTURE // RUN.REPORTS</p>
           <h2 className="text-xl font-display font-black tracking-wider text-m-text mt-1">
-            DEBRIEF
+            REPORTS
           </h2>
         </div>
         <p className="label-tag text-m-text-muted">
