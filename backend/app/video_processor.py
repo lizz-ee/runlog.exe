@@ -188,7 +188,7 @@ Extract ALL of this information from the video:
   "squad_members": ["list", "of", "all", "squad", "member", "gamertags"] or null — include ALL members shown in the squad UI (including the local player). The local player is the center member.,
   "starting_loadout_value": the gear value number shown DIRECTLY ABOVE the loadout grid in the lobby/ready-up screen (has a gear/cog icon, e.g. "1.5K" = 1500, "3.2K" = 3200, "961" = 961). This is the total value of equipped gear going into the run. Convert K notation to full number. NOT the wallet balance from the top-left HUD bar. Or null if lobby screen not visible in video.,
   "player_level": runner level number visible in the lobby HUD bar (the FIRST number, next to the green circular icon, e.g. 33) or null,
-  "vault_value": total vault value from lobby HUD bar (the LAST number on the far right, next to a gear/cog icon, e.g. 62079) or null,
+  "vault_value": the VERY LAST number on the far RIGHT end of the top-left HUD bar (gear/cog icon ⚙, typically a large 5-digit number like 65131 or 82875). NOT the currency/box icon number which appears earlier. Or null,
   "survived": true if player extracted, false if died,
   "kills": total kills from STATS tab (Combatant Eliminations + Runner Eliminations). DO NOT estimate from gameplay — use the exact numbers from the STATS screen.,
   "combatant_eliminations": exact number from STATS tab "Combatant Eliminations" field,
@@ -548,32 +548,15 @@ Key distinguishing features:
 - **Triage**: masculine face, split-tone skin (light/dark), green eyes, headphones/ear pieces, cross/plus markings
 - **Vandal**: feminine face, wider/rounder face than Thief, fuller lips, often has horns or spiked hair in skins, nose piercing
 
-**LOADOUT GRID LAYOUT (2x3 grid, left to right, top to bottom):**
-- Column 1 (left): Shell portrait (character thumbnail)
-- Row 1: Primary Weapon | Core | Shield
-- Row 2: Secondary Weapon | Core | Backpack
-- Above the grid: total loadout value (e.g. "830", "2.8K", "3.3K")
-- Below the grid: contract name (e.g. "WELL-EQUIPPED II", "SEKIGUCHI SPONSORED KIT")
-
-**ITEM TIER SYSTEM:**
-Each item has a price tag with a value. The COLOR of the price tag indicates the item's tier:
-- Gray = Common
-- Green = Uncommon
-- Blue = Rare
-- Purple = Epic
-- Gold = Legendary (highest)
-Read the price tag color, NOT the item art color.
-
 **FULL SCREEN INFO (from readyup.jpg / run.jpg / deploying.jpg FULL screenshots, NOT crops):**
 - Map name (e.g. PERIMETER) and crew size (e.g. "Crew: Solo", "Crew: Duo")
 - Player gamertag (shown above the LOCAL player's character, CENTER of screen)
 - Squad members: ALL gamertags visible above each character (local player is CENTER, squad mates are LEFT and RIGHT). Include ALL members including the local player.
-- Player level: the FIRST number in the top-left HUD bar (next to the green circular icon, e.g. 33)
-- Vault value: the LAST number in the top-left HUD bar (far right, next to a gear/cog icon, e.g. 62079)
+- Player level: the FIRST number in the top-left HUD bar (next to the green circular icon, e.g. 34)
+- Vault value: the VERY LAST number on the far RIGHT end of the top-left HUD bar. It is next to a gear/cog icon (⚙). The HUD bar reads left-to-right: green circle + level | rank bars | box icon + currency | list icon + fraction | gear icon + VAULT VALUE. The vault value is typically a large 5-digit number like 65,131 or 82,875. Do NOT confuse it with the currency value (box icon, typically 1,000-5,000) which appears earlier in the bar.
 
 **LOADOUT VALUE (from _crop.jpg screenshots):**
-- The gear icon number shown DIRECTLY ABOVE the loadout grid (e.g. "1.5K" = 1500, "830", "3.3K" = 3300)
-- Convert K notation to full number
+- The gear icon number shown DIRECTLY ABOVE the loadout grid (e.g. "1.5K" = 1500, "830", "3.3K" = 3300). Convert K notation to full number.
 
 Extract and return ONLY valid JSON:
 {{
@@ -584,21 +567,8 @@ Extract and return ONLY valid JSON:
   "squad_members": ["all", "gamertags", "visible above each character"] or null — include ALL members (local player is center, mates are left/right),
   "crew_size": "Solo" or "Duo" or "Trio" or null,
   "loadout_value": total loadout value as integer (from gear icon above loadout grid, convert K notation) or null,
-  "player_level": runner level from top-left HUD bar (first number, green circle icon) or null,
-  "vault_value": total vault value from top-left HUD bar (last number, gear icon, far right) or null,
-  "primary_weapon_value": value of primary weapon or null,
-  "primary_weapon_tier": "common" or "uncommon" or "rare" or "epic" or "legendary" or null,
-  "secondary_weapon_value": value of secondary weapon or null,
-  "secondary_weapon_tier": tier or null,
-  "shield_value": value or null,
-  "shield_tier": tier or null,
-  "backpack_value": value or null,
-  "backpack_tier": tier or null,
-  "core1_value": value of first core or null,
-  "core1_tier": tier or null,
-  "core2_value": value of second core or null,
-  "core2_tier": tier or null,
-  "contract_name": "contract name" or null
+  "player_level": runner level from top-left HUD bar (first number, green circle icon, e.g. 34) or null,
+  "vault_value": the LAST number on the far RIGHT of the top-left HUD bar (gear/cog icon ⚙, typically a large 5-digit number like 65131). NOT the currency/box icon number. Or null,
 }}
 
 Use null for anything not visible."""

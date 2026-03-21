@@ -165,7 +165,7 @@ export default function Sidebar() {
                   <span className={`text-xs tracking-[0.1em] font-medium ${item.disabled ? 'line-through decoration-m-red/60' : ''}`}>
                     {item.label}
                   </span>
-                  {item.view === 'history' && unviewedCount > 0 && (
+                  {item.view === 'dashboard' && unviewedCount > 0 && (
                     <span className="text-m-cyan"><UnviewedBadge /></span>
                   )}
                   {stagingCounts[item.view] > 0 && (
