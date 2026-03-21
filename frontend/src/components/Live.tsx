@@ -482,8 +482,15 @@ export default function Live() {
                         </span>
                       )}
                       {item.run_id && (
-                        <span className="text-[10px] font-mono text-m-cyan">
-                          LOGGED
+                        <span className="text-[10px] font-mono flex gap-2">
+                          <span className="text-m-green">STATS ✓</span>
+                          {item.status === 'done' && !item.p1_failed ? (
+                            <span className="text-m-green">NARRATIVE ✓</span>
+                          ) : item.status === 'done' && item.p1_failed ? (
+                            <span className="text-m-red">NARRATIVE ✗</span>
+                          ) : (
+                            <span className="text-m-text-muted/40">NARRATIVE ...</span>
+                          )}
                         </span>
                       )}
                     </div>
