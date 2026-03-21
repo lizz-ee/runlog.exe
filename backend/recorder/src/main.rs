@@ -460,7 +460,7 @@ fn main() {
                 pending.take().unwrap()
             };
 
-            // Full resolution — 4K frames for OCR + screenshot quality
+            // Full 4K resolution for OCR + screenshot quality
             let ocr_scale = 1;
             let ow = frame_data.width / ocr_scale;
             let oh = frame_data.height / ocr_scale;
