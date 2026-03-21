@@ -220,7 +220,7 @@ export default function Uplink() {
           </div>
 
           {/* ─── TREND CHARTS — oscilloscope style ─── */}
-          <TrendPanel title="TRENDS // SURVIVAL" data={survivalTrend} domain={[0, 100]} suffix="%" />
+          <TrendPanel title="TRENDS // SURVIVAL.RATE" data={survivalTrend} domain={[0, 100]} suffix="%" />
           <TrendPanel title="TRENDS // LOOT.EXTRACTED" data={lootTrend} prefix="$" />
         </div>
 
