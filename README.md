@@ -53,11 +53,13 @@ Two sections, **Shells** and **Runners**, both ranked by weighted performance sc
 
 ## MAPS
 
-Interactive spawn maps for each map. Click any spawn marker to see stats for that location — survival rate, loot, weapons used, and who killed you there. Spawn coordinates extracted automatically from the deployment loading screen and fuzzy-matched to known locations. New spawns auto-detected and staged for positioning.
+Per-map stats with interactive spawn markers. Each map page shows total runs, survival rate, K/D, and time played for that map. Scrollable spawn point list on the right for quick navigation. Map-wide favorites, economy, combat, and time breakdowns at the bottom.
 
-![PERIMETER — Spawn Heatmap](docs/screenshots/perimeter.png)
+![PERIMETER — Spawn Map](docs/screenshots/perimeter.png)
 
-![DIRE MARSH — Spawn Heatmap](docs/screenshots/dire_marsh.png)
+Hover any spawn marker to see per-spawn stats — survival rate, loot averages, weapons used, and who killed you there. New spawns are detected automatically and appear as uncharted markers that you can drag into position and rename.
+
+![DIRE MARSH — Spawn Stats](docs/screenshots/dire_marsh.png)
 
 ---
 
