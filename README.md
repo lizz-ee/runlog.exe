@@ -77,9 +77,7 @@ AI tactical advisor and session tracker. Every time you launch the app and play,
 
 ## DETECT.EXE
 
-Live capture monitor. Game feed with OCR scan regions, engine status, and recording state. Auto-records from deployment to lobby return.
-
-Processing pipeline below — recordings queue up and move through stat extraction, narrative generation, and highlight clipping. Each recording shows its current pipeline stage.
+Where the magic happens. The detection engine watches your game, auto-records every run from deployment to lobby, and feeds recordings into the processing pipeline — stats, narrative, and highlight clips, all hands-free. Just play.
 
 ![DETECT.EXE — Live Capture](docs/screenshots/detect_exe.png)
 
