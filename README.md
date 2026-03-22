@@ -61,7 +61,7 @@ Hover any spawn marker for per-spawn stats — survival rate, win streak, loot a
 
 ![DIRE MARSH — Per-Spawn Stats](docs/screenshots/dire_marsh.png)
 
-New spawns are detected automatically and staged in the top-left bracket as uncharted markers. Drag them onto the map, rename them, and save.
+New spawns are detected automatically and staged in the top-left bracket as uncharted markers. Drag them onto the map, rename them, and save. Future runs with matching coordinates will automatically log to that spawn.
 
 ![OUTPOST — Uncharted Spawn Staging](docs/screenshots/outpost.png)
 
