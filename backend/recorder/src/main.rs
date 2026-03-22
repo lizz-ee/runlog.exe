@@ -33,6 +33,8 @@ enum Command {
     Stop,
     #[serde(rename = "screenshot")]
     Screenshot { path: String },
+    #[serde(rename = "ocr_fast")]
+    OcrFast { enabled: bool },
     #[serde(rename = "quit")]
     Quit,
 }
@@ -100,6 +102,8 @@ struct SharedState {
     screenshot_path: Mutex<Option<String>>,
     /// Total encoded frames (for reporting)
     encoded_frames: AtomicU64,
+    /// Force fast direct OCR even during recording (after RUN_COMPLETE)
+    ocr_fast: AtomicBool,
     /// OCR frame buffer — callback copies raw pixels here, bg thread processes
     ocr_pending: Mutex<Option<OcrFrameData>>,
     ocr_notify: std::sync::Condvar,
@@ -350,6 +354,7 @@ impl GraphicsCaptureApiHandler for Recorder {
                         self.recording_path = Some(path.clone());
                         self.recording_start = Some(Instant::now());
                         self.state.encoded_frames.store(0, Ordering::Relaxed);
+                        self.state.ocr_fast.store(false, Ordering::Relaxed); // Reset to staged OCR
                         emit(&Event::RecordingStarted { path });
                     }
                     Err(e) => {
@@ -385,18 +390,21 @@ impl GraphicsCaptureApiHandler for Recorder {
         }
 
         // OCR frame: fast in menus (~0.25s), slow during recording (~3s)
+        // ocr_fast flag overrides to fast+direct even during recording (after RUN_COMPLETE)
         let is_recording = self.encoder.is_some();
-        let interval = if is_recording {
+        let ocr_fast = self.state.ocr_fast.load(Ordering::Relaxed);
+        let use_staged = is_recording && !ocr_fast;
+        let interval = if use_staged {
             self.ocr_interval * 12  // ~3s during recording (just need endgame)
         } else {
-            self.ocr_interval       // ~0.25s in menus (responsive detection)
+            self.ocr_interval       // ~0.25s in menus or after RUN_COMPLETE
         };
         if self.frame_count % interval == 0 {
-            if is_recording {
+            if use_staged {
                 // Zero-stall path: double-buffered staging (data is one interval old)
                 self.send_ocr_frame_staged(frame);
             } else {
-                // Direct path: frame.buffer() — fast and responsive, GPU not under load
+                // Direct path: frame.buffer() — fast and responsive
                 self.send_ocr_frame(frame);
             }
         }
@@ -606,6 +614,7 @@ fn main() {
         should_quit: AtomicBool::new(false),
         screenshot_path: Mutex::new(None),
         encoded_frames: AtomicU64::new(0),
+        ocr_fast: AtomicBool::new(false),
         ocr_pending: Mutex::new(None),
         ocr_notify: std::sync::Condvar::new(),
     });
@@ -683,6 +692,10 @@ fn main() {
                 }
                 Ok(Command::Screenshot { path }) => {
                     *ipc_state.screenshot_path.lock().unwrap() = Some(path);
+                }
+                Ok(Command::OcrFast { enabled }) => {
+                    ipc_state.ocr_fast.store(enabled, Ordering::Relaxed);
+                    eprintln!("[recorder] OCR fast mode: {}", if enabled { "ON" } else { "OFF" });
                 }
                 Ok(Command::Quit) => {
                     ipc_state.should_quit.store(true, Ordering::Relaxed);

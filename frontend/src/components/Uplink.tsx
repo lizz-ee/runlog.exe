@@ -140,7 +140,7 @@ export default function Uplink() {
     <div className="max-w-7xl mx-auto h-full flex flex-col">
       {/* ═══ HEADER ═══ */}
       <div className="mb-4">
-        <p className="label-tag text-m-green">LIVE // UPLINK</p>
+        <p className="label-tag text-m-green">LIVE UPLINK</p>
         <h2 className="text-xl font-display font-black tracking-wider text-m-text mt-1">
           {(summary as any)?.session_code || 'UPLINK'}
         </h2>

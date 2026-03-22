@@ -153,6 +153,10 @@ class RustRecorder:
 
     # -- Internal ----------------------------------------------------------
 
+    def set_ocr_fast(self, enabled: bool):
+        """Toggle fast direct OCR mode (after RUN_COMPLETE)."""
+        self._send_command({"cmd": "ocr_fast", "enabled": enabled})
+
     def _send_command(self, cmd: dict):
         """Send a JSON command to the Rust binary via stdin."""
         if not self._proc or self._proc.poll() is not None:

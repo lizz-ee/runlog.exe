@@ -96,14 +96,20 @@ def capture_frame():
     return Response(content=jpeg, media_type="image/jpeg")
 
 
-@router.get("/thumbnail/{filename}")
+@router.get("/thumbnail/{filename:path}")
 def serve_thumbnail(filename: str):
-    """Serve a recording thumbnail image."""
-    filepath = os.path.join(RECORDINGS_DIR, filename)
-    if not os.path.exists(filepath):
-        raise HTTPException(status_code=404, detail="Thumbnail not found")
+    """Serve a recording thumbnail image. Checks recordings dir and clips/saved folders."""
     from fastapi.responses import FileResponse
-    return FileResponse(filepath, media_type="image/jpeg")
+    # Check recordings dir first
+    filepath = os.path.join(RECORDINGS_DIR, filename)
+    if os.path.exists(filepath):
+        return FileResponse(filepath, media_type="image/jpeg")
+    # Check clips dir (thumbnail moves with auto-save)
+    clips_dir = os.path.join(os.path.dirname(RECORDINGS_DIR), "clips")
+    clips_path = os.path.join(clips_dir, filename)
+    if os.path.exists(clips_path):
+        return FileResponse(clips_path, media_type="image/jpeg")
+    raise HTTPException(status_code=404, detail="Thumbnail not found")
 
 
 @router.get("/clips")

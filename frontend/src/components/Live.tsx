@@ -377,14 +377,14 @@ export default function Live() {
             if (!hasItems) return 'border-m-border/20 bg-m-surface/50'
             if (key === 'done') return 'border-m-green bg-m-green/15'
             if (key === 'queued') return 'border-m-text-muted/60 bg-m-text-muted/5'
-            return 'border-m-green bg-m-green/10 animate-pill-glow'
+            return 'border-m-cyan bg-m-cyan/10 animate-pill-glow'
           }
 
           function pillTextColor(key: string, hasItems: boolean) {
             if (!hasItems) return 'text-m-text-muted/25'
             if (key === 'done') return 'text-m-green'
             if (key === 'queued') return 'text-m-text-muted'
-            return 'text-m-green'
+            return 'text-m-cyan'
           }
 
           return (

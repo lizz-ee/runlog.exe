@@ -4,6 +4,7 @@ import axios from 'axios'
 import { getRuns, updateRun, getClips, getClipUrl, apiBase, toggleFavorite, cutClip, deleteClip, deleteKeptRecording } from '../lib/api'
 import { useStore } from '../lib/store'
 import type { Run, Clip } from '../lib/types'
+import rankedIcon from '../assets/ranked.png'
 
 function formatDuration(seconds: number | null): string {
   if (!seconds) return '—'
@@ -667,6 +668,7 @@ export default function RunHistory() {
   const [outcomeFilter, setOutcomeFilter] = useState<'all' | 'survived' | 'died'>('all')
   const [gradeFilter, setGradeFilter] = useState<string>('')
   const [mapFilter, setMapFilter] = useState('')
+  const [rankedFilter, setRankedFilter] = useState(false)
   const [favFilter, setFavFilter] = useState(false)
   const [page, setPage] = useState(0)
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
@@ -681,6 +683,7 @@ export default function RunHistory() {
     if (outcomeFilter === 'died') params.survived = false
     if (gradeFilter) params.grade = gradeFilter
     if (mapFilter) params.map_name = mapFilter
+    if (rankedFilter) params.is_ranked = true
     if (favFilter) params.is_favorite = true
 
     getRuns(params).then(result => {
@@ -688,7 +691,7 @@ export default function RunHistory() {
       setTotalCount(result.total)
       setMaps(result.maps)
     }).catch(() => {})
-  }, [page, outcomeFilter, gradeFilter, mapFilter, favFilter])
+  }, [page, outcomeFilter, gradeFilter, mapFilter, rankedFilter, favFilter])
 
   const refreshRuns = useCallback(() => {
     fetchPage()
@@ -722,7 +725,7 @@ export default function RunHistory() {
 
   const totalPages = Math.max(1, Math.ceil(totalCount / RUNS_PER_PAGE))
 
-  useEffect(() => { setPage(0) }, [outcomeFilter, gradeFilter, mapFilter, favFilter])
+  useEffect(() => { setPage(0) }, [outcomeFilter, gradeFilter, mapFilter, rankedFilter, favFilter])
 
   function getRunClips(run: Run): Clip[] {
     return matchRunClips(run, clips)
@@ -746,9 +749,10 @@ export default function RunHistory() {
       if (next.has(runId)) next.delete(runId)
       else {
         next.add(runId)
-        // Mark as viewed
+        // Mark as viewed — update local state immediately + API
         const run = pageRuns.find(r => r.id === runId)
         if (run && !run.viewed) {
+          setPageRuns(p => p.map(r => r.id === runId ? { ...r, viewed: true } : r))
           axios.post(`${apiBase}/api/runs/${runId}/viewed`).catch(() => {})
         }
       }
@@ -834,10 +838,23 @@ export default function RunHistory() {
           </select>
         )}
 
+        {/* Ranked toggle */}
+        <button
+          onClick={() => setRankedFilter(!rankedFilter)}
+          className={`flex items-center justify-center px-2.5 h-[34px] transition-all border ${
+            rankedFilter
+              ? 'border-[#c8ff00]/40 bg-[#c8ff00]/10'
+              : 'border-m-border hover:border-[#c8ff00]/20'
+          }`}
+          title="Filter ranked"
+        >
+          <img src={rankedIcon} alt="Ranked" className={`h-3 w-auto ${rankedFilter ? 'opacity-90' : 'opacity-30 hover:opacity-50'}`} />
+        </button>
+
         {/* Favorites toggle — icon only, Marathon green */}
         <button
           onClick={() => setFavFilter(!favFilter)}
-          className={`flex items-center px-2.5 py-2 transition-all border ${
+          className={`flex items-center justify-center px-2.5 h-[34px] transition-all border ${
             favFilter
               ? 'border-[#c8ff00]/40 text-[#c8ff00] bg-[#c8ff00]/10'
               : 'border-m-border text-m-text-muted hover:text-[#c8ff00]/60'
@@ -1005,7 +1022,7 @@ export function RunRow({ run, isExpanded, onToggle, onToggleFavorite, onUpdate, 
         {/* Map + Spawn */}
         <span className="text-xs text-m-text tracking-wider uppercase truncate flex items-center gap-1.5">
           {run.is_ranked && (
-            <span className="text-[9px] font-bold text-m-yellow border border-m-yellow/50 px-1 rounded-sm leading-tight">R</span>
+            <img src={rankedIcon} alt="Ranked" className="h-3 w-auto opacity-80" />
           )}
           {run.map_name ?? 'UNKNOWN'}
           {run.spawn_location && (

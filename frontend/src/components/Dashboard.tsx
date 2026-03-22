@@ -75,7 +75,7 @@ export default function Dashboard() {
         <h2 className="text-xl font-display font-black tracking-wider text-m-text mt-1">
           {(() => {
             const latestLevel = runs.find(r => r.player_level != null)?.player_level
-            return latestLevel != null ? `LVL//:${latestLevel}:` : 'TERMINAL'
+            return latestLevel != null ? `LVL:${latestLevel}:` : 'TERMINAL'
           })()}
         </h2>
       </div>

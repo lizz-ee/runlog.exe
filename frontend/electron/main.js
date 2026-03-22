@@ -84,10 +84,10 @@ function createOverlay() {
     : getOverlayPosition(settings.corner || 'top-left')
   const dims = getOverlayDims()
   overlayWindow = new BrowserWindow({
-    width: dims.width,
+    width: 500,
     height: dims.height,
-    minWidth: dims.width,
-    maxWidth: dims.width,
+    minWidth: 100,
+    maxWidth: 600,
     minHeight: dims.height,
     maxHeight: dims.height,
     x: pos.x,
@@ -130,8 +130,8 @@ body { background: transparent; overflow: hidden; user-select: none; -webkit-app
 #bar { background: rgba(5,5,8,0.88); border-bottom: 1px solid rgba(200,255,0,0.15);
        border-right: 1px solid rgba(200,255,0,0.08);
        padding: 0 10px; font: 700 11px 'JetBrains Mono', monospace; letter-spacing: 0.18em;
-       color: rgba(200,255,0,0.5); display: flex; align-items: center; gap: 0; height: 30px;
-       position: relative; overflow: hidden; }
+       color: rgba(200,255,0,0.5); display: inline-flex; align-items: center; gap: 0; height: 30px;
+       position: relative; overflow: hidden; white-space: nowrap; width: fit-content; }
 #bar::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 1px;
               background: linear-gradient(90deg, rgba(200,255,0,0.3), transparent 60%); }
 #sym { color: rgba(200,255,0,0.25); margin-right: 6px; font-size: 12px; }
@@ -162,7 +162,7 @@ window.updateOverlay = function(s, d) {
     sym.innerHTML = '&#x25A0;';
     var parts = (d||'').split('|');
     main.textContent = 'REC ' + parts[0];
-    aux.textContent = parts[1] || 'CAPTURE::LOCK';
+    aux.textContent = parts[1] ? parts[1] + ' — 4K.WGC' : '4K.WGC';
   } else {
     bar.className = '';
     sym.innerHTML = '&#x25C8;';
@@ -492,11 +492,9 @@ app.whenReady().then(async () => {
       if (status === 'recording_started') {
         updateOverlay('recording', '')
       } else if (status === 'recording_stopped') {
-        updateOverlay('active', 'PROCESSING')
+        // Let App.tsx control overlay via last_detection state
       } else if (status === 'run_processed') {
-        updateOverlay('active', 'COMPLETE')
-        // Hide overlay after 5s
-        setTimeout(() => updateOverlay('active', 'WATCHING'), 5000)
+        // Let App.tsx control overlay via last_detection state
       } else if (status === 'active') {
         createOverlay()
         updateOverlay('active', 'WATCHING')
@@ -631,10 +629,10 @@ ipcMain.on('overlay-set-size', (_event, size) => {
   if (overlayWindow) {
     const dims = OVERLAY_SIZES[size] || OVERLAY_SIZES.medium
     const bounds = overlayWindow.getBounds()
-    // Update constraints then resize
-    overlayWindow.setMinimumSize(dims.width, dims.height)
-    overlayWindow.setMaximumSize(dims.width, dims.height)
-    overlayWindow.setBounds({ x: bounds.x, y: bounds.y, width: dims.width, height: dims.height })
+    // Update constraints then resize — allow flexible width
+    overlayWindow.setMinimumSize(100, dims.height)
+    overlayWindow.setMaximumSize(600, dims.height)
+    overlayWindow.setBounds({ x: bounds.x, y: bounds.y, width: 500, height: dims.height })
     overlayWindow.webContents.executeJavaScript(
       `document.getElementById('bar').style.font = '700 ${dims.fontSize}px "JetBrains Mono", monospace';
        document.getElementById('bar').style.height = '${dims.height}px';`

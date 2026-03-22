@@ -91,8 +91,8 @@ body {
 .animate-feed-scan { animation: feedScan 8s linear infinite; }
 
 @keyframes pillGlow {
-  0%, 100% { box-shadow: 0 0 4px rgba(200, 255, 0, 0.2), inset 0 0 4px rgba(200, 255, 0, 0.05); }
-  50% { box-shadow: 0 0 14px rgba(200, 255, 0, 0.5), inset 0 0 8px rgba(200, 255, 0, 0.1); }
+  0%, 100% { box-shadow: 0 0 4px rgba(0, 255, 255, 0.2), inset 0 0 4px rgba(0, 255, 255, 0.05); }
+  50% { box-shadow: 0 0 14px rgba(0, 255, 255, 0.5), inset 0 0 8px rgba(0, 255, 255, 0.1); }
 }
 
 @keyframes ocrPulse {

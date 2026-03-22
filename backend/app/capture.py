@@ -351,6 +351,19 @@ class AutoCapture:
         except Exception as e:
             print(f"[capture] Deploy shot save failed ({name}): {e}")
 
+    def _save_stats_shot(self, screenshots_dir: str, name: str, frame_jpeg: bytes):
+        """Save a stats screenshot — full + wide crop (all columns, ELIMINATED through Run Time)."""
+        try:
+            with open(os.path.join(screenshots_dir, f"{name}.jpg"), "wb") as f:
+                f.write(frame_jpeg)
+            # Wide crop: all 3 player columns, from ELIMINATED banner to Run Time
+            img = Image.open(io.BytesIO(frame_jpeg))
+            w, h = img.size
+            crop = img.crop((int(w * 0.03), int(h * 0.55), int(w * 0.97), int(h * 0.92)))
+            crop.save(os.path.join(screenshots_dir, f"{name}_crop.jpg"), "JPEG", quality=95)
+        except Exception as e:
+            print(f"[capture] Stats shot save failed ({name}): {e}")
+
     def _move_buffer(self, name: str, screenshots_dir: str):
         """Move all phase screenshots (full + crop) to the run screenshots folder."""
         import shutil
@@ -436,11 +449,11 @@ class AutoCapture:
                 self._save_deploy_shot(screenshots_dir, "deploy_1", frame_jpeg)
                 print(f"[capture] Deploy shot 1/3 saved: {map_name}")
 
-                # Shots 2 & 3: wait for genuinely new frames (1s and 2s after shot 1)
+                # Shots 2 & 3: wait for genuinely new frames (2s apart like stats)
                 def _delayed_deploy_shots():
                     prev_seq = self._frame_seq
-                    # Shot 2: wait up to 2s for a new frame, ~1s after shot 1
-                    time.sleep(1.0)
+                    # Shot 2: wait ~2s for a new frame
+                    time.sleep(2.0)
                     for _ in range(10):
                         if self._frame_seq != prev_seq:
                             break
@@ -449,9 +462,9 @@ class AutoCapture:
                     if frame2:
                         self._save_deploy_shot(screenshots_dir, "deploy_2", frame2)
                         print(f"[capture] Deploy shot 2/3 saved (seq {self._frame_seq})")
-                    # Shot 3: wait for another new frame, ~2s after shot 1
+                    # Shot 3: wait another ~2s
                     prev_seq = self._frame_seq
-                    time.sleep(1.0)
+                    time.sleep(2.0)
                     for _ in range(10):
                         if self._frame_seq != prev_seq:
                             break
@@ -472,6 +485,8 @@ class AutoCapture:
             elapsed = time.time() - self._recording_start
             self._endgame_timestamp = elapsed
             print(f"[capture] RUN_COMPLETE at {elapsed:.1f}s into recording")
+            # Switch Rust OCR to fast direct mode for postgame detection
+            self._recorder.set_ocr_fast(True)
 
             if self._recording_path:
                 rec_name = os.path.basename(self._recording_path).replace(".mp4", "")
@@ -502,7 +517,7 @@ class AutoCapture:
                 os.makedirs(screenshots_dir, exist_ok=True)
 
                 # Shot 1: immediate (banner screen)
-                self._save_deploy_shot(screenshots_dir, "stats_1", frame_jpeg)
+                self._save_stats_shot(screenshots_dir, "stats_1", frame_jpeg)
                 print(f"[capture] Stats shot 1/3 saved ({det_type})")
 
                 # Shots 2 & 3: delayed to catch the actual stats screen after banner
@@ -516,7 +531,7 @@ class AutoCapture:
                         time.sleep(0.1)
                     frame2 = self._latest_frame
                     if frame2:
-                        self._save_deploy_shot(screenshots_dir, "stats_2", frame2)
+                        self._save_stats_shot(screenshots_dir, "stats_2", frame2)
                         print(f"[capture] Stats shot 2/3 saved (seq {self._frame_seq})")
                     # Shot 3: wait another ~2s
                     prev_seq = self._frame_seq
@@ -527,7 +542,7 @@ class AutoCapture:
                         time.sleep(0.1)
                     frame3 = self._latest_frame
                     if frame3:
-                        self._save_deploy_shot(screenshots_dir, "stats_3", frame3)
+                        self._save_stats_shot(screenshots_dir, "stats_3", frame3)
                         print(f"[capture] Stats shot 3/3 saved (seq {self._frame_seq})")
 
                 threading.Thread(target=_delayed_stats_shots, daemon=True).start()
@@ -745,10 +760,17 @@ class AutoCapture:
         os.makedirs(run_folder, exist_ok=True)
         saved_path = os.path.join(run_folder, filename)
 
-        try:
-            shutil.move(filepath, saved_path)
-        except Exception as e:
-            print(f"[auto-save] Failed to move recording: {e}")
+        if os.path.exists(saved_path):
+            # Already moved (previous session) — just use existing path
+            print(f"[auto-save] Recording already in place: {saved_path}")
+        elif os.path.exists(filepath):
+            try:
+                shutil.move(filepath, saved_path)
+            except Exception as e:
+                print(f"[auto-save] Failed to move recording: {e}")
+                return
+        else:
+            print(f"[auto-save] Recording not found: {filepath}")
             return
 
         # Move thumbnail if it exists
@@ -1070,11 +1092,36 @@ class AutoCapture:
 
                 # Already processed — auto-save on restart (was waiting from previous session)
                 done_marker = filepath + ".done"
-                if os.path.exists(done_marker):
+                p1_marker = filepath + ".p1done"
+                if os.path.exists(done_marker) or os.path.exists(p1_marker):
                     try:
-                        run_id = int(open(done_marker).read().strip())
+                        marker = done_marker if os.path.exists(done_marker) else p1_marker
+                        run_id = int(open(marker).read().strip())
                     except Exception:
                         run_id = None
+
+                    # Check if phase 2 is already complete (summary exists in DB)
+                    fully_done = False
+                    if run_id and os.path.exists(p1_marker) and not os.path.exists(done_marker):
+                        try:
+                            from .database import SessionLocal
+                            from .models import Run
+                            db = SessionLocal()
+                            run = db.query(Run).filter(Run.id == run_id).first()
+                            fully_done = run is not None and run.summary is not None
+                            db.close()
+                            if fully_done:
+                                print(f"[capture] Run #{run_id} already fully processed — auto-saving")
+                                # Write .done marker so next restart is instant
+                                try:
+                                    with open(done_marker, "w") as f:
+                                        f.write(str(run_id))
+                                    os.remove(p1_marker)
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+
                     try:
                         probe = subprocess.run(
                             ['ffprobe', '-v', 'quiet', '-show_entries',
@@ -1085,7 +1132,13 @@ class AutoCapture:
                     except Exception:
                         duration = 300
                     self._add_processing_item(filepath, duration)
-                    self._auto_save_recording(filepath, run_id)
+                    if fully_done or os.path.exists(done_marker):
+                        self._auto_save_recording(filepath, run_id)
+                        # Mark as fully done so NARRATIVE ✓ shows
+                        self._update_processing_item(filepath, "done", run_id=run_id)
+                    else:
+                        # Phase 1 done but phase 2 not — re-queue for phase 2
+                        self._process_queue.put(filepath)
                     resumed += 1
                     continue
 

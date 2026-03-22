@@ -1533,7 +1533,7 @@ def save_run_to_db(analysis: dict, run_date: datetime | None = None) -> int | No
             grade=analysis.get("grade"),
             summary=analysis.get("summary"),
             notes=_build_notes(analysis),
-            is_ranked=_run_metadata.get("is_ranked") or analysis.get("is_ranked", False),
+            is_ranked=analysis.get("is_ranked", False),
         )
         db.add(run)
         db.commit()
@@ -1826,6 +1826,11 @@ def process_recording(recording_path: str, clips_dir: str, on_phase=None) -> dic
         return result
 
     result["analysis"] = analysis
+
+    # Merge run metadata (ranked flag, etc.) into analysis
+    if _run_metadata:
+        if _run_metadata.get("is_ranked") and not analysis.get("is_ranked"):
+            analysis["is_ranked"] = True
 
     # -- Save to database --------------------------------------------------
     phase("saving")
