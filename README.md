@@ -53,7 +53,7 @@ Two sections: **Shells** and **Runners**.
 
 ## MAPS
 
-Interactive spawn heatmaps for each map. Draggable markers show per-spawn stats — survival rate, win streak, avg loot, best/worst loot, favorite weapon and shell at that spawn, and who killed you there. Spawn coordinates extracted from the deployment loading screen via Claude Vision, fuzzy-matched to known locations. New spawns auto-detected and staged for positioning.
+Interactive spawn heatmaps for each map. Draggable markers show per-spawn stats — survival rate, win streak, avg loot, best/worst loot, favorite weapon and shell at that spawn, and who killed you there. Spawn coordinates extracted automatically from the deployment loading screen and fuzzy-matched to known locations. New spawns auto-detected and staged for positioning.
 
 ![PERIMETER — Spawn Heatmap](docs/screenshots/perimeter.png)
 
