@@ -389,37 +389,15 @@ def delete_recording(body: RecordingAction):
 
 @router.post("/recording/retry")
 def retry_recording(body: RecordingAction):
-    """Retry processing a failed recording by removing error markers."""
-    filename = body.filename
-    if not filename:
-        raise HTTPException(status_code=400, detail="filename required")
-
-    filepath = os.path.join(RECORDINGS_DIR, filename)
-
-    # Remove all processing markers so it gets re-queued
-    for ext in ('.done', '.p1done', '.encoded', '.endgame'):
-        marker = filepath + ext
-        if os.path.exists(marker):
-            os.remove(marker)
-
-    # Reset status in processing queue
-    if _engine:
-        _engine.reset_processing_item(filename)
-
-    return JSONResponse(content={"status": "retrying"})
-
-
-@router.post("/recording/retry-phase2")
-def retry_phase2(body: RecordingAction):
-    """Retry Phase 2 (narrative) for a recording where Phase 1 succeeded but Phase 2 failed."""
+    """Retry a failed recording. Resumes from where it left off (skips Phase 1 if already done)."""
     filename = body.filename
     if not filename:
         raise HTTPException(status_code=400, detail="filename required")
     if _engine:
-        success = _engine.retry_phase2(filename)
+        success = _engine.retry_processing(filename)
         if success:
-            return JSONResponse(content={"status": "retrying_phase2"})
-    raise HTTPException(status_code=400, detail="Could not retry Phase 2")
+            return JSONResponse(content={"status": "retrying"})
+    raise HTTPException(status_code=400, detail="Could not retry")
 
 
 @router.post("/open-folder")

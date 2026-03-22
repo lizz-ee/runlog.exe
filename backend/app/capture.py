@@ -203,7 +203,7 @@ class AutoCapture:
 
         processing_phase = None
         for item in items:
-            if item["status"] not in ("queued", "done", "complete", "error"):
+            if item["status"] not in ("queued", "error"):
                 processing_phase = item["status"]
                 break
 
@@ -855,8 +855,6 @@ class AutoCapture:
             if os.path.exists(marker):
                 os.remove(marker)
 
-        # Update status to complete
-        self._update_processing_item(filepath, "complete", run_id=run_id)
         print(f"[auto-save] Recording saved: {saved_path}")
 
     def reset_processing_item(self, filename: str):
@@ -874,24 +872,29 @@ class AutoCapture:
             self._process_queue.put(filepath)
             print(f"[capture] Re-queued for processing: {filename}")
 
-    def retry_phase2(self, filename: str):
-        """Retry Phase 2 for a run where narrative failed. Keeps Phase 1 data."""
+    def retry_processing(self, filename: str):
+        """Retry a failed processing item. Resumes from where it left off."""
         filepath = os.path.join(self.recordings_dir, filename)
         run_id = None
+        has_p1 = os.path.exists(filepath + ".p1done")
+
         with self._processing_lock:
             for item in self._processing_items:
                 if item["file"] == filename:
                     run_id = item.get("run_id")
-                    item["status"] = "analyzing_gameplay"
-                    item.pop("p2_failed", None)
-                    # Remove .done marker so it can be reprocessed
-                    done_marker = filepath + ".done"
-                    if os.path.exists(done_marker):
-                        os.remove(done_marker)
                     break
-        if run_id and os.path.exists(filepath) and self._p2_executor:
+
+        if has_p1 and run_id and self._p2_executor:
+            # Phase 1 done — retry just Phase 2
+            self._update_processing_item(filepath, "analyzing_gameplay", run_id=run_id)
             self._p2_executor.submit(self._process_phase2, filepath, run_id)
             print(f"[capture] Retrying Phase 2 for run #{run_id}: {filename}")
+            return True
+        elif os.path.exists(filepath):
+            # Full retry from Phase 1
+            self._update_processing_item(filepath, "queued")
+            self._process_queue.put(filepath)
+            print(f"[capture] Retrying from Phase 1: {filename}")
             return True
         return False
 
@@ -968,13 +971,14 @@ class AutoCapture:
                 except Exception:
                     pass
 
-                # Submit Phase 2 to the P2 pool (capped at 2 concurrent)
+                # Submit Phase 2
                 print(f"[p1] Done, submitting Phase 2 for run #{run_id}...")
                 self._p2_executor.submit(self._process_phase2, filepath, run_id)
             else:
-                # Legacy pipeline — no Phase 2 needed, auto-save directly
+                # Legacy pipeline — auto-save and remove from queue
                 self._last_process_result = result
                 self._auto_save_recording(filepath, run_id)
+                self.remove_processing_item(os.path.basename(filepath))
                 print(f"[p1] Done (legacy): run #{run_id}")
 
         except Exception as e:
@@ -982,7 +986,11 @@ class AutoCapture:
             print(f"[p1] Error: {e}")
 
     def _process_phase2(self, filepath: str, run_id: int):
-        """Phase 2: video narrative + clip cutting. Runs in P2 pool (capped at 2)."""
+        """Phase 2: video narrative + clip cutting. Runs in P2 pool.
+
+        On success: auto-save → remove from queue (item vanishes).
+        On failure: set error status → RETRY available.
+        """
         from .video_processor import process_recording_phase2
 
         def on_phase(phase, detail=None):
@@ -994,56 +1002,42 @@ class AutoCapture:
             p2_result = process_recording_phase2(
                 filepath, self.clips_dir, run_id, on_phase=on_phase
             )
-            if p2_result["status"] == "success":
-                print(f"[p2] Done: run #{run_id}, {len(p2_result.get('clips', []))} clips")
-            else:
-                print(f"[p2] Failed: {p2_result}")
-                try:
-                    log_path = os.path.join(self.recordings_dir, "phase2_errors.log")
-                    with open(log_path, "a") as f:
-                        from datetime import datetime
-                        f.write(f"\n--- {datetime.now().isoformat()} | run #{run_id} | {os.path.basename(filepath)} ---\n")
-                        f.write(f"Result: {p2_result}\n")
-                except Exception:
-                    pass
 
-            # Check if Phase 2 actually completed by looking at the DB
-            p2_failed = False
-            if not p2_result or p2_result["status"] != "success":
+            # Check if narrative actually made it to the DB
+            p2_success = False
+            if p2_result and p2_result.get("status") == "success":
+                p2_success = True
+            else:
+                # Double-check DB in case CLI succeeded but result parsing failed
                 try:
                     from .database import SessionLocal
                     from .models import Run
                     db = SessionLocal()
                     run = db.query(Run).filter(Run.id == run_id).first()
-                    p2_failed = run is None or not run.summary
+                    p2_success = run is not None and run.summary is not None
                     db.close()
                 except Exception:
-                    p2_failed = True
+                    pass
 
-            if p2_failed:
-                # Keep as "done" with p2_failed flag so RETRY is available
-                self._update_processing_item(filepath, "done", run_id=run_id, p2_failed=True)
-                # Also try the original filename in case file was already moved by auto-save
-                filename = os.path.basename(filepath)
-                with self._processing_lock:
-                    for item in self._processing_items:
-                        if item["file"] == filename:
-                            item["p2_failed"] = True
-                            break
+            if p2_success:
+                print(f"[p2] Done: run #{run_id}, {len(p2_result.get('clips', []) if p2_result else [])} clips")
+                # Auto-save: move recording, generate assets, clean up markers
+                self._auto_save_recording(filepath, run_id)
+                # Remove from processing queue — item vanishes
+                self.remove_processing_item(os.path.basename(filepath))
+            else:
+                print(f"[p2] Failed: {p2_result}")
+                self._update_processing_item(filepath, "error", run_id=run_id)
                 try:
-                    with open(filepath + ".done", "w") as f:
-                        f.write(str(run_id))
-                    p1_marker = filepath + ".p1done"
-                    if os.path.exists(p1_marker):
-                        os.remove(p1_marker)
+                    log_path = os.path.join(self.recordings_dir, "phase2_errors.log")
+                    with open(log_path, "a") as f:
+                        f.write(f"\n--- {datetime.now().isoformat()} | run #{run_id} | {os.path.basename(filepath)} ---\n")
+                        f.write(f"Result: {p2_result}\n")
                 except Exception:
                     pass
-            else:
-                # Auto-save recording and mark complete
-                self._auto_save_recording(filepath, run_id)
 
         except Exception as e:
-            self._update_processing_item(filepath, "error")
+            self._update_processing_item(filepath, "error", run_id=run_id)
             print(f"[p2] Error: {e}")
 
     def _reencode_recording(self, raw_path: str) -> str | None:
@@ -1121,9 +1115,10 @@ class AutoCapture:
                 if file_size < 1024 * 1024:
                     continue
 
-                # Already processed — auto-save on restart (was waiting from previous session)
+                # Check marker files for previous progress
                 done_marker = filepath + ".done"
                 p1_marker = filepath + ".p1done"
+
                 if os.path.exists(done_marker) or os.path.exists(p1_marker):
                     try:
                         marker = done_marker if os.path.exists(done_marker) else p1_marker
@@ -1131,9 +1126,9 @@ class AutoCapture:
                     except Exception:
                         run_id = None
 
-                    # Check if phase 2 is already complete (summary exists in DB)
+                    # Check DB: is this run fully processed (has summary)?
                     fully_done = False
-                    if run_id and os.path.exists(p1_marker) and not os.path.exists(done_marker):
+                    if run_id:
                         try:
                             from .database import SessionLocal
                             from .models import Run
@@ -1141,35 +1136,30 @@ class AutoCapture:
                             run = db.query(Run).filter(Run.id == run_id).first()
                             fully_done = run is not None and run.summary is not None
                             db.close()
-                            if fully_done:
-                                print(f"[capture] Run #{run_id} already fully processed — auto-saving")
-                                # Write .done marker so next restart is instant
-                                try:
-                                    with open(done_marker, "w") as f:
-                                        f.write(str(run_id))
-                                    os.remove(p1_marker)
-                                except Exception:
-                                    pass
                         except Exception:
                             pass
 
-                    try:
-                        probe = subprocess.run(
-                            ['ffprobe', '-v', 'quiet', '-show_entries',
-                             'format=duration', '-of', 'csv=p=0', filepath],
-                            capture_output=True, text=True, timeout=10,
-                        )
-                        duration = float(probe.stdout.strip()) if probe.stdout.strip() else 300
-                    except Exception:
-                        duration = 300
-                    self._add_processing_item(filepath, duration)
-                    if fully_done or os.path.exists(done_marker):
+                    if fully_done:
+                        # Fully processed — just auto-save and we're done
+                        print(f"[resume] Run #{run_id} fully processed — auto-saving")
                         self._auto_save_recording(filepath, run_id)
-                        # Mark as fully done so NARRATIVE ✓ shows
-                        self._update_processing_item(filepath, "done", run_id=run_id)
+                        # Don't add to queue — it's done
                     else:
-                        # Phase 1 done but phase 2 not — re-queue for phase 2
-                        self._process_queue.put(filepath)
+                        # Phase 1 done, phase 2 needed
+                        try:
+                            probe = subprocess.run(
+                                ['ffprobe', '-v', 'quiet', '-show_entries',
+                                 'format=duration', '-of', 'csv=p=0', filepath],
+                                capture_output=True, text=True, timeout=10,
+                            )
+                            duration = float(probe.stdout.strip()) if probe.stdout.strip() else 300
+                        except Exception:
+                            duration = 300
+                        self._add_processing_item(filepath, duration)
+                        self._update_processing_item(filepath, "analyzing_gameplay", run_id=run_id)
+                        if self._p2_executor:
+                            self._p2_executor.submit(self._process_phase2, filepath, run_id)
+                        print(f"[resume] Run #{run_id} — resuming Phase 2")
                     resumed += 1
                     continue
 

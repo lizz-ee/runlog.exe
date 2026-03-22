@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import axios from 'axios'
 import { useStore } from './lib/store'
 import { getRecentRuns, getOverviewStats, getRunners, getLoadouts, getCaptureStatus, apiBase } from './lib/api'
@@ -43,7 +43,7 @@ function markResumeToastShown() {
 }
 
 export default function App() {
-  const { view, setRuns, setStats, setRunners, setLoadouts, addToast, setPendingCapture, captureStatus, setCaptureStatus, setCaptureError, refreshData } = useStore()
+  const { view, setRuns, setStats, setRunners, setLoadouts, addToast, setPendingCapture, captureStatus, setCaptureStatus, setCaptureError, refreshData, refreshUnviewed } = useStore()
 
   useEffect(() => {
     async function load() {
@@ -151,7 +151,7 @@ export default function App() {
     }
   }, [captureStatus?.last_result?.run_id])
 
-  // Refresh dashboard when Phase 1 stats are ready (before Phase 2 finishes)
+  // Refresh dashboard when Phase 1 stats are ready
   useEffect(() => {
     const items = captureStatus?.processing_items || []
     const phase1Item = items.find(i => i.status === 'phase1_done' && i.run_id)
@@ -162,15 +162,31 @@ export default function App() {
     }
   }, [captureStatus?.processing_items?.find(i => i.status === 'phase1_done')?.run_id])
 
-  // Notify overlay when Phase 2 narrative completes
+  // Notify when a run finishes processing (item vanishes from queue)
+  const prevItemCount = useRef(captureStatus?.processing_items?.length ?? 0)
   useEffect(() => {
-    const items = captureStatus?.processing_items || []
-    const doneItem = items.find(i => i.status === 'done' && i.run_id)
-    if (doneItem?.run_id) {
+    const currentCount = captureStatus?.processing_items?.length ?? 0
+    if (prevItemCount.current > 0 && currentCount < prevItemCount.current) {
+      // Item(s) vanished — processing completed
+      refreshData()
+      refreshUnviewed()
       const runlog = (window as any).runlog
-      if (runlog?.notifyOverlay) runlog.notifyOverlay('NEW NARRATIVE AVAILABLE', 4000)
+      if (runlog?.notifyOverlay) runlog.notifyOverlay('RUN PROCESSED', 4000)
+
+      // Close app when queue empty (if enabled)
+      if (currentCount === 0) {
+        const runlog = (window as any).runlog
+        if (runlog?.getOverlaySettings) {
+          runlog.getOverlaySettings().then((s: any) => {
+            if (s?.closeWhenDone) {
+              setTimeout(() => { if (runlog?.windowClose) runlog.windowClose() }, 3000)
+            }
+          })
+        }
+      }
     }
-  }, [captureStatus?.processing_items?.filter(i => i.status === 'done').length])
+    prevItemCount.current = currentCount
+  }, [captureStatus?.processing_items?.length])
 
   // Show toast for auto-resumed recordings
   useEffect(() => {
