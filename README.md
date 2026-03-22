@@ -21,7 +21,7 @@ A local-first desktop companion for **Marathon** (Bungie, 2026). Play your runs,
 
 ## TERMINAL
 
-The dashboard. Career stats at a glance — total runs, survival rate, K/D, total play time. Favorites column shows your most-used shell, weapon, map, and squad mate. Economy tracks total loot, average per run, best and worst. Recent runs at the bottom, vault value chart tracking your wealth over time.
+Your command center. Career stats at a glance — total runs, survival rate, K/D, total play time. Favorites show your most-used shell, weapon, map, and squad mate. Economy tracks total loot, average per run, best and worst. Recent runs feed in the center, vault value chart tracking your wealth over time.
 
 ![TERMINAL — Dashboard](docs/screenshots/terminal.png)
 
