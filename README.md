@@ -77,7 +77,7 @@ AI tactical advisor and session tracker. Every time you launch the app and play,
 
 ## DETECT.EXE
 
-Live capture monitor. Shows the game window feed with OCR scan regions visualized (deploy, endgame, lobby). Engine status, recording state, and the full processing pipeline — Phase 0 (queue), Phase 1 (frames + stats), Phase 2 (narrative + clips). Processing queue shows each recording with pipeline progress shapes and real-time status. P2 worker gating ensures only 2 narrative analyses run concurrently.
+Live capture monitor. Shows the game window feed with OCR scan regions visualized. Engine status, recording state, and the full processing pipeline — Phase 0 (queue), Phase 1 (frames + stats), Phase 2 (narrative + clips). Processing queue shows each recording with pipeline progress and status.
 
 ![DETECT.EXE — Live Capture](docs/screenshots/detect_exe.png)
 
