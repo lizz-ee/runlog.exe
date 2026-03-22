@@ -57,7 +57,7 @@ Each map has its own page with interactive spawn markers, per-map stats (runs, s
 
 ![PERIMETER — Spawn Map](docs/screenshots/perimeter.png)
 
-Hover any spawn marker for per-spawn stats — survival rate, loot averages, kill counts, favorite weapon and shell at that location, and who killed you there.
+Hover any spawn marker for per-spawn stats — survival rate, loot averages, kill counts, favorite weapon and shell, and your most frequent killers from runs at that spawn.
 
 ![DIRE MARSH — Per-Spawn Stats](docs/screenshots/dire_marsh.png)
 
