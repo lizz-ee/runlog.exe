@@ -41,11 +41,11 @@ Expand any run for the full breakdown — squad, weapons, inventory value change
 
 ## NEURAL.LINK
 
-Two sections: **Shells** and **Runners**.
+Two sections, both ranked by weighted performance score.
 
-**Shells** — all 7 Marathon character classes ranked by weighted performance score. Per-shell stats: runs, survival rate, K/D, avg loot, combat breakdown, economy.
+**Shells** — all 7 Marathon character classes. Per-shell stats: runs, survival rate, K/D, avg loot, combat breakdown, economy.
 
-**Runners** — your top 7 squad mates ranked by weighted performance score. Per-mate stats show how your survival rate and loot change when you play together. Marathon-themed art on each card.
+**Runners** — your top 7 squad mates. Per-mate stats show how your survival rate and loot change when you play together.
 
 ![NEURAL.LINK — Shells + Squad](docs/screenshots/neural_link.png)
 
