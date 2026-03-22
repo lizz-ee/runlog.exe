@@ -60,6 +60,7 @@ def _ocr_region(img, region, reader, contrast=2.0, label=""):
     results = reader.readtext(arr)
     # Debug: log all raw results for first 5 frames
     if _debug_count < 15:
+        _debug_count += 1
         all_texts = [(r[1], round(r[2], 3)) for r in results]
         if all_texts:
             print(f"[ocr-debug] {label} img={w}x{h} crop={crop.size[0]}x{crop.size[1]} raw={all_texts}")

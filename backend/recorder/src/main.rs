@@ -165,13 +165,21 @@ impl StagingPool {
             };
             for i in 0..2 {
                 let mut tex = None;
-                unsafe {
+                let result = unsafe {
                     self.device.as_ref().unwrap()
                         .CreateTexture2D(&staging_desc, None, Some(&mut tex))
-                        .unwrap();
+                };
+                match result {
+                    Ok(_) => {
+                        self.staging[i] = tex;
+                        self.ready[i] = false;
+                    }
+                    Err(e) => {
+                        eprintln!("[recorder] Failed to create staging texture {}: {}", i, e);
+                        self.staging[i] = None;
+                        self.ready[i] = false;
+                    }
                 }
-                self.staging[i] = tex;
-                self.ready[i] = false;
             }
             eprintln!("[recorder] Staging pool created: {}x{} (2 buffers)", desc.Width, desc.Height);
         }
@@ -188,7 +196,10 @@ impl StagingPool {
 
         // 1. Read the OLD staging buffer — copy was issued ~3s ago, Map returns instantly
         let result = if self.ready[read_idx] {
-            let staging = self.staging[read_idx].as_ref().unwrap();
+            let staging = match self.staging[read_idx].as_ref() {
+                Some(s) => s,
+                None => return None,
+            };
             let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
             let hr = unsafe {
                 ctx.Map(staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))
@@ -216,7 +227,10 @@ impl StagingPool {
         };
 
         // 2. Issue ASYNC CopyResource to the other staging buffer (non-blocking)
-        let staging_dst = self.staging[write_idx].as_ref().unwrap();
+        let staging_dst = match self.staging[write_idx].as_ref() {
+            Some(s) => s,
+            None => return result,  // Can't copy, just return what we read
+        };
         unsafe { ctx.CopyResource(staging_dst, frame_texture) };
         self.ready[write_idx] = true;
 

@@ -305,6 +305,7 @@ class AutoCapture:
 
     # Map detection phases to descriptive filenames
     _PHASE_NAMES = {'ready_up': 'readyup', 'run': 'run', 'deploying': 'deploying'}
+    _PHASE_SLOTS = {'ready_up': 1, 'run': 2, 'deploying': 3}
 
     def _save_phase_screenshot(self, name: str, phase: str, frame_jpeg: bytes):
         """Save one screenshot per phase — full + center crop. Overwrites within same phase."""
