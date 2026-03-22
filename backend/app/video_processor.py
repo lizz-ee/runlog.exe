@@ -518,128 +518,171 @@ def _analyze_with_screenshots(deploy_jpg: str, readyup_jpg: str, frames_dir: str
         raise RuntimeError("Claude CLI not found")
 
     analysis = {}
-
-    # --- Call 1: Deployment + Loadout ---
-    screenshots = []
     screenshot_dir = os.path.dirname(deploy_jpg)
-    # Deploy screenshots — 3-shot burst (deploy_1/2/3) + legacy single (deploy.jpg)
-    # Later shots are more likely to have the clear blue loading screen with coordinates
-    for deploy_name in ['deploy_3', 'deploy_2', 'deploy_1', 'deploy']:
-        crop = os.path.join(screenshot_dir, f"{deploy_name}_crop.jpg")
-        if os.path.exists(crop):
-            screenshots.append(os.path.abspath(crop).replace("\\", "/"))
-    # Add phase screenshots (new naming: readyup.jpg, run.jpg, deploying.jpg + crops)
+    model = _get_model_config()["cli"]
+
+    # =========================================================================
+    # Phase 1: Three parallel calls (1A, 2A, 3A)
+    # =========================================================================
+
+    def _run_cli_call(prompt, work_dir, label, timeout=120):
+        """Run a CLI call and return parsed JSON or empty dict."""
+        cmd = [claude_bin, "-p", prompt, "--model", model,
+               "--dangerously-skip-permissions", "--add-dir", work_dir]
+        try:
+            proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL,
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            output = []
+            for line in iter(proc.stdout.readline, b''):
+                decoded = line.decode("utf-8", errors="replace").rstrip()
+                if decoded:
+                    output.append(decoded)
+            proc.wait(timeout=timeout)
+            text = "\n".join(output).strip()
+            if text:
+                result = _extract_json(text)
+                print(f"[processor] {label}: {result}")
+                return result
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            print(f"[processor] {label} timed out")
+        except Exception as e:
+            print(f"[processor] {label} failed: {e}")
+        return {}
+
+    # --- Call 1A: Loadout & Identity ---
+    imgs_1a = []
     for phase in ['readyup', 'run', 'deploying']:
         full = os.path.join(screenshot_dir, f"{phase}.jpg")
         crop = os.path.join(screenshot_dir, f"{phase}_crop.jpg")
         if os.path.exists(full):
-            screenshots.append(os.path.abspath(full).replace("\\", "/"))
+            imgs_1a.append(os.path.abspath(full).replace("\\", "/"))
         if os.path.exists(crop):
-            screenshots.append(os.path.abspath(crop).replace("\\", "/"))
-    # Legacy fallback: numbered readyup_1/2/3.jpg
-    if not any(p in s for s in screenshots for p in ['readyup.jpg', 'run.jpg', 'deploying.jpg']):
-        for i in range(1, 4):
-            buf_path = os.path.join(screenshot_dir, f"readyup_{i}.jpg")
-            if os.path.exists(buf_path):
-                screenshots.append(os.path.abspath(buf_path).replace("\\", "/"))
-    # Legacy fallback: single readyup.jpg
-    if os.path.exists(readyup_jpg) and not any("readyup" in s for s in screenshots):
-        screenshots.append(os.path.abspath(readyup_jpg).replace("\\", "/"))
+            imgs_1a.append(os.path.abspath(crop).replace("\\", "/"))
 
-    if screenshots:
-        # Include shell reference images
-        shell_refs = ""
-        # Try to find shell images in multiple locations
-        backend_dir = os.path.dirname(os.path.dirname(__file__))
-        for shell_path_base in [
-            os.path.join(backend_dir, "data", "images", "Shells"),  # bundled with backend
-            os.path.join(backend_dir, "frontend", "src", "assets", "shells"),  # dev: frontend source
-        ]:
-            if os.path.isdir(shell_path_base):
-                for f in sorted(os.listdir(shell_path_base)):
-                    if f.endswith('.png'):
-                        # Parse name: "assassin.png" -> "Assassin", "assassin-profile.png" -> "Assassin (profile)"
-                        base = f.replace('.png', '')
-                        if '-profile' in base:
-                            display = base.replace('-profile', '').capitalize() + ' (profile view)'
-                        else:
-                            display = base.capitalize() + ' (action pose)'
-                        shell_refs += f"\n- {display}: {os.path.abspath(os.path.join(shell_path_base, f)).replace(chr(92), '/')}"
-                break
+    prompt_1a = f"""Read these Marathon (2026 extraction shooter) pre-deployment screenshots:
+{chr(10).join(f'- {p}' for p in imgs_1a)}
 
-        image_list = "\n".join(f"- {p}" for p in screenshots)
-        prompt1 = f"""Read these Marathon (2026 extraction shooter) screenshots. You may receive multiple images:
-1. **deploy_1/2/3_crop.jpg** — 3 center-cropped shots of the deployment loading screen taken 2s apart. Shows a BLUE or BLACK screen with the map name (e.g. "DIRE MARSH") in large yellow/green text, a description line, and TWO COORDINATE NUMBERS stacked vertically below. The LATER shots (deploy_3, deploy_2) are more likely to show the actual loading screen. deploy_1 may catch the contract/lobby before loading. Use the CLEAREST image with visible coordinates.
-2. **readyup.jpg** (READY UP screen), **run.jpg** (RUN screen), **deploying.jpg** (DEPLOYING screen) — one screenshot from each pre-deployment phase. Each may also have a **_crop.jpg** version (center-cropped to focus on loadout/shell/HUD). **ALWAYS examine _crop.jpg versions FIRST** — they are higher detail for the important center content. Fall back to full screenshots only if crops are missing or unclear. Some may be black/loading screens — IGNORE those and use the ones with actual game content (shell visible, loadout grid, weapons, map name, crew size, gamertag).
+These are from the lobby/ready-up screens BEFORE deployment. Full screenshots show the game UI, _crop.jpg versions are center-cropped for detail.
 
-**CRITICAL: These screenshots may span multiple lobbies** (player swapped lobbies or joined a friend). The screenshots have different file timestamps — **ALWAYS prefer the MOST RECENT screenshot** (by file modification time) for loadout, shell, weapons, squad, and map data. An older screenshot may show a previous lobby with a different kit, map, or squad. When data conflicts between screenshots (different map names, different loadouts, different squad), **trust the newest one**. The chronological order is: readyup (earliest) → run (middle) → deploying (latest/closest to deployment).
+**CRITICAL:** If screenshots span multiple lobbies (player swapped), trust the NEWEST one (deploying > run > readyup).
 
-{image_list}
-{f'{chr(10)}Shell reference images — use these to identify the shell:{shell_refs}' if shell_refs else ''}
-
-**SHELL IDENTIFICATION:**
-The six shells are: Assassin, Destroyer, Recon, Thief, Triage, Vandal.
-Players equip cosmetic skins that completely change the helmet, armor, and colors.
-Do NOT rely on armor, helmet, or color to identify the shell.
-Instead, match by FACIAL GEOMETRY: face shape, eye shape, nose, mouth, and facial structure. These never change across skins.
-Compare the face in the ready-up screenshot to the reference images.
-
-Key distinguishing features:
-- **Assassin**: hooded, narrow face, glowing red/orange eyes, pale skin, angular features
-- **Destroyer**: bulky build, full helmet with visor (face often hidden), stocky frame
-- **Recon**: full helmet with large visor/goggles, robotic appearance, face not visible
-- **Thief**: East Asian female face, dark hair in bun/topknot, facial tattoos/markings on cheek, lipstick
-- **Triage**: masculine face, split-tone skin (light/dark), green eyes, headphones/ear pieces, cross/plus markings
-- **Vandal**: feminine face, wider/rounder face than Thief, fuller lips, often has horns or spiked hair in skins, nose piercing
-
-**FULL SCREEN INFO (from readyup.jpg / run.jpg / deploying.jpg FULL screenshots, NOT crops):**
-- Map name (e.g. PERIMETER) and crew size (e.g. "Crew: Solo", "Crew: Duo")
-- **Ranked mode**: Check if the word "Ranked" appears ABOVE the map name (e.g. "Ranked" above "PERIMETER"). This indicates a ranked match with a $3,000 loadout requirement. If "Ranked" is visible, set is_ranked to true.
-- Player gamertag (shown above the LOCAL player's character, CENTER of screen)
-- Squad members: ALL gamertags visible above each character (local player is CENTER, squad mates are LEFT and RIGHT). Include ALL members including the local player.
-**LOADOUT VALUE (from _crop.jpg screenshots):**
-- The gear icon number shown DIRECTLY ABOVE the loadout grid (e.g. "1.5K" = 1500, "830", "3.3K" = 3300). Convert K notation to full number.
-
-Extract and return ONLY valid JSON:
+Read and return ONLY valid JSON:
 {{
   "map_name": "Perimeter" or "Outpost" or "Dire Marsh" or "Cryo Archive" or null,
-  "spawn_coordinates": [x, y] from the deploy_crop.jpg images ONLY. Look for TWO decimal numbers stacked vertically in small yellow/green text at the BOTTOM CENTER of the blue/black loading screen, BELOW the map description text. Example format: "10.215867" on one line, "191.408676" on the next line. These are 6-9 digit decimal numbers (e.g. 522.803894, -39.408157). Read EVERY digit precisely — zoom in mentally on the small text. The first number is X, the second is Y. DOUBLE-CHECK by re-reading each digit. Return null if you cannot read them clearly. Format: [first_number, second_number] or null,
-  "shell_name": "Assassin" or "Destroyer" or "Recon" or "Thief" or "Triage" or "Vandal" or null,
-  "player_gamertag": "gamertag of LOCAL player (CENTER character)" or null,
-  "squad_members": ["all", "gamertags", "visible above each character"] or null — include ALL members (local player is center, mates are left/right),
+  "is_ranked": true if "Ranked" text appears ABOVE the map name, false otherwise,
+  "player_gamertag": "gamertag of LOCAL player (CENTER of screen, above character)" or null,
+  "squad_members": ["all", "visible", "gamertags"] or null — local player is CENTER, mates LEFT/RIGHT,
   "crew_size": "Solo" or "Duo" or "Trio" or null,
-  "loadout_value": total loadout value as integer (from gear icon above loadout grid, convert K notation) or null,
-  "is_ranked": true if "Ranked" text appears above the map name, false otherwise,
+  "loadout_value": integer from gear icon ABOVE the loadout grid (e.g. "1.5K" = 1500, "703" = 703) or null
 }}
 
-Use null for anything not visible."""
+Return ONLY valid JSON, no explanation."""
 
-        deploy_dir = os.path.dirname(deploy_jpg) if os.path.exists(deploy_jpg) else "."
-        cmd1 = [claude_bin, "-p", prompt1, "--model", _get_model_config()["cli"], "--thinking", "enabled",
-                "--dangerously-skip-permissions", "--add-dir", deploy_dir]
+    # --- Call 2A: Shell Identification ---
+    imgs_2a = []
+    char_crop = os.path.join(screenshot_dir, "character_crop.jpg")
+    face_crop = os.path.join(screenshot_dir, "face_crop.jpg")
+    if os.path.exists(char_crop):
+        imgs_2a.append(os.path.abspath(char_crop).replace("\\", "/"))
+    if os.path.exists(face_crop):
+        imgs_2a.append(os.path.abspath(face_crop).replace("\\", "/"))
+    # Fallback to deploying_crop if no character crops
+    if not imgs_2a:
+        dep_crop = os.path.join(screenshot_dir, "deploying_crop.jpg")
+        if os.path.exists(dep_crop):
+            imgs_2a.append(os.path.abspath(dep_crop).replace("\\", "/"))
 
-        print(f"[processor] CLI Call 1: {len(screenshots)} screenshots...")
-        proc = subprocess.Popen(cmd1, stdin=subprocess.DEVNULL,
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        output1 = []
-        try:
-            for line in iter(proc.stdout.readline, b''):
-                decoded = line.decode("utf-8", errors="replace").rstrip()
-                if decoded:
-                    output1.append(decoded)
-            proc.wait(timeout=120)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            print("[processor] CLI Call 1 timed out")
+    # Shell reference images
+    shell_refs = ""
+    backend_dir = os.path.dirname(os.path.dirname(__file__))
+    for shell_path_base in [
+        os.path.join(backend_dir, "data", "images", "Shells"),
+        os.path.join(backend_dir, "frontend", "src", "assets", "shells"),
+    ]:
+        if os.path.isdir(shell_path_base):
+            for f in sorted(os.listdir(shell_path_base)):
+                if f.endswith('.png'):
+                    base = f.replace('.png', '')
+                    if '-profile' in base:
+                        display = base.replace('-profile', '').capitalize() + ' (profile view)'
+                    else:
+                        display = base.capitalize() + ' (action pose)'
+                    shell_refs += f"\n- {display}: {os.path.abspath(os.path.join(shell_path_base, f)).replace(chr(92), '/')}"
+            break
 
-        text1 = "\n".join(output1).strip()
-        if text1:
+    prompt_2a = f"""Identify the Marathon shell (character class) in these images:
+{chr(10).join(f'- {p}' for p in imgs_2a)}
+{f'{chr(10)}Shell reference images for comparison:{shell_refs}' if shell_refs else ''}
+
+character_crop.jpg shows the character's full upper body. face_crop.jpg shows the small portrait thumbnail from the loadout grid.
+
+The six shells: Assassin, Destroyer, Recon, Thief, Triage, Vandal.
+Cosmetic skins completely change armor, helmet, and colors — do NOT use those.
+Match by FACIAL GEOMETRY only: face shape, eyes, nose, mouth, skin features.
+
+Key features:
+- **Assassin**: hooded, narrow face, glowing red/orange eyes, pale skin
+- **Destroyer**: bulky, full helmet with visor, face often hidden, stocky
+- **Recon**: full helmet with large visor/goggles, robotic, face not visible
+- **Thief**: East Asian female, dark hair in bun/topknot, facial tattoos on cheek
+- **Triage**: masculine, split-tone skin (light/dark), green eyes, headphones, cross markings
+- **Vandal**: feminine, wider/rounder face, fuller lips, often horns or spiked hair, nose piercing
+
+Return ONLY valid JSON:
+{{
+  "shell_name": "Assassin" or "Destroyer" or "Recon" or "Thief" or "Triage" or "Vandal" or null
+}}"""
+
+    # --- Call 3A: Coordinates ---
+    imgs_3a = []
+    for deploy_name in ['deploy_3', 'deploy_2', 'deploy_1', 'deploy']:
+        crop = os.path.join(screenshot_dir, f"{deploy_name}_crop.jpg")
+        if os.path.exists(crop):
+            imgs_3a.append(os.path.abspath(crop).replace("\\", "/"))
+
+    prompt_3a = f"""Read the spawn coordinates from these Marathon deployment loading screen screenshots:
+{chr(10).join(f'- {p}' for p in imgs_3a)}
+
+These show a BLUE or BLACK screen with the map name in large yellow/green text, a description line below it, and TWO DECIMAL NUMBERS stacked vertically in smaller text at the BOTTOM CENTER.
+
+Example: the text might read:
+  10.215867
+  191.408676
+
+These are precise decimal numbers with 6-9 digits. Read EVERY digit carefully. The first number is X, the second is Y.
+
+If multiple images are provided, use the CLEAREST one where both numbers are fully visible.
+
+Return ONLY valid JSON:
+{{
+  "spawn_coordinates": [first_number, second_number] or null if not readable
+}}
+
+DOUBLE-CHECK your reading before returning. If unsure about ANY digit, return null."""
+
+    # --- Run all three in parallel ---
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    deploy_dir = os.path.dirname(deploy_jpg) if os.path.exists(deploy_jpg) else "."
+
+    futures = {}
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        if imgs_1a:
+            futures['1a'] = pool.submit(_run_cli_call, prompt_1a, deploy_dir, "Call 1A (Loadout)")
+        if imgs_2a:
+            futures['2a'] = pool.submit(_run_cli_call, prompt_2a, deploy_dir, "Call 2A (Shell)")
+        if imgs_3a:
+            futures['3a'] = pool.submit(_run_cli_call, prompt_3a, deploy_dir, "Call 3A (Coords)")
+
+        for key, future in futures.items():
             try:
-                deploy_data = _extract_json(text1)
-                analysis.update(deploy_data)
-                print(f"[processor] Call 1: map={deploy_data.get('map_name')} shell={deploy_data.get('shell_name')}")
+                result = future.result(timeout=180)
+                if result:
+                    analysis.update(result)
             except Exception as e:
-                print(f"[processor] Call 1 parse failed: {e}")
+                print(f"[processor] Call {key} error: {e}")
+
+    print(f"[processor] Phase 1 merged: map={analysis.get('map_name')} shell={analysis.get('shell_name')} coords={analysis.get('spawn_coordinates')}")
 
     # --- Call 2: End frames → stats (iterative 20-frame batches at native 4K) ---
     all_end_frames = _get_frame_paths(frames_dir)

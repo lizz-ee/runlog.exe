@@ -23,25 +23,21 @@ const PHASE_LABELS: Record<string, string> = {
   queued: 'QUEUED',
   extracting_frames: 'FRAMES',
   analyzing_stats: 'STATS',
-  saving: 'READY',
-  phase1_done: 'READY',
-  phase1_failed: 'P1 FAILED',
+  phase1_done: 'STATS',
+  saving: 'STATS',
   analyzing_gameplay: 'GAMEPLAY',
   analyzing: 'GAMEPLAY',
   cutting_clips: 'CLIPS',
-  done: 'COMPLETE',
   error: 'FAILED',
 }
 
-// Ordered pipeline stages
+// Ordered pipeline stages — items vanish after CLIPS
 const PIPELINE_STAGES = [
   { key: 'queued', label: 'QUEUED', short: 'Q' },
   { key: 'extracting_frames', label: 'FRAMES', short: 'FR' },
   { key: 'analyzing_stats', label: 'STATS', short: 'ST' },
-  { key: 'saving', label: 'READY', short: 'RD' },
   { key: 'analyzing_gameplay', label: 'GAMEPLAY', short: 'GP' },
   { key: 'cutting_clips', label: 'CLIPS', short: 'CL' },
-  { key: 'done', label: 'COMPLETE', short: '✓' },
 ]
 
 function getStageIndex(status: string): number {
@@ -181,9 +177,11 @@ export default function Live() {
     return () => clearInterval(frameInterval)
   }, [])
 
-  const processingItems = status?.processing_items || []
+  const allItems = status?.processing_items || []
+  // Filter out done/complete items — they vanish from the queue
+  const processingItems = allItems.filter(i => !['done', 'complete'].includes(i.status))
   const counts = status?.status_counts || {}
-  const hasActive = Object.keys(counts).some(k => !['done', 'error'].includes(k) && counts[k] > 0)
+  const hasActive = Object.keys(counts).some(k => !['done', 'error', 'complete'].includes(k) && counts[k] > 0)
 
   // Show newest first
   const displayItems = [...processingItems].reverse()
@@ -369,8 +367,8 @@ export default function Live() {
         {(() => {
           const phases = [
             { label: 'PHASE.00', stages: PIPELINE_STAGES.slice(0, 1) },
-            { label: 'PHASE.01 // STATS', stages: PIPELINE_STAGES.slice(1, 4) },
-            { label: 'PHASE.02 // NARRATIVE', stages: PIPELINE_STAGES.slice(4) },
+            { label: 'PHASE.01 // STATS', stages: PIPELINE_STAGES.slice(1, 2) },
+            { label: 'PHASE.02 // NARRATIVE', stages: PIPELINE_STAGES.slice(2) },
           ]
 
           function pillColor(key: string, hasItems: boolean) {
@@ -471,52 +469,15 @@ export default function Live() {
                           LENGTH: {formatTime(item.duration_seconds)}
                         </span>
                       )}
-                      {item.run_id && (
-                        <span className="text-[10px] font-mono flex gap-2">
-                          <span className="text-m-green">STATS ✓</span>
-                          {(item.status === 'done' || item.status === 'complete') && !item.p1_failed && !item.p2_failed ? (
-                            <span className="text-m-green">NARRATIVE ✓</span>
-                          ) : (item.status === 'done' || item.status === 'complete') && (item.p1_failed || item.p2_failed) ? (
-                            <span className="text-m-red">NARRATIVE ✗</span>
-                          ) : (
-                            <span className="text-m-text-muted/40">NARRATIVE ...</span>
-                          )}
-                        </span>
+                      {item.status === 'error' && (
+                        <span className="text-[10px] font-mono text-m-red">FAILED</span>
                       )}
                     </div>
                   </div>
 
                   {/* Status + actions — fixed width for alignment */}
                   <div className="flex items-center gap-3 flex-shrink-0 w-[200px] justify-end">
-                    {item.status === 'complete' ? (
-                      <div className="flex items-center">
-                        <button
-                          onClick={() => {
-                            axios.post(`${apiBase}/api/capture/recording/keep`, { filename: item.file })
-                              .catch(() => {})
-                          }}
-                          className="label-tag px-3 py-1 font-mono font-bold tracking-widest text-m-green border border-m-green/30 hover:bg-m-green/10 transition-all cursor-pointer"
-                        >
-                          COMPLETE
-                        </button>
-                      </div>
-                    ) : item.status === 'done' && item.p2_failed ? (
-                      <div className="flex flex-col items-center gap-1">
-                        <button
-                          onClick={() => {
-                            axios.post(`${apiBase}/api/capture/recording/retry-phase2`, { filename: item.file })
-                              .then(() => addToast({ type: 'info', title: 'RETRYING NARRATIVE', body: item.file }))
-                              .catch(() => addToast({ type: 'error', title: 'RETRY FAILED', body: item.file }))
-                          }}
-                          className="label-tag px-2 py-1 border border-m-cyan/40 text-m-cyan hover:bg-m-cyan/10 transition-all"
-                        >
-                          RETRY
-                        </button>
-                        <span className="text-[8px] font-mono text-m-red/60 tracking-wider">
-                          NARRATIVE FAILED
-                        </span>
-                      </div>
-                    ) : item.status === 'error' ? (
+                    {item.status === 'error' ? (
                       <div className="flex items-center gap-3">
                         <button
                           onClick={() => {

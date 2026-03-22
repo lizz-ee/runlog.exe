@@ -322,16 +322,20 @@ class AutoCapture:
         with open(full_path, "wb") as f:
             f.write(frame_jpeg)
 
-        # Save center-cropped version (middle 40% of frame — captures loadout/shell/HUD)
+        # Save center-cropped version (39-61%w, 39-64%h — loadout/shell/HUD)
         try:
             img = Image.open(io.BytesIO(frame_jpeg))
             w, h = img.size
-            crop_w, crop_h = int(w * 0.4), int(h * 0.5)
-            left = (w - crop_w) // 2
-            top = (h - crop_h) // 2
-            crop = img.crop((left, top, left + crop_w, top + crop_h))
+            crop = img.crop((int(w * 0.39), int(h * 0.39), int(w * 0.61), int(h * 0.64)))
             crop_path = os.path.join(self.recordings_dir, f"{name}_buf_{phase_name}_crop.jpg")
             crop.save(crop_path, "JPEG", quality=85)
+
+            # For deploying phase: also generate character model + face crops for shell ID
+            if phase_name == 'deploying':
+                char_crop = img.crop((int(w * 0.395), int(h * 0.10), int(w * 0.605), int(h * 0.43)))
+                char_crop.save(os.path.join(self.recordings_dir, f"{name}_buf_character_crop.jpg"), "JPEG", quality=90)
+                face_crop = img.crop((int(w * 0.395), int(h * 0.43), int(w * 0.439), int(h * 0.581)))
+                face_crop.save(os.path.join(self.recordings_dir, f"{name}_buf_face_crop.jpg"), "JPEG", quality=90)
         except Exception as e:
             print(f"[capture] Crop failed for {phase_name}: {e}")
 
@@ -340,17 +344,14 @@ class AutoCapture:
         return count
 
     def _save_deploy_shot(self, screenshots_dir: str, name: str, frame_jpeg: bytes):
-        """Save a deploy screenshot — full + center crop."""
+        """Save a deploy screenshot — full + center crop for coordinate reading."""
         try:
             with open(os.path.join(screenshots_dir, f"{name}.jpg"), "wb") as f:
                 f.write(frame_jpeg)
-            # Center crop for coordinate readability
+            # Center crop (39-61%w, 39-64%h) for coordinate readability
             img = Image.open(io.BytesIO(frame_jpeg))
             w, h = img.size
-            crop_w, crop_h = int(w * 0.4), int(h * 0.5)
-            left = (w - crop_w) // 2
-            top = (h - crop_h) // 2
-            crop = img.crop((left, top, left + crop_w, top + crop_h))
+            crop = img.crop((int(w * 0.39), int(h * 0.39), int(w * 0.61), int(h * 0.64)))
             crop.save(os.path.join(screenshots_dir, f"{name}_crop.jpg"), "JPEG", quality=85)
         except Exception as e:
             print(f"[capture] Deploy shot save failed ({name}): {e}")
@@ -386,6 +387,14 @@ class AutoCapture:
             if os.path.exists(crop_path):
                 try:
                     shutil.move(crop_path, os.path.join(screenshots_dir, f"{phase_name}_crop.jpg"))
+                except Exception:
+                    pass
+        # Move character model + face crops (from deploying phase)
+        for crop_name in ['character_crop', 'face_crop']:
+            buf_path = os.path.join(self.recordings_dir, f"{name}_buf_{crop_name}.jpg")
+            if os.path.exists(buf_path):
+                try:
+                    shutil.move(buf_path, os.path.join(screenshots_dir, f"{crop_name}.jpg"))
                 except Exception:
                     pass
         # Also move legacy numbered files if they exist
@@ -536,11 +545,11 @@ class AutoCapture:
                 self._save_stats_shot(screenshots_dir, "stats_1", frame_jpeg)
                 print(f"[capture] Stats shot 1/3 saved ({det_type})")
 
-                # Shots 2 & 3: delayed to catch the actual stats screen after banner
+                # Shots 2 & 3: faster timing to catch stats before player clicks to PROGRESS
                 def _delayed_stats_shots():
                     prev_seq = self._frame_seq
-                    # Shot 2: wait ~2s for stats screen to appear
-                    time.sleep(2.0)
+                    # Shot 2: wait ~1s for stats animation to complete
+                    time.sleep(1.0)
                     for _ in range(10):
                         if self._frame_seq != prev_seq:
                             break
@@ -549,9 +558,9 @@ class AutoCapture:
                     if frame2:
                         self._save_stats_shot(screenshots_dir, "stats_2", frame2)
                         print(f"[capture] Stats shot 2/3 saved (seq {self._frame_seq})")
-                    # Shot 3: wait another ~2s
+                    # Shot 3: wait another ~1.5s
                     prev_seq = self._frame_seq
-                    time.sleep(2.0)
+                    time.sleep(1.5)
                     for _ in range(10):
                         if self._frame_seq != prev_seq:
                             break
