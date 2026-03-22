@@ -21,7 +21,7 @@ const sections: NavSection[] = [
     title: 'SYSTEM',
     items: [
       { view: 'dashboard', label: 'TERMINAL', tag: '01' },
-      { view: 'history', label: 'RUNS', tag: '02' },
+      { view: 'history', label: 'RUN.LOG', tag: '02' },
       { view: 'shells', label: 'NEURAL.LINK', tag: '03' },
     ],
   },
@@ -29,9 +29,9 @@ const sections: NavSection[] = [
     title: 'MAPS',
     items: [
       { view: 'map-perimeter', label: 'PERIMETER', tag: '04' },
-      { view: 'map-dire-marsh', label: 'DIRE MARSH', tag: '05' },
+      { view: 'map-dire-marsh', label: 'DIRE.MARSH', tag: '05' },
       { view: 'map-outpost', label: 'OUTPOST', tag: '06' },
-      { view: 'map-cryo-archive', label: 'CRYO ARCHIVE', tag: '07', disabled: true },
+      { view: 'map-cryo-archive', label: 'CRYO.ARCHIVE', tag: '07', disabled: true },
     ],
   },
   {
@@ -165,7 +165,7 @@ export default function Sidebar() {
                   <span className={`text-xs tracking-[0.1em] font-medium ${item.disabled ? 'line-through decoration-m-red/60' : ''}`}>
                     {item.label}
                   </span>
-                  {item.view === 'dashboard' && unviewedCount > 0 && (
+                  {item.view === 'history' && unviewedCount > 0 && (
                     <span className="text-m-cyan"><UnviewedBadge /></span>
                   )}
                   {stagingCounts[item.view] > 0 && (
