@@ -93,8 +93,8 @@ Where the magic happens. The detection engine watches your game, auto-records ev
 - **Per-phase screenshots** — READY UP, RUN, DEPLOYING phases captured for shell/loadout identification
 
 ### Two-Phase AI Analysis
-- **Phase 1 (Stats, ~60s):** Three parallel Claude calls extract map, shell (facial geometry matching), spawn coordinates, plus a sequential call for kills, deaths, loot, weapons, damage contributors from end-of-run screenshots
-- **Phase 2 (Narrative, ~10min):** Chain-of-thought video analysis — scene inventory, event identification, then grade + summary + highlight timestamps. Clips cut via stream copy from original 4K footage
+- **Phase 1 (Stats):** Three parallel Claude calls extract map, shell (facial geometry matching), spawn coordinates, plus a sequential call for kills, deaths, loot, weapons, damage contributors from end-of-run screenshots
+- **Phase 2 (Narrative):** Chain-of-thought video analysis — scene inventory, event identification, then grade + summary + highlight timestamps. Clips cut via stream copy from original 4K footage
 
 ### Highlight Clips
 - Auto-generated from Phase 2 — every PvP kill, death, revive, and extraction clipped
