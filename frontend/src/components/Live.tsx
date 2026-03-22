@@ -60,11 +60,11 @@ function PipelineProgress({ status, detail, p1Failed, p2Failed }: {
 
   const isP1Failed = status === 'phase1_failed' || !!p1Failed
   const isP2Failed = !!p2Failed
-  const p1EndIdx = PIPELINE_STAGES.findIndex(s => s.key === 'saving')  // P1 stages: 0-3
-  const p2StartIdx = PIPELINE_STAGES.findIndex(s => s.key === 'analyzing_gameplay')  // P2 stages: 4-6
+  const p1EndIdx = 2  // QUEUED, FRAMES, STATS = indices 0-2
+  const p2StartIdx = 3  // GAMEPLAY, CLIPS = indices 3-4
 
-  // Shape per stage: P0 (circle), P1 (triangle, square, circle), P2 (triangle, square, circle)
-  const SHAPES = ['circle', 'triangle', 'square', 'circle', 'triangle', 'square', 'circle'] as const
+  // Shape per stage: P1 (circle, triangle, square), P2 (triangle, square)
+  const SHAPES = ['circle', 'triangle', 'square', 'triangle', 'square'] as const
 
   return (
     <div className="flex items-center gap-0">
@@ -85,7 +85,7 @@ function PipelineProgress({ status, detail, p1Failed, p2Failed }: {
         const isCompleted = i < currentIdx
         const isActive = i === currentIdx
         const isDone = status === 'done'
-        const phaseGap = i === 1 || i === 4  // Gap between P0/P1 and P1/P2
+        const phaseGap = i === 3  // Gap between P1 and P2
         const shape = SHAPES[i]
         const isP2Stage = i >= p2StartIdx
 
@@ -366,8 +366,7 @@ export default function Live() {
         {/* Pill-shaped pipeline — Marathon HUD style */}
         {(() => {
           const phases = [
-            { label: 'PHASE.00', stages: PIPELINE_STAGES.slice(0, 1) },
-            { label: 'PHASE.01 // STATS', stages: PIPELINE_STAGES.slice(1, 3) },
+            { label: 'PHASE.01 // STATS', stages: PIPELINE_STAGES.slice(0, 3) },
             { label: 'PHASE.02 // NARRATIVE', stages: PIPELINE_STAGES.slice(3) },
           ]
 
