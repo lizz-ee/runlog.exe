@@ -1124,15 +1124,15 @@ export function RunRow({ run, isExpanded, onToggle, onToggleFavorite, onUpdate, 
                     <span className="text-[10px] font-mono text-m-red">
                       {run.damage_contributors.map((c, i) => (
                         <span key={i}>
-                          {i > 0 && <span className="text-m-text-muted">  +  </span>}
-                          {c.name}//{c.damage}
+                          {i > 0 && <span className="text-m-text-muted"> + </span>}
+                          {c.name} {c.damage}<span className="text-m-text-muted">dmg</span>
                         </span>
                       ))}
                     </span>
                   ) : (
                     <span className="text-[10px] font-mono text-m-red">
                       {run.killed_by
-                        ? `${run.killed_by}${run.killed_by_damage ? `//${run.killed_by_damage}` : ''}`
+                        ? <>{run.killed_by}{run.killed_by_damage ? <> {run.killed_by_damage}<span className="text-m-text-muted">dmg</span></> : ''}</>
                         : 'Unknown'}
                     </span>
                   )}
