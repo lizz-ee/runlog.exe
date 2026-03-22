@@ -2,7 +2,7 @@
 
 A local-first desktop companion for **Marathon** (Bungie, 2026). Play your runs, stats appear automatically.
 
-**Powered by Claude** — records your gameplay with a zero-copy GPU capture engine, extracts stats with AI vision, generates highlight clips, grades your performance, and builds a comprehensive dashboard over time. No manual data entry, no accounts, no cloud.
+Records your gameplay with a zero-copy GPU capture engine, then uses AI to extract stats, identify your shell, grade your performance, write narrative run reports, generate highlight clips, and power a tactical advisor. No manual data entry, no accounts, no cloud.
 
 ---
 
