@@ -29,7 +29,7 @@ Your command center. Career stats at a glance — total runs, survival rate, K/D
 
 ## RUN.LOG
 
-Complete history of every run. Each row shows shell, map, spawn, PvE and PvP kills, deaths, revives, loot gained or lost, duration, and letter grade (S through F). Filter and combine by outcome, grade, map, ranked mode, or favorites.
+Complete history of every run. Each row shows shell, map, spawn, PvE and PvP kills, deaths, revives, loot gained or lost, duration, and letter grade (S through F). Filters stack — narrow by outcome, grade, map, ranked mode, and favorites.
 
 ![RUN.LOG — Run History](docs/screenshots/run_log.png)
 
