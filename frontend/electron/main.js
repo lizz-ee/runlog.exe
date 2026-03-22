@@ -8,6 +8,9 @@ const http = require('http')
 const { BackendManager } = require('./backend-manager')
 const { RecordingManager } = require('./recording-manager')
 
+// Auto-updater — uncomment when code signing + GitHub releases are configured
+// const { initAutoUpdater } = require('./auto-updater')
+
 const isDev = !app.isPackaged
 
 // ── Window state persistence ─────────────────────────────────────────
@@ -205,13 +208,14 @@ window.updateOverlay = function(s, d) {
 </script></body></html>`
 
   overlayWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(overlayHTML))
-  overlayWindow.on('closed', () => { overlayWindow = null })
 }
 
 function updateOverlay(state, detail) {
   if (!overlayWindow) return
+  const safeState = JSON.stringify(state || '')
+  const safeDetail = JSON.stringify((detail || '').toString())
   overlayWindow.webContents.executeJavaScript(
-    `window.updateOverlay && window.updateOverlay('${state}', '${(detail || '').replace(/'/g, "\\'")}')`,
+    `window.updateOverlay && window.updateOverlay(${safeState}, ${safeDetail})`,
   ).catch(() => {})
 }
 
@@ -356,6 +360,9 @@ if (!gotTheLock) {
 app.whenReady().then(async () => {
   createWindow()
   createTray()
+
+  // Auto-updater — uncomment when code signing + GitHub releases are configured
+  // initAutoUpdater(mainWindow)
 
   // Start backend
   backendManager = new BackendManager((status, message) => {
@@ -597,8 +604,9 @@ ipcMain.on('overlay-update', (_event, state, detail) => {
 })
 ipcMain.on('overlay-notify', (_event, message, duration) => {
   if (!overlayWindow) return
+  const safeMsg = JSON.stringify((message || '').toString())
   overlayWindow.webContents.executeJavaScript(
-    `window.showNotification && window.showNotification('${(message || '').replace(/'/g, "\\'")}', ${duration || 4000})`,
+    `window.showNotification && window.showNotification(${safeMsg}, ${duration || 4000})`,
   ).catch(() => {})
 })
 ipcMain.on('overlay-toggle', (_event, enabled) => {

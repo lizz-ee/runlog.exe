@@ -3,15 +3,9 @@ import { format } from 'date-fns'
 import axios from 'axios'
 import { getRuns, updateRun, getClips, getClipUrl, apiBase, toggleFavorite, cutClip, deleteClip, deleteKeptRecording } from '../lib/api'
 import { useStore } from '../lib/store'
+import { formatTime } from '../lib/utils'
 import type { Run, Clip } from '../lib/types'
 import rankedIcon from '../assets/ranked.png'
-
-function formatDuration(seconds: number | null): string {
-  if (!seconds) return '—'
-  const m = Math.floor(seconds / 60)
-  const s = seconds % 60
-  return `${m}:${String(s).padStart(2, '0')}`
-}
 
 // Grade colors — rarity tier system matching NEURAL.LINK
 // S=gold, A=purple, B=blue, C=green, D/F=grey
@@ -99,13 +93,8 @@ function ShellPicker({ run, onUpdate }: { run: Run; onUpdate: () => void }) {
 }
 
 /* ── Clip Timeline — video player with seekbar + IN/OUT editor ── */
-function formatTimecode(s: number): string {
-  const m = Math.floor(s / 60)
-  const sec = Math.floor(s % 60)
-  return `${m}:${String(sec).padStart(2, '0')}`
-}
 
-function ClipTimeline({ src, clipPath, label, onClose, onClipCreated, onPlayClip }: {
+function ClipTimeline({ src, clipPath, label: _label, onClose, onClipCreated, onPlayClip }: {
   src: string
   clipPath: string
   label: string
@@ -277,7 +266,7 @@ function ClipTimeline({ src, clipPath, label, onClose, onClipCreated, onPlayClip
         <div className="absolute bottom-[90px] left-1/2 -translate-x-1/2 z-30">
           <button onClick={handleCreateClick}
             className="label-tag px-3 py-1 border border-[#c8ff00]/60 text-[#c8ff00] bg-[#c8ff00]/10 hover:bg-[#c8ff00]/20 transition-all whitespace-nowrap shadow-[0_2px_8px_rgba(0,0,0,0.6)]">
-            CREATE CLIP // {formatTimecode(outPoint - inPoint)}
+            CREATE CLIP // {formatTime(outPoint - inPoint)}
           </button>
         </div>
       )}
@@ -383,7 +372,7 @@ function ClipTimeline({ src, clipPath, label, onClose, onClipCreated, onPlayClip
         <div className="relative" style={{ height: 30 }}>
           {/* Far left: timecode — absolute so it doesn't affect grid */}
           <span className="absolute left-0 top-1/2 -translate-y-1/2 text-[11px] font-mono text-m-text tabular-nums tracking-wider whitespace-nowrap">
-            {formatTimecode(currentTime)} // {formatTimecode(duration)}
+            {formatTime(currentTime)} // {formatTime(duration)}
           </span>
 
           {/* Grid: 3 columns, PLAY locked center, takes full width */}
@@ -414,7 +403,7 @@ function ClipTimeline({ src, clipPath, label, onClose, onClipCreated, onPlayClip
                   ? 'border-[#c8ff00]/60 text-[#c8ff00] bg-[#c8ff00]/10'
                   : 'border-m-border/60 text-m-text hover:text-[#c8ff00] hover:border-[#c8ff00]/40'
               }`}>
-              [ IN {inPoint !== null ? formatTimecode(inPoint) : '—'}
+              [ IN {inPoint !== null ? formatTime(inPoint) : '—'}
             </button>
           </div>
 
@@ -437,7 +426,7 @@ function ClipTimeline({ src, clipPath, label, onClose, onClipCreated, onPlayClip
                   ? 'border-[#c8ff00]/60 text-[#c8ff00] bg-[#c8ff00]/10'
                   : 'border-m-border/60 text-m-text hover:text-[#c8ff00] hover:border-[#c8ff00]/40'
               }`}>
-              OUT {outPoint !== null ? formatTimecode(outPoint) : '—'} ]
+              OUT {outPoint !== null ? formatTime(outPoint) : '—'} ]
             </button>
             <button onClick={(inPoint !== null || outPoint !== null) ? handleClear : undefined}
               className={`label-tag px-2 py-1 border transition-all flex items-center ${
@@ -690,7 +679,7 @@ export default function RunHistory() {
       setPageRuns(result.items)
       setTotalCount(result.total)
       setMaps(result.maps)
-    }).catch(() => {})
+    }).catch((e) => console.error('[RunHistory] fetch runs failed:', e))
   }, [page, outcomeFilter, gradeFilter, mapFilter, rankedFilter, favFilter])
 
   const refreshRuns = useCallback(() => {
@@ -698,7 +687,7 @@ export default function RunHistory() {
   }, [fetchPage])
 
   // Load clips on mount
-  useEffect(() => { getClips().then(setClips).catch(() => {}) }, [])
+  useEffect(() => { getClips().then(setClips).catch((e) => console.error('[RunHistory] fetch clips failed:', e)) }, [])
 
   // Fetch page whenever page/filters change
   useEffect(() => { fetchPage() }, [fetchPage])
@@ -719,7 +708,7 @@ export default function RunHistory() {
   useEffect(() => {
     if (lastRunId || doneCount) {
       fetchPage()
-      getClips().then(setClips).catch(() => {})
+      getClips().then(setClips).catch((e) => console.error('[RunHistory] refresh clips failed:', e))
     }
   }, [lastRunId, doneCount])
 
@@ -753,7 +742,7 @@ export default function RunHistory() {
         const run = pageRuns.find(r => r.id === runId)
         if (run && !run.viewed) {
           setPageRuns(p => p.map(r => r.id === runId ? { ...r, viewed: true } : r))
-          axios.post(`${apiBase}/api/runs/${runId}/viewed`).catch(() => {})
+          axios.post(`${apiBase}/api/runs/${runId}/viewed`).catch((e) => console.error('[RunHistory] mark run viewed failed:', e))
         }
       }
       return next
@@ -908,7 +897,7 @@ export default function RunHistory() {
               onToggleFavorite={(e) => handleToggleFavorite(e, run.id)}
               onUpdate={refreshRuns}
               clips={getRunClips(run)}
-              onClipsRefresh={() => { fetchPage(); getClips().then(setClips).catch(() => {}) }}
+              onClipsRefresh={() => { fetchPage(); getClips().then(setClips).catch((e) => console.error('[RunHistory] refresh clips failed:', e)) }}
             />
           ))}
         </div>
@@ -941,7 +930,7 @@ export default function RunHistory() {
 }
 
 /* ── Run Row (exported for use in Dashboard/Terminal) ── */
-export function RunRow({ run, isExpanded, onToggle, onToggleFavorite, onUpdate, clips, onClipsRefresh }: {
+export function RunRow({ run, isExpanded, onToggle, onToggleFavorite, onUpdate, clips, onClipsRefresh: _onClipsRefresh }: {
   run: Run
   isExpanded: boolean
   onToggle: () => void
@@ -963,7 +952,7 @@ export function RunRow({ run, isExpanded, onToggle, onToggleFavorite, onUpdate, 
     getClips().then(allClips => {
       const matched = matchRunClips(run, allClips)
       setLocalClips(matched)
-    }).catch(() => {})
+    }).catch((e) => console.error('[RunHistory] refresh local clips failed:', e))
   }, [run])
 
   const refreshFolderSize = useCallback(() => {
@@ -1048,7 +1037,7 @@ export function RunRow({ run, isExpanded, onToggle, onToggleFavorite, onUpdate, 
           ${run.loot_value_total.toLocaleString()}
         </span>
         <span className="text-xs font-mono text-m-text-muted text-right">
-          {formatDuration(run.duration_seconds)}
+          {run.duration_seconds ? formatTime(run.duration_seconds) : '—'}
         </span>
 
         {/* Favorite hexagon */}
@@ -1126,15 +1115,15 @@ export function RunRow({ run, isExpanded, onToggle, onToggleFavorite, onUpdate, 
                     <span className="text-[10px] font-mono text-m-red">
                       {run.damage_contributors.map((c, i) => (
                         <span key={i}>
-                          {i > 0 && <span className="text-m-text-muted"> + </span>}
-                          {c.finished && run.killed_by ? run.killed_by : c.name} <span className="text-m-text-muted">dmg</span>{c.damage}
+                          {i > 0 && <span className="text-m-text-muted/50"> + </span>}
+                          {c.finished && run.killed_by ? run.killed_by : c.name} <span className="text-m-text-muted">{c.damage}</span>
                         </span>
                       ))}
                     </span>
                   ) : (
                     <span className="text-[10px] font-mono text-m-red">
                       {run.killed_by
-                        ? <>{run.killed_by}{run.killed_by_damage ? <> <span className="text-m-text-muted">dmg</span>{run.killed_by_damage}</> : ''}</>
+                        ? <>{run.killed_by}{run.killed_by_damage ? <> <span className="text-m-text-muted"> {run.killed_by_damage}</span></> : ''}</>
                         : 'Unknown'}
                     </span>
                   )}

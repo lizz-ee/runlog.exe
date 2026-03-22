@@ -38,6 +38,7 @@ class RecordingManager {
   // ── Marathon monitoring ────────────────────────────────────────────
 
   _startMarathonMonitor() {
+    if (this.marathonTimer) clearInterval(this.marathonTimer)
     this.marathonTimer = setInterval(async () => {
       const running = await this._isMarathonRunning()
 
@@ -57,8 +58,10 @@ class RecordingManager {
       this.isCapturing = true
       this.onStatus('active', 'Auto-capture running')
 
+      // TODO: Consider SSE via http module for real-time updates instead of polling
       // Poll status every 3 seconds — detect recording start/stop and processing
       this.lastRunId = null
+      if (this.statusTimer) clearInterval(this.statusTimer)
       this.statusTimer = setInterval(async () => {
         try {
           const status = await this._apiGet('/api/capture/status')

@@ -21,6 +21,19 @@ use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Dxgi::Common::DXGI_SAMPLE_DESC;
 
 // ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/// OCR frame interval in capture frames (~0.25s at 60fps in menus)
+const OCR_FRAME_INTERVAL: u64 = 15;
+/// Multiplier for OCR interval during recording (~3s)
+const OCR_RECORD_INTERVAL_MULTIPLIER: u64 = 12;
+/// Initial JPEG buffer capacity
+const JPEG_BUF_CAPACITY: usize = 64 * 1024;
+/// JPEG encoding quality (1-100)
+const JPEG_QUALITY: u8 = 85;
+
+// ---------------------------------------------------------------------------
 // IPC messages
 // ---------------------------------------------------------------------------
 
@@ -65,7 +78,13 @@ enum Event {
 }
 
 fn emit(event: &Event) {
-    let json = serde_json::to_string(event).unwrap();
+    let json = match serde_json::to_string(event) {
+        Ok(j) => j,
+        Err(e) => {
+            eprintln!("[recorder] Failed to serialize event: {}", e);
+            return;
+        }
+    };
     let stdout = io::stdout();
     let mut out = stdout.lock();
     let _ = writeln!(out, "{}", json);
@@ -141,10 +160,23 @@ impl StagingPool {
     fn ensure_staging(&mut self, frame_texture: &ID3D11Texture2D) {
         if self.device.is_none() {
             unsafe {
-                let device: ID3D11Device = frame_texture.GetDevice().unwrap();
-                let context: ID3D11DeviceContext = device.GetImmediateContext().unwrap();
-                self.context = Some(context);
-                self.device = Some(device);
+                let device: ID3D11Device = match frame_texture.GetDevice() {
+                    Ok(d) => d,
+                    Err(e) => {
+                        eprintln!("[recorder] Failed to get D3D11 device: {}", e);
+                        return;
+                    }
+                };
+                match device.GetImmediateContext() {
+                    Ok(ctx) => {
+                        self.context = Some(ctx);
+                        self.device = Some(device);
+                    }
+                    Err(e) => {
+                        eprintln!("[recorder] Failed to get D3D11 context: {}", e);
+                        return;
+                    }
+                }
             }
         }
 
@@ -193,7 +225,10 @@ impl StagingPool {
     /// Returns None on the first call (no previous data yet).
     fn copy_and_read(&mut self, frame_texture: &ID3D11Texture2D) -> Option<OcrFrameData> {
         self.ensure_staging(frame_texture);
-        let ctx = self.context.as_ref().unwrap();
+        let ctx = match self.context.as_ref() {
+            Some(c) => c,
+            None => return None, // ensure_staging failed (GPU error)
+        };
 
         let read_idx = self.current;       // Read from this (previous copy, already complete)
         let write_idx = 1 - self.current;  // Write to this (new async copy)
@@ -210,7 +245,19 @@ impl StagingPool {
             };
             if hr.is_ok() {
                 let row_pitch = mapped.RowPitch as usize;
-                let total_bytes = row_pitch * self.height as usize;
+                let total_bytes = match row_pitch.checked_mul(self.height as usize) {
+                    Some(t) => t,
+                    None => {
+                        eprintln!("[recorder] Buffer size overflow: {}x{}", row_pitch, self.height);
+                        unsafe { ctx.Unmap(staging, 0) };
+                        return None;
+                    }
+                };
+                if mapped.pData.is_null() {
+                    eprintln!("[recorder] Map returned null pointer");
+                    unsafe { ctx.Unmap(staging, 0) };
+                    return None;
+                }
                 let data = unsafe {
                     std::slice::from_raw_parts(mapped.pData as *const u8, total_bytes)
                 };
@@ -276,7 +323,7 @@ impl GraphicsCaptureApiHandler for Recorder {
             frame_count: 0,
             width: 0,
             height: 0,
-            ocr_interval: 15, // ~0.25s at 60fps in menus, stretched during recording
+            ocr_interval: OCR_FRAME_INTERVAL, // ~0.25s at 60fps in menus, stretched during recording
             staging_pool: StagingPool::new(),
         })
     }
@@ -395,7 +442,7 @@ impl GraphicsCaptureApiHandler for Recorder {
         let ocr_fast = self.state.ocr_fast.load(Ordering::Relaxed);
         let use_staged = is_recording && !ocr_fast;
         let interval = if use_staged {
-            self.ocr_interval * 12  // ~3s during recording (just need endgame)
+            self.ocr_interval * OCR_RECORD_INTERVAL_MULTIPLIER  // ~3s during recording (just need endgame)
         } else {
             self.ocr_interval       // ~0.25s in menus or after RUN_COMPLETE
         };
@@ -501,7 +548,7 @@ fn find_marathon_window() -> Option<Window> {
         if name.contains("runlog") || title.contains("runlog") || title.contains("marathon-runlog") {
             return false;
         }
-        name.contains("marathon") || title == "marathon"
+        name == "marathon" || name == "marathon.exe" || title == "marathon" || title.starts_with("marathon")
     })
 }
 
@@ -630,7 +677,13 @@ fn main() {
                     if ocr_state.should_quit.load(Ordering::Relaxed) {
                         return;
                     }
-                    pending = ocr_state.ocr_notify.wait_timeout(pending, std::time::Duration::from_secs(1)).unwrap().0;
+                    pending = match ocr_state.ocr_notify.wait_timeout(pending, std::time::Duration::from_secs(1)) {
+                        Ok((guard, _)) => guard,
+                        Err(e) => {
+                            eprintln!("[recorder] OCR mutex poisoned, exiting thread: {}", e);
+                            return;
+                        }
+                    };
                 }
                 pending.take().unwrap()
             };
@@ -657,8 +710,8 @@ fn main() {
             }
 
             // JPEG encode + emit
-            let mut jpeg_buf = Vec::with_capacity(64 * 1024);
-            let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_buf, 85);
+            let mut jpeg_buf = Vec::with_capacity(JPEG_BUF_CAPACITY);
+            let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_buf, JPEG_QUALITY);
             if encoder.encode(&rgb_buf, ow as u32, oh as u32, image::ExtendedColorType::Rgb8).is_ok() {
                 use base64::Engine;
                 let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg_buf);

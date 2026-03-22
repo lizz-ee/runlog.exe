@@ -143,6 +143,12 @@ def update_config(body: ConfigUpdate):
     allowed_keys = set(DEFAULTS.keys())
     if body.key not in allowed_keys:
         raise HTTPException(status_code=400, detail=f"Unknown config key: {body.key}")
+    # Validate model names
+    if body.key in ("model", "uplink_model") and body.value not in ("sonnet", "haiku"):
+        raise HTTPException(status_code=400, detail=f"Invalid model: {body.value}. Must be 'sonnet' or 'haiku'")
+    # Validate encoder
+    if body.key == "encoder" and body.value not in ("hevc", "h264"):
+        raise HTTPException(status_code=400, detail=f"Invalid encoder: {body.value}. Must be 'hevc' or 'h264'")
     saved = _load_settings()
     saved[body.key] = body.value
     _save_settings(saved)

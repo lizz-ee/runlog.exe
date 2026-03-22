@@ -183,8 +183,20 @@ export interface SpawnHeatmapEntry {
   total_loot: number
   total_time: number
   total_kills: number
+  pve_kills: number
+  runner_kills: number
+  total_deaths: number
+  total_revives: number
+  best_loot: number | null
+  worst_loot: number | null
+  longest_run: number | null
+  shortest_run: number | null
+  killed_by: Array<{ name: string; damage: number | null }>
+  last_played: string | null
   avg_loot: number | null
   avg_time: number | null
+  fav_weapon: string | null
+  fav_shell: string | null
 }
 
 export interface SpawnHeatmap {
@@ -297,6 +309,17 @@ export interface ShellStats {
   avg_time: number
   favorite_weapon: string | null
   score: number
+}
+
+/** Overlay settings from Electron */
+export interface OverlaySettings {
+  enabled: boolean
+  corner: string
+  customX?: number
+  customY?: number
+  opacity?: number
+  size?: string
+  closeWhenDone?: boolean
 }
 
 export type View = 'dashboard' | 'history' | 'shells' | 'squad' | 'map-perimeter' | 'map-dire-marsh' | 'map-outpost' | 'map-cryo-archive' | 'live' | 'uplink' | 'settings'

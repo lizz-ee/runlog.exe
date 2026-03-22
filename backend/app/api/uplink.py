@@ -24,6 +24,7 @@ from sqlalchemy import func
 from ..database import get_db, SessionLocal
 from ..models import Run, Runner, SpawnPoint, Session as SessionModel
 from ..config import settings
+from ..utils import calc_kd, calc_survival_rate
 
 router = APIRouter()
 
@@ -88,10 +89,10 @@ def tool_get_overview_stats(db: Session, **kwargs) -> dict:
     time_s = sum(r.duration_seconds or 0 for r in runs)
     return {
         "total_runs": total,
-        "survival_rate": round(survived / total * 100, 1),
+        "survival_rate": calc_survival_rate(survived, total),
         "total_runner_kills": pvp,
         "total_pve_kills": pve,
-        "kd_ratio": round(pvp / deaths, 2) if deaths else float(pvp),
+        "kd_ratio": calc_kd(pvp, deaths),
         "total_loot": round(loot),
         "total_time_minutes": round(time_s / 60),
         "avg_loot_per_run": round(loot / total),
@@ -138,7 +139,7 @@ def tool_get_session_summary(db: Session, session_id: int = None, **kwargs) -> d
         "date": str(session.started_at)[:10] if session.started_at else None,
         "run_count": total,
         "survived": survived,
-        "survival_rate": round(survived / total * 100, 1),
+        "survival_rate": calc_survival_rate(survived, total),
         "total_runner_kills": pvp,
         "total_pve_kills": pve,
         "total_deaths": deaths,
@@ -210,14 +211,14 @@ def tool_get_stats_by_map(db: Session, map_name: str, **kwargs) -> dict:
                 if r.survived:
                     spawn_stats[sp]["survived"] += 1
     best_spawn = max(spawn_stats.items(), key=lambda x: x[1]["survived"] / x[1]["runs"] if x[1]["runs"] > 0 else 0)[0] if spawn_stats else None
-    worst_spawn = min(spawn_stats.items(), key=lambda x: x[1]["survived"] / x[1]["runs"] if x[1]["runs"] > 0 else 1)[0] if spawn_stats else None
+    worst_spawn = min(spawn_stats.items(), key=lambda x: x[1]["survived"] / x[1]["runs"] if x[1]["runs"] > 0 else 0)[0] if spawn_stats else None
     return {
         "map": map_name, "total_runs": total,
-        "survival_rate": round(survived / total * 100, 1),
+        "survival_rate": calc_survival_rate(survived, total),
         "avg_runner_kills": round(pvp / total, 1),
         "avg_pve_kills": round(pve / total, 1),
         "avg_loot": round(loot / total),
-        "kd_ratio": round(pvp / deaths, 2) if deaths else float(pvp),
+        "kd_ratio": calc_kd(pvp, deaths),
         "best_spawn": best_spawn, "worst_spawn": worst_spawn,
     }
 
@@ -245,11 +246,11 @@ def tool_get_stats_by_shell(db: Session, shell_name: str, **kwargs) -> dict:
     best_grade = min(grades, key=lambda g: "SABCDF".index(g)) if grades else None
     return {
         "shell": runner.name, "total_runs": total,
-        "survival_rate": round(survived / total * 100, 1),
+        "survival_rate": calc_survival_rate(survived, total),
         "avg_runner_kills": round(pvp / total, 1),
         "avg_pve_kills": round(pve / total, 1),
         "avg_loot": round(loot / total),
-        "kd_ratio": round(pvp / deaths, 2) if deaths else float(pvp),
+        "kd_ratio": calc_kd(pvp, deaths),
         "favorite_weapon": fav_weapon, "best_grade": best_grade,
     }
 
@@ -296,7 +297,7 @@ def tool_get_weapon_stats(db: Session, **kwargs) -> dict:
         result.append({
             "weapon": name,
             "times_used": stats["times_used"],
-            "survival_rate": round(stats["survived"] / stats["times_used"] * 100, 1),
+            "survival_rate": calc_survival_rate(stats["survived"], stats["times_used"]),
             "avg_kills": round(stats["kills"] / stats["times_used"], 1),
         })
     return {"weapons": result}
@@ -340,7 +341,7 @@ def tool_get_performance_trend(db: Session, stat: str = "survival", range: str =
             loot = sum(r.loot_value_total or 0 for r in grp)
             revives = sum(r.crew_revives or 0 for r in grp)
             val = {
-                "survival": round(survived / total * 100, 1) if total else 0,
+                "survival": calc_survival_rate(survived, total),
                 "runner_kills": pvp,
                 "pve_kills": pve,
                 "loot": round(loot),
@@ -389,7 +390,7 @@ def tool_get_spawn_stats(db: Session, map: str, spawn: str = None, **kwargs) -> 
             "spawn": sp.spawn_location,
             "coordinates": f"({sp.game_coord_x:.1f}, {sp.game_coord_y:.1f})" if sp.game_coord_x else None,
             "total_runs": total,
-            "survival_rate": round(survived / total * 100, 1),
+            "survival_rate": calc_survival_rate(survived, total),
             "avg_loot": round(loot / total),
             "avg_runner_kills": round(pvp / total, 1),
         })
@@ -414,9 +415,9 @@ def tool_get_squad_stats(db: Session, **kwargs) -> list:
                 mates[name]["survived"] += 1
             mates[name]["loot"] += r.loot_value_total or 0
     total_runs = len(runs)
-    overall_surv = sum(1 for r in runs if r.survived) / total_runs * 100 if total_runs else 0
+    overall_surv = calc_survival_rate(sum(1 for r in runs if r.survived), total_runs)
     for m in mates.values():
-        m["survival_rate"] = round(m["survived"] / m["runs"] * 100, 1) if m["runs"] else 0
+        m["survival_rate"] = calc_survival_rate(m["survived"], m["runs"])
         m["survival_diff"] = round(m["survival_rate"] - overall_surv, 1)
         m["avg_loot"] = round(m["loot"] / m["runs"]) if m["runs"] else 0
     return sorted(mates.values(), key=lambda x: -x["runs"])[:7]

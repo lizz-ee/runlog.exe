@@ -2,17 +2,15 @@
 Video Processor -- Two-phase analysis pipeline for Marathon run recordings.
 
 Phase 1 (Stats, ~1-2 min):
-  1. Extract key frames from start (lobby/loading) and end (post-match) of video
-  2. Send frames as images to Sonnet API for accurate stat extraction
-  3. Save run to database immediately -- stats appear in app fast
+  1. Use OCR screenshots (deploy, readyup, endgame, stats) + extracted end frames
+  2. Three parallel CLI calls: loadout/identity, shell ID, spawn coordinates
+  3. Sequential call for stats/death/loot from end frames
+  4. Save run to database immediately -- stats appear in app fast
 
 Phase 2 (Story + Clips, ~10 min):
-  1. Compress full video to 2K
-  2. Send to CLI for narrative analysis (grade, summary, highlights)
-  3. Update existing run with narrative data (never overwrites Phase 1 stats)
-  4. Cut highlight clips from original 4K video
-
-Fallback: If Phase 1 fails, falls back to legacy single-pass video analysis.
+  1. Send full video to CLI for narrative analysis (grade, summary, highlights)
+  2. Update existing run with narrative data (never overwrites Phase 1 stats)
+  3. Cut highlight clips from original recording using stream copy
 """
 
 import base64
@@ -27,12 +25,23 @@ from datetime import datetime
 from .config import settings
 
 
+def _check_ffmpeg():
+    """Log warning if ffmpeg/ffprobe are not on PATH."""
+    if not shutil.which("ffprobe"):
+        print("[video_processor] WARNING: ffprobe not found on PATH — video duration detection will fail")
+    if not shutil.which("ffmpeg"):
+        print("[video_processor] WARNING: ffmpeg not found on PATH — video processing will fail")
+
+_check_ffmpeg()
+
+
 def _get_model_config():
     """Get configured model names for API and CLI."""
     try:
         from .api.settings_api import get_config_value
         model = get_config_value("model") or "sonnet"
-    except Exception:
+    except Exception as e:
+        print(f"[video_processor] Could not load model config: {e}")
         model = "sonnet"
     if model == "haiku":
         return {"api": "claude-haiku-4-5-20251001", "cli": "haiku"}
@@ -46,11 +55,8 @@ FRAME_FPS_START = 0.5         # deployment loading screen — static, 0.5fps is 
 FRAME_FPS_END = 5             # post-match tabs — flip fast, need higher fps
 
 
-# -- (Old PHASE1_PROMPT removed — split into Call 1 prompt (inline in _analyze_with_screenshots)
-# -- and PHASE1_CALL2_PROMPT (end-of-run frames) below) ----------------------
-
-
 # -- Phase 1 Call 2 prompt (end-of-run frames — stats, death, loot) -----------
+# Call 1 prompt (loadout/identity) is inline in _analyze_with_screenshots()
 
 PHASE1_CALL2_PROMPT = """You are analyzing end-of-run screenshots from a Marathon (Bungie 2026 extraction shooter) gameplay recording.
 
@@ -105,185 +111,127 @@ PHASE2_PROMPT = """You are analyzing a recorded Marathon (Bungie 2026 extraction
 
 The run's stats (kills, loot, survival, killed_by) have ALREADY been extracted by Phase 1. Do NOT extract or return any stats. Phase 2 is ONLY for narrative analysis.
 
-Analyze the gameplay and provide:
-1. A performance GRADE
-2. A narrative SUMMARY of the run
-3. HIGHLIGHT timestamps for clip cutting
+You MUST complete three steps IN ORDER. Do all three before outputting the final JSON.
 
-Return ONLY valid JSON:
+=== STEP 1: SCENE INVENTORY ===
+
+Go through every frame and classify the video into segments. For each ~10-second window, write one line:
+
+  [TIMESTAMP_START - TIMESTAMP_END] CATEGORY — brief note
+
+Categories:
+  IDLE — player walking, running, looting containers, no enemies visible, no combat
+  COMBAT — active firefight, enemies visible on screen, shots being fired, hit markers, damage effects
+  MENU — inventory screen, loadout screen, map screen (NEVER clip these)
+  DEATH — NEURAL LINK SEVERED screen, black screen with killer info
+  EXTRACTION — MATTER TRANSFER IN countdown, player glowing/phasing out
+  POSTGAME — //RUN_COMPLETE banner, stats/progress/loadout report screens
+  LOADING — solid color screens, deployment loading
+
+Output this full timeline before moving to Step 2.
+
+=== STEP 2: EVENT IDENTIFICATION ===
+
+Now review ONLY the segments you marked as COMBAT, DEATH, or EXTRACTION. For each one, answer:
+
+  [TIMESTAMP] EVENT TYPE — What happened? Who was involved?
+  - Is the player dealing damage (hit markers, crosshair flash) or taking damage (red vignette, health bar dropping)?
+  - Kill feed: any "[Name] eliminated [Name]" messages? Runner names have # tags (e.g. kale#8064). UESC names are NPCs.
+  - Does the player kill a RUNNER (human, name with #)? → pvp_kill
+  - Does the player die (NEURAL LINK SEVERED screen)? → death
+  - Does the player revive a teammate (approach downed mate + revive animation)? → revive
+  - Does the player nearly die but survive (critical health, red screen)? → close_call
+  - Is this the extraction sequence (MATTER TRANSFER IN countdown)? → extraction
+  - Is this just PvE combat with no notable outcome? → combat
+  - Purple/gold rarity item pickup? → loot
+
+Cross-check against Phase 1 stats: if Phase 1 says N runner kills, you must find exactly N pvp_kill events. If you cannot find one, say so — do NOT fabricate.
+
+Output this event list before moving to Step 3.
+
+=== STEP 3: FINAL OUTPUT ===
+
+Using ONLY the events identified in Step 2, produce the final JSON. Every highlight MUST reference an event from Step 2 — you cannot add highlights for timestamps you classified as IDLE or MENU in Step 1.
+
+MARATHON HUD GUIDE — use these visual cues to identify events:
+- **TIMER**: Top-left corner, red pill showing remaining time (e.g. "1:56", "20:07"). Counts down.
+- **COMPASS**: Top-center bar with cardinal directions (N, NE, E, etc.) and location name below.
+- **SQUAD LIST**: Left side, vertical list of squad member gamertags with shell icons.
+- **HEALTH BAR**: Bottom-left, horizontal bar. Green = healthy. When critically low, screen edges flash red.
+- **WEAPON HUD**: Bottom-center, weapon icon + ammo count. Three ability icons (F, G, V).
+- **CROSSHAIR**: Center screen. WHITE FLASH = dealing damage (hit markers). Red X = headshot.
+- **KILL FEED**: Top-left area near timer. "[PlayerName] eliminated [TargetName]". Runner names have #numbers. UESC names are NPCs.
+- **DAMAGE VIGNETTE**: Red overlay on screen edges when taking damage.
+- **DEATH SCREEN**: Full black screen, "NEURAL LINK SEVERED" text, killer info widget on right.
+- **//RUN_COMPLETE**: Bright yellow/green banner on black background.
+- **EXTRACTION UI**: "MATTER TRANSFER IN" + countdown timer, player glowing/phasing.
+- **INVENTORY SCREEN**: Full-screen menu with weapons, backpack. NEVER clip this.
+
+Return ONLY valid JSON (no markdown fences):
 {
-  "grade": "S, A, B, C, D, or F — YOUR rating based on the criteria below",
-  "summary": "A narrative story of this run written in second person (you). Scale length to match the run: F/D grade or under 3 min = 1-2 sentences (quick death, not much to say); C grade or 3-5 min = 1 short paragraph; B grade or 5-10 min = 1-2 paragraphs; A/S grade or 10+ min = 2-4 paragraphs (full story treatment). Describe the flow like a sports commentator recap — the drop, key fights, turning points, and how it ended. Make it engaging and specific.",
+  "grade": "S, A, B, C, D, or F",
+  "summary": "Narrative story in second person (you). Scale: F/D or <3min = 1-2 sentences; C or 3-5min = 1 short paragraph; B or 5-10min = 1-2 paragraphs; A/S or 10+min = 2-4 paragraphs. Sports commentator recap style — the drop, key fights, turning points, how it ended.",
   "highlights": [
     {
-      "timestamp_seconds": number (seconds from start of video — see TIMESTAMP RULES below for what this should point to),
-      "duration_seconds": number (see DURATION RULES below),
+      "timestamp_seconds": number,
+      "duration_seconds": number,
       "type": "pvp_kill" or "combat" or "death" or "revive" or "close_call" or "extraction" or "loot" or "funny",
-      "description": "What makes this moment exciting — be specific"
+      "description": "What is ON SCREEN at this timestamp — be specific about what you see"
     }
   ]
 }
 
 GRADING CRITERIA — Marathon is an EXTRACTION shooter. Survival and loot matter MORE than kills.
 Weight: Survival (35%) > Runner Kills (25%) > Loot (15%) > Revives (10%) > PvE Kills (5%) > Base (10%)
-
-- S: Extracted with high loot ($3k+), runner kills, long run (10+ min), clean execution. OR extracted with exceptional loot ($5k+) even without kills. The best of the best.
-- A: Extracted with good loot ($1k+), some kills, solid play. OR survived a long dangerous run (10+ min) with smart play and good loot even if kills were low. Squad revives boost this grade.
-- B: Extracted with modest loot, or died mid-run but put up a real fight — runner kills, extended combat, decent loot before dying. A respectable effort.
-- C: Extracted quickly with minimal loot and no kills (in and out, nothing notable). OR died in an average firefight without much impact. Forgettable run.
-- D: Died relatively quickly with little to show — few kills, low loot, short run (under 3 minutes).
-- F: Died almost immediately (under 1 minute), no kills, no loot. Nothing happened.
-
-MARATHON HUD GUIDE — use these visual cues to identify events:
-- **TIMER**: Top-left corner, red pill showing remaining time (e.g. "1:56", "20:07"). Counts down.
-- **COMPASS**: Top-center bar with cardinal directions (N, NE, E, etc.) and location name below (e.g. "STATION", "NORTH RELAY", "HAULER").
-- **OBJECTIVES**: Top-right panel, "IN A SINGLE RUN" header with checklist (checkmarks = complete). Shows "Defeat UESC Commanders", "Defeat Runners", etc.
-- **SQUAD LIST**: Left side, vertical list of squad member gamertags with shell icons and status indicators. Pink/magenta icon = downed teammate. Green checkmark circle = EXFILTRATED status.
-- **HEALTH BAR**: Bottom-left, horizontal bar. Green = healthy, depleting = taking damage. When critically low, screen edges flash red (damage vignette).
-- **WEAPON HUD**: Bottom-center, shows current weapon icon + ammo count (e.g. "25 | 148"). Three ability icons (square icons with keybinds F, G, V).
-- **MINIMAP**: Not always visible. When present, bottom-right area.
-- **CROSSHAIR**: Center screen, small white cross. WHITE FLASH on crosshair = dealing damage (hit markers). Red crosshair or red X = headshot indicator.
-- **KILL FEED**: Top-left area (near timer), brief text messages when kills happen. Format: "[PlayerName] eliminated [TargetName]". Runner names have #numbers (e.g. "kale#8064"). UESC enemies are NPCs (e.g. "UESC Recruit", "UESC Ghost").
-- **DAMAGE VIGNETTE**: Red overlay on screen edges when taking damage. More red = more damage.
-- **DEATH SCREEN**: Full black screen with "NEURAL LINK SEVERED" text, killer info widget on right showing finisher name + damage + all contributors.
-- **//RUN_COMPLETE**: Bright yellow/green banner, full-screen overlay on black background. Appears when the run ends (extraction timer expires or all crew extracts).
-- **EXTRACTION UI**: At extraction points — "MATTER TRANSFER IN" + countdown timer in red/pink bar at top-center. Player model starts glowing/phasing.
-- **INVENTORY SCREEN**: Full-screen overlay with weapons, backpack grid, equipment. "LOADOUT VALUE" shown at top. This is a MENU, not gameplay — NEVER clip this.
-- **LOOT INTERACTION**: Small UI popup when near lootable items. Purple/gold rarity items have colored borders and are notable.
+- S: Extracted with high loot ($3k+), runner kills, long run (10+ min), clean execution. OR exceptional loot ($5k+) even without kills.
+- A: Extracted with good loot ($1k+), some kills, solid play. OR survived a long dangerous run (10+ min) with good loot.
+- B: Extracted with modest loot, or died mid-run but put up a real fight — runner kills, extended combat.
+- C: Extracted quickly with minimal loot and no kills. OR died in an average firefight.
+- D: Died relatively quickly with little to show — few kills, low loot, short run (<3 min).
+- F: Died almost immediately (<1 min), no kills, no loot.
 
 HIGHLIGHT RULES:
 
-PRIORITY ORDER: pvp_kill > death > revive > close_call > extraction > combat > loot > funny.
+PRIORITY: pvp_kill > death > revive > close_call > extraction > combat > loot > funny.
 
-1. MANDATORY clips — ALWAYS include if they happen:
-   - Every PVP KILL (runner kill) — NEVER skip a runner kill, these are the most valuable clips
-   - The DEATH moment — if the player died, ALWAYS clip it
-   - Every REVIVE — if the player revived a teammate, ALWAYS clip it
-   - The EXTRACTION — if the player extracted, ALWAYS clip the extraction sequence
-   You are guaranteed at least one of death or extraction every run, plus at least one other notable moment from gameplay. After mandatory clips, include ALL other notable combat moments, close calls, and loot finds. No hard cap — if a long run has 8 great moments, clip all 8. Short runs (under 3 min) will naturally have 2-3 clips. Long runs (10+ min) may have 5-10+. Quality still matters — don't clip filler.
+MANDATORY — ALWAYS include if they happened:
+- Every PVP KILL (runner kill) — NEVER skip one
+- The DEATH moment — if the player died
+- Every REVIVE — if the player revived a teammate
+- The EXTRACTION — if the player extracted
 
-2. VISUAL VERIFICATION — For each highlight, you MUST describe what is ON SCREEN at that exact timestamp in the "description" field. If you see a menu, inventory, loadout screen, stats screen, loading screen, solid color screen, or the player staring at a wall/floor/empty room — DO NOT include it. Only clip frames showing active gameplay with visible action.
+After mandatory clips, include all other notable combat moments, close calls, and loot finds.
 
-3. CLIP TYPES (in priority order):
-   - "pvp_kill": Player kills another RUNNER (human player). ALWAYS include if it happens. Kill feed shows names with # tags. If two PvP kills happen within 20 seconds, COMBINE them into one longer clip. NPC/AI kills are NOT pvp_kills. IMPORTANT: Capture the FULL ENCOUNTER — from when the fight starts (first shots fired, enemy spotted) through the kill. Do NOT just clip the final kill shot.
-   - "death": The FULL encounter that led to the player's death — from when the fight/engagement STARTS through to the NEURAL LINK SEVERED screen. Include ALL the combat leading up to the death, not just the final hit. If there was a 15-second firefight before dying, the clip should cover the entire firefight.
-   - "revive": Player revives a downed teammate. ALWAYS include if it happens. Show the approach to the downed teammate and the full revive animation.
-   - "close_call": Player nearly dies but survives — visible low health, clutch heal, narrow escape. Must show ACTUAL danger on screen (health bar critical, damage effects). NOTE: If the player dies shortly after a "close call" moment, that is a DEATH clip, not a close_call. Do not split one encounter into close_call + death.
-   - "extraction": The extraction countdown and escape sequence. Duration 10-15s.
-   - "combat": Extended firefight with enemies VISIBLE on screen — the player must be ACTIVELY SHOOTING and enemies must be VISIBLE (muzzle flash, hit markers, enemy models on screen). The player simply running, walking, or traversing the map is NOT combat, even if in a dangerous area. There must be actual gunfire exchange.
-   - "loot": ONLY clip if you see a PURPLE or GOLD rarity item being picked up, or a locked crate being opened with a visible animation. Routine pickups and gray/green items are NOT highlights.
-   - "funny": Unusual, unexpected, or humorous events. Duration varies.
+CLIP TYPES:
+- "pvp_kill": Player kills a RUNNER (human, name with #). Capture the FULL ENCOUNTER from first shots through the kill. Combine multi-kills within 20s into one clip.
+- "death": FULL encounter leading to death — from first contact through NEURAL LINK SEVERED.
+- "revive": Approach to downed teammate + full revive animation.
+- "close_call": Player nearly dies but survives — critical health visible. If death follows shortly, it's a "death" clip instead.
+- "extraction": MATTER TRANSFER IN countdown and escape.
+- "combat": Extended firefight with enemies VISIBLE and shots being fired. Walking/running with no enemies is NOT combat.
+- "loot": ONLY purple/gold rarity item pickups or locked crate openings.
+- "funny": Unusual or unexpected events.
 
-4. TIMESTAMP RULES — different clip types need different timestamp strategies:
-   - **Encounter clips** (pvp_kill, death, close_call, combat): Set timestamp_seconds to when the ENCOUNTER BEGINS — the first shots fired, first enemy contact, the start of the engagement. NOT the kill shot or death moment. The clip should capture the full fight from start to finish.
-   - **Moment clips** (extraction, loot, funny): Set timestamp_seconds to the exact moment of the event. The system adds 3 seconds of lead-up automatically.
+TIMESTAMP RULES:
+- Encounter clips (pvp_kill, death, close_call, combat): timestamp = when the ENCOUNTER BEGINS (first shots/contact).
+- Moment clips (extraction, loot, funny): timestamp = exact moment. System adds 3s lead-up.
 
-5. DURATION — these are SHORT highlight clips, not full replays. Keep them punchy:
-   - pvp_kill: 8-15s. First contact through kill + 2s after. MAX 20s.
-   - death: 8-15s. First enemy contact through death screen. MAX 20s.
-   - revive: 6-10s. Approach + revive animation. MAX 15s.
-   - close_call: 8-15s. Start of danger through survival. MAX 20s.
-   - combat: 10-20s. The best part of the firefight, not the entire thing. MAX 25s.
-   - extraction: 10-15s. Countdown and exfil confirmation. MAX 20s.
-   - loot: 5-8s. Pickup animation + item reveal. MAX 10s.
-   - funny: 5-12s. Setup + payoff. MAX 15s.
-   If the action is longer, clip the BEST PART, not all of it. Highlight clips should be fast and exciting.
+DURATION (short and punchy):
+- pvp_kill: 8-15s, MAX 20s
+- death: 8-15s, MAX 20s
+- revive: 6-10s, MAX 15s
+- close_call: 8-15s, MAX 20s
+- combat: 10-20s, MAX 25s
+- extraction: 10-15s, MAX 20s
+- loot: 5-8s, MAX 10s
+- funny: 5-12s, MAX 15s
 
-6. NEVER CLIP THESE:
-   - Inventory, menu, loadout, or map screens
-   - Post-match stats screens (ELIMINATED / EXFILTRATED results)
-   - Player walking, running, crouching, or traversing the map with no enemies visible and no shots being fired — this is NOT combat, it is traversal
-   - Solid red/black/blue screens (death transitions, loading)
-   - Any moment where no enemies, combat effects, or events are visible
-   - Looting containers or picking up common items (gray/green/blue) without enemy contact
-
-7. SPACING: Clips must be at least 30 seconds apart. If two exciting moments happen within 30 seconds, combine them into one longer clip or pick the better one.
-
-8. COMBINING KILLS: If the player gets multiple PvP kills within 20 seconds, make ONE clip that covers the entire multi-kill sequence. Title it "pvp_kill" and note "double kill" or "triple kill" in description.
-
-9. OVERLAPPING TYPES — when one encounter leads into another, make ONE clip with the HIGHEST PRIORITY type:
-   - Combat that ends in a PvP kill = ONE "pvp_kill" clip covering the full firefight through the kill.
-   - Combat that ends in the player's death = ONE "death" clip covering the full fight through NEURAL LINK SEVERED.
-   - Close call that leads directly into a kill = ONE "pvp_kill" clip.
-   - Close call followed immediately by death = ONE "death" clip.
-   Do NOT split a continuous encounter into separate clips. One fight = one clip, typed by how it ends.
+NEVER CLIP: menus, stats screens, traversal with no enemies, solid color screens, common item pickups.
+SPACING: Clips must be 30+ seconds apart. Combine or pick the better one if closer.
+OVERLAPPING: One fight = one clip, typed by how it ends (combat→kill = pvp_kill, combat→death = death).
 
 Return ONLY valid JSON, no markdown fences, no explanation."""
 
-
-# -- Legacy prompt (full single-pass analysis, fallback) --------------------
-
-VIDEO_PROMPT = """You are analyzing a recorded gameplay video from Marathon (Bungie 2026 extraction shooter).
-
-Analyze the ENTIRE video carefully. The video covers one complete run from lobby to end.
-
-The video recording starts at deployment — lobby, contract briefing, and loading screen are NOT in the video (those are captured separately as screenshots). The video contains:
-1. **GAMEPLAY** - First-person shooter gameplay. Player loots, fights enemies (Combatants/AI and Runners/players), explores
-2. **DEATH** - Screen showing who killed the player and with what weapon, OR
-3. **EXTRACTION** - Player reaches extraction point and escapes with loot
-4. **POST-MATCH SCREENS** - Three tabs that ALWAYS appear at the end, back-to-back. These are the GROUND TRUTH — data from these screens OVERRIDES any estimates from gameplay. You MUST check the last 30 seconds of the video for these:
-   - **STATS tab** (appears FIRST): Shows character model, "EXFILTRATED" or death status, "Combatant Eliminations" (PvE kills), "Runner Eliminations" (PvP kills), "Crew Revives", "Inventory Value" (THIS IS THE LOOT VALUE), and "Run Time" (MM:SS). USE THESE EXACT NUMBERS.
-   - **PROGRESS tab** (appears SECOND): Shows season level, faction ranks (CyAc, NLI, Traxus, etc.), contract completion. Less important for stats.
-   - **LOADOUT tab** (appears THIRD): Shows weapons extracted, backpack items (e.g. "7/16"), items retained/transmuted/auto-sold/auto-vaulted, "Wallet Balance" at bottom with gain (e.g. "(+480) 64,941"), and "Report Summary: Exfil Successful".
-
-Extract ALL of this information from the video:
-
-{
-  "map_name": "Perimeter" or "Outpost" or "Dire Marsh" or "Cryo Archive" or null,
-  "shell_name": "name of the Shell (character class) visible in lobby, e.g. Triage, Warlock, etc." or null,
-  "player_gamertag": "the local player's gamertag/username. In the squad display, the local player is ALWAYS the CENTER member. Extract their gamertag exactly as shown." or null,
-  "squad_members": ["list", "of", "all", "squad", "member", "gamertags"] or null — include ALL members shown in the squad UI (including the local player). The local player is the center member.,
-  "starting_loadout_value": the gear value number shown DIRECTLY ABOVE the loadout grid in the lobby/ready-up screen (has a gear/cog icon, e.g. "1.5K" = 1500, "3.2K" = 3200, "961" = 961). This is the total value of equipped gear going into the run. Convert K notation to full number. NOT the wallet balance from the top-left HUD bar. Or null if lobby screen not visible in video.,
-  "player_level": runner level number visible in the lobby HUD bar (the FIRST number, next to the green circular icon, e.g. 33) or null,
-  "vault_value": the VERY LAST number on the far RIGHT end of the top-left HUD bar (gear/cog icon ⚙, typically a large 5-digit number like 65131 or 82875). NOT the currency/box icon number which appears earlier. Or null,
-  "survived": true if player extracted, false if died,
-  "kills": total kills from STATS tab (Combatant Eliminations + Runner Eliminations). DO NOT estimate from gameplay — use the exact numbers from the STATS screen.,
-  "combatant_eliminations": exact number from STATS tab "Combatant Eliminations" field,
-  "runner_eliminations": exact number from STATS tab "Runner Eliminations" field,
-  "deaths": 0 if EXFILTRATED, 1 if died,
-  "crew_revives": exact number from STATS tab "Crew Revives" field,
-  "duration_seconds": convert STATS tab "Run Time" (MM:SS format) to total seconds,
-  "loot_value_total": exact number from STATS tab "Inventory Value" field. This is NEVER zero for a survived run. If STATS tab is not visible, check LOADOUT tab "Wallet Balance" gain amount.,
-  "primary_weapon": name of primary weapon used,
-  "secondary_weapon": name of secondary weapon used,
-  "killed_by": gamertag of the player who landed the FINISHING blow (from death screen),
-  "killed_by_weapon": weapon that killed you (if visible on death screen),
-  "damage_contributors": [
-    {"name": "gamertag", "damage": number, "finished": true/false}
-  ] or null — ALL players/enemies who dealt damage to you on the death screen (the finisher has "finished": true, others contributed damage but didn't land the killing blow. e.g. [{"name": "Azuka", "damage": 81, "finished": true}, {"name": "WarNer", "damage": 88, "finished": false}, {"name": "Falling", "damage": 25, "finished": false}]),
-  "spawn_coordinates": "two decimal numbers from the deployment loading screen (a BLACK or BLUE screen with yellow/green text showing map name and coordinates). The numbers are stacked vertically in small text BELOW the map description. Read EACH digit carefully — typically 6+ decimal digits like [522.803894, -39.408157]. DOUBLE-CHECK by re-examining the image before returning. Return null if unclear rather than guessing." or null,
-  "spawn_location": "zone name visible on the in-game map or HUD if identifiable" or null,
-  "grade": "YOUR rating of how well the player performed: S, A, B, C, D, or F (this is NOT from the game UI, YOU assign this grade based on the criteria below)",
-  "highlights": [
-    {
-      "timestamp_seconds": number (seconds from start of video),
-      "duration_seconds": 12,
-      "type": "kill" or "death" or "loot" or "close_call" or "extraction" or "funny",
-      "description": "Brief description of what happened"
-    }
-  ],
-  "summary": "A narrative story of this run written in second person (you). Scale length to match the run: F/D grade or under 3 min = 1-2 sentences (quick death, not much to say); C grade or 3-5 min = 1 short paragraph; B grade or 5-10 min = 1-2 paragraphs; A/S grade or 10+ min = 2-4 paragraphs (full story treatment). Describe the flow like a sports commentator recap — the drop, key fights, turning points, and how it ended. Make it engaging and specific to what actually happened."
-}
-
-GRADING CRITERIA for "grade":
-- S: Exceptional — survived with high kills (8+), big loot haul, clean execution
-- A: Great run — survived, solid kills, good loot, few mistakes
-- B: Solid — survived with decent stats, or died but put up a great fight
-- C: Average — mediocre kills/loot, or died in an unremarkable way
-- D: Poor — died quickly with little to show for it
-- F: Disaster — died almost immediately, no kills, no loot
-
-For highlights, identify the most exciting/notable moments:
-- Player kills (especially PvP kills or multi-kills)
-- Player death (the moment of dying)
-- Close calls (nearly dying, clutch plays)
-- Extraction moment
-- Funny or unusual events
-- Big loot finds
-
-IMPORTANT: Do NOT leave numeric fields as 0 or null unless you are certain the data is not visible anywhere in the video. Check the post-match screens carefully — STATS tab, LOADOUT tab, and the top HUD bar all show inventory/loot values. A survived run with a "full bag" should ALWAYS have a non-zero loot_value_total.
-
-Return ONLY valid JSON, no markdown fences, no explanation."""
 
 
 # -- Helpers ----------------------------------------------------------------
@@ -303,7 +251,12 @@ def _find_claude_cli():
 
 
 def _extract_json(text: str) -> dict:
-    """Extract JSON from Sonnet response, handling extra text robustly."""
+    """Extract JSON from Sonnet response, handling extra text robustly.
+
+    Scans for ALL balanced JSON objects in the text and returns the best match
+    (one containing expected keys like 'grade', 'survived', 'kills').
+    Handles chain-of-thought output where JSON appears mid-stream with commentary after.
+    """
     text = text.strip()
 
     # Strip markdown fences
@@ -313,53 +266,37 @@ def _extract_json(text: str) -> dict:
         if fence_match:
             text = fence_match.group(1).strip()
 
-    # Find the first '{'
-    start = text.find("{")
-    if start == -1:
-        # CLI sometimes outputs JSON mid-stream then commentary after.
-        # Try finding JSON in reversed line order (last JSON block wins)
-        lines = text.split("\n")
-        for i in range(len(lines) - 1, -1, -1):
-            if "{" in lines[i]:
-                remainder = "\n".join(lines[i:])
-                start = remainder.find("{")
-                if start != -1:
-                    text = remainder
-                    start = text.find("{")
-                    break
-        if start == -1:
-            raise ValueError(f"No JSON object found in response: {text[:200]}")
+    # Find ALL balanced JSON objects in the text
+    candidates = []
+    i = 0
+    while i < len(text):
+        if text[i] == '{':
+            depth = 0
+            for j in range(i, len(text)):
+                if text[j] == '{':
+                    depth += 1
+                elif text[j] == '}':
+                    depth -= 1
+                    if depth == 0:
+                        try:
+                            obj = json.loads(text[i:j + 1])
+                            if isinstance(obj, dict):
+                                candidates.append(obj)
+                        except json.JSONDecodeError:
+                            pass
+                        break
+        i += 1
 
-    candidate = text[start:]
+    if not candidates:
+        raise ValueError(f"No JSON object found in response: {text[:200]}")
 
-    # First try: the whole thing from first { to end
-    try:
-        return json.loads(candidate)
-    except json.JSONDecodeError:
-        pass
+    # Prefer the object with the most expected keys
+    expected_keys = {'grade', 'summary', 'highlights', 'survived', 'kills',
+                     'combatant_eliminations', 'runner_eliminations', 'shell_name',
+                     'map_name', 'spawn_coordinates', 'primary_weapon'}
 
-    # Second try: find balanced braces
-    depth = 0
-    for i, ch in enumerate(candidate):
-        if ch == '{':
-            depth += 1
-        elif ch == '}':
-            depth -= 1
-            if depth == 0:
-                try:
-                    return json.loads(candidate[:i + 1])
-                except json.JSONDecodeError:
-                    continue
-
-    # Last resort: first { to last }
-    end = text.rfind("}") + 1
-    if end > start:
-        try:
-            return json.loads(text[start:end])
-        except json.JSONDecodeError:
-            pass
-
-    raise ValueError(f"Could not extract valid JSON from response: {text[:500]}")
+    best = max(candidates, key=lambda obj: len(set(obj.keys()) & expected_keys))
+    return best
 
 
 def _get_video_duration(video_path: str) -> float | None:
@@ -371,7 +308,8 @@ def _get_video_duration(video_path: str) -> float | None:
             capture_output=True, text=True, timeout=10,
         )
         return float(probe.stdout.strip())
-    except Exception:
+    except Exception as e:
+        print(f"[video_processor] Failed to get video duration: {e}")
         return None
 
 
@@ -617,7 +555,7 @@ Return ONLY valid JSON, no explanation."""
 
 character_crop.jpg shows the character's full upper body. face_crop.jpg shows the small portrait thumbnail from the loadout grid.
 
-The six shells: Assassin, Destroyer, Recon, Thief, Triage, Vandal.
+The seven shells: Assassin, Destroyer, Recon, Rook, Thief, Triage, Vandal.
 Cosmetic skins completely change armor, helmet, and colors — do NOT use those.
 Match by FACIAL GEOMETRY only: face shape, eyes, nose, mouth, skin features.
 
@@ -625,13 +563,14 @@ Key features:
 - **Assassin**: hooded, narrow face, glowing red/orange eyes, pale skin
 - **Destroyer**: bulky, full helmet with visor, face often hidden, stocky
 - **Recon**: full helmet with large visor/goggles, robotic, face not visible
+- **Rook**: masculine, broad jaw, short dark hair or buzzcut, strong brow, clean-shaven or stubble, military bearing
 - **Thief**: East Asian female, dark hair in bun/topknot, facial tattoos on cheek
 - **Triage**: masculine, split-tone skin (light/dark), green eyes, headphones, cross markings
 - **Vandal**: feminine, wider/rounder face, fuller lips, often horns or spiked hair, nose piercing
 
 Return ONLY valid JSON:
 {{
-  "shell_name": "Assassin" or "Destroyer" or "Recon" or "Thief" or "Triage" or "Vandal" or null
+  "shell_name": "Assassin" or "Destroyer" or "Recon" or "Rook" or "Thief" or "Triage" or "Vandal" or null
 }}"""
 
     # --- Call 3A: Coordinates ---
@@ -803,8 +742,9 @@ These are from the END of a Marathon run — stats screens, death screen, loadou
 
 
 def analyze_frames_phase1(frames_dir: str) -> dict:
-    """Analyze extracted frames for Phase 1 stats (FALLBACK — old pipeline).
+    """Analyze extracted frames for Phase 1 stats (no-screenshot path).
 
+    Used when OCR screenshots aren't available, and for FPS escalation retry.
     Uses API (preferred for speed) with CLI fallback.
     """
     frame_paths = _get_frame_paths(frames_dir)
@@ -1017,51 +957,6 @@ def _maybe_expand_and_retry(
     return analysis
 
 
-# No compression needed — Rust recorder produces proper H.264 MP4 at native resolution
-
-
-def compress_for_api(input_path: str, output_path: str, max_size_mb: int = 20) -> bool:
-    """Compress video to 720p low-bitrate for API upload."""
-    cmd = [
-        'ffmpeg', '-y', '-hide_banner', '-loglevel', 'warning',
-        '-i', input_path,
-        '-vf', 'scale=1280:720',
-        '-r', '2',
-        '-c:v', 'libx264', '-crf', '32', '-preset', 'fast',
-        '-an',
-        output_path,
-    ]
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-        if result.returncode != 0:
-            print(f"[processor] Compression failed: {result.stderr}")
-            return False
-
-        size_mb = os.path.getsize(output_path) / (1024 * 1024)
-        print(f"[processor] Compressed: {size_mb:.1f}MB")
-
-        if size_mb > max_size_mb:
-            cmd2 = [
-                'ffmpeg', '-y', '-hide_banner', '-loglevel', 'warning',
-                '-i', input_path,
-                '-vf', 'scale=854:480',
-                '-r', '1',
-                '-c:v', 'libx264', '-crf', '38', '-preset', 'fast',
-                '-an',
-                output_path,
-            ]
-            result2 = subprocess.run(cmd2, capture_output=True, text=True, timeout=120)
-            if result2.returncode != 0:
-                print(f"[processor] Re-compression failed: {result2.stderr[:200]}")
-                return False
-            size_mb = os.path.getsize(output_path) / (1024 * 1024)
-            print(f"[processor] Re-compressed: {size_mb:.1f}MB")
-
-        return True
-    except Exception as e:
-        print(f"[processor] Compression error: {e}")
-        return False
-
 
 # -- Phase 2 analysis (video -> narrative) ---------------------------------
 
@@ -1088,8 +983,8 @@ def _get_phase1_context(run_id: int | None) -> str:
                 contribs = json.loads(run.damage_contributors) if isinstance(run.damage_contributors, str) else run.damage_contributors
                 contrib_strs = [f"{c['name']} ({c['damage']} dmg{', finisher' if c.get('finished') else ''})" for c in contribs]
                 lines.append(f"- Damage contributors: {', '.join(contrib_strs)}")
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[video_processor] Failed to parse damage contributors JSON: {e}")
         if run.combatant_eliminations is not None:
             lines.append(f"- Combatant Eliminations (PvE kills): {run.combatant_eliminations}")
         if run.runner_eliminations is not None:
@@ -1227,110 +1122,6 @@ def analyze_video_phase2(video_path: str, run_id: int | None = None) -> dict:
     raise RuntimeError("No Claude auth available for Phase 2")
 
 
-# -- Legacy video analysis (fallback for Phase 1 failure) ------------------
-
-def analyze_with_api(video_path: str) -> dict:
-    """Send video to Claude Sonnet via API key."""
-    import anthropic
-
-    with open(video_path, "rb") as f:
-        video_data = base64.standard_b64encode(f.read()).decode("utf-8")
-
-    size_mb = os.path.getsize(video_path) / (1024 * 1024)
-    print(f"[processor] Sending {size_mb:.1f}MB video to Sonnet API...")
-
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-    message = client.messages.create(
-        model=_get_model_config()["api"],
-        max_tokens=4096,
-        messages=[{
-            "role": "user",
-            "content": [
-                {
-                    "type": "video",
-                    "source": {
-                        "type": "base64",
-                        "media_type": "video/mp4",
-                        "data": video_data,
-                    },
-                },
-                {"type": "text", "text": VIDEO_PROMPT},
-            ],
-        }],
-    )
-    return _extract_json(message.content[0].text)
-
-
-def analyze_with_cli(video_path: str) -> dict:
-    """Send video to Claude Sonnet via CLI (uses OAuth/Max subscription)."""
-    claude_bin = _find_claude_cli()
-    if not claude_bin:
-        raise RuntimeError("Claude CLI not found")
-
-    abs_path = os.path.abspath(video_path).replace("\\", "/")
-    prompt = f"""There is a gameplay video file at: {abs_path}
-
-Analyze this video and extract the information below. You have access to ffmpeg and ffprobe to inspect the video, extract frames, and read them.
-
-{VIDEO_PROMPT}"""
-
-    cmd = [claude_bin, "-p", prompt, "--model", _get_model_config()["cli"],
-           "--dangerously-skip-permissions"]
-    print(f"[processor] CLI command: {' '.join(cmd[:5])}...")
-    print(f"[processor] Video path: {abs_path}")
-
-    proc = subprocess.Popen(
-        cmd,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-
-    output_lines = []
-    try:
-        for line in iter(proc.stdout.readline, b''):
-            decoded = line.decode("utf-8", errors="replace").rstrip()
-            if decoded:
-                output_lines.append(decoded)
-                preview = decoded[:200] if len(decoded) > 200 else decoded
-                print(f"[cli] {preview}".encode('ascii', errors='replace').decode())
-
-        proc.wait(timeout=1800)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        raise RuntimeError("CLI timed out after 30 minutes")
-
-    stderr_out = proc.stderr.read().decode("utf-8", errors="replace").strip() if proc.stderr else ""
-    if stderr_out:
-        print(f"[cli stderr] {stderr_out[:500]}")
-
-    output = "\n".join(output_lines).strip()
-    print(f"[processor] CLI finished: exit={proc.returncode}, output={len(output)} chars")
-
-    if not output:
-        raise RuntimeError(f"CLI returned no output. exit={proc.returncode}, stderr: {stderr_out[:500]}")
-
-    return _extract_json(output)
-
-
-def analyze_video(video_path: str) -> dict:
-    """Legacy: analyze video using CLI first, fallback to API."""
-    claude_bin = _find_claude_cli()
-    if claude_bin:
-        try:
-            return analyze_with_cli(video_path)
-        except Exception as e:
-            print(f"[processor] CLI failed: {e}")
-            if settings.anthropic_api_key:
-                print("[processor] Falling back to API...")
-            else:
-                raise
-
-    if settings.anthropic_api_key:
-        return analyze_with_api(video_path)
-
-    raise RuntimeError("No Claude auth available. Install Claude CLI or set ANTHROPIC_API_KEY.")
-
 
 # -- Clip cutting -----------------------------------------------------------
 
@@ -1426,8 +1217,8 @@ def cut_clips(source_path: str, clips_dir: str, highlights: list[dict], run_time
                          '-q:v', '5', thumb_path],
                         capture_output=True, timeout=10,
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[video_processor] Thumbnail generation failed for clip: {e}")
 
                 # Generate sprite sheet for hover scrub
                 _generate_sprite_sheet(clip_path, dur)
@@ -1508,6 +1299,11 @@ def save_run_to_db(analysis: dict, run_date: datetime | None = None) -> int | No
                 best_match.game_coord_x = best_match.game_coord_x + (coord_x - best_match.game_coord_x) / n
                 best_match.game_coord_y = best_match.game_coord_y + (coord_y - best_match.game_coord_y) / n
                 db.commit()
+                try:
+                    from .api.spawns import invalidate_heatmap_cache
+                    invalidate_heatmap_cache()
+                except Exception:
+                    pass
                 print(f"[processor] Matched spawn #{spawn_point_id} '{best_match.spawn_location}' (dist={best_dist:.1f}, avg updated)")
             else:
                 # Count existing uncharted spawns to offset the staging position
@@ -1537,6 +1333,11 @@ def save_run_to_db(analysis: dict, run_date: datetime | None = None) -> int | No
                 db.commit()
                 db.refresh(spawn)
                 spawn_point_id = spawn.id
+                try:
+                    from .api.spawns import invalidate_heatmap_cache
+                    invalidate_heatmap_cache()
+                except Exception:
+                    pass
                 print(f"[processor] New spawn #{spawn_point_id} {spawn_name} at staging ({staging_x}, {staging_y})")
 
         # Match shell (runner) by name from lobby screen
@@ -1571,14 +1372,14 @@ def save_run_to_db(analysis: dict, run_date: datetime | None = None) -> int | No
             date=run_date or datetime.utcnow(),
             session_id=_sid,
             survived=analysis.get("survived"),
-            kills=analysis.get("kills", 0),
-            combatant_eliminations=analysis.get("combatant_eliminations", 0),
-            runner_eliminations=analysis.get("runner_eliminations", 0),
-            deaths=analysis.get("deaths", 0),
-            assists=analysis.get("assists", 0),
-            crew_revives=analysis.get("crew_revives", 0),
+            kills=analysis.get("kills"),
+            combatant_eliminations=analysis.get("combatant_eliminations"),
+            runner_eliminations=analysis.get("runner_eliminations"),
+            deaths=analysis.get("deaths"),
+            assists=analysis.get("assists"),
+            crew_revives=analysis.get("crew_revives"),
             duration_seconds=analysis.get("duration_seconds"),
-            loot_value_total=analysis.get("loot_value_total", 0.0),
+            loot_value_total=analysis.get("loot_value_total"),
             primary_weapon=analysis.get("primary_weapon"),
             secondary_weapon=analysis.get("secondary_weapon"),
             killed_by=analysis.get("killed_by"),
@@ -1590,6 +1391,7 @@ def save_run_to_db(analysis: dict, run_date: datetime | None = None) -> int | No
             vault_value=analysis.get("vault_value"),
             player_gamertag=analysis.get("player_gamertag"),
             squad_members=analysis.get("squad_members"),
+            squad_size={"Solo": 1, "Duo": 2, "Trio": 3}.get(analysis.get("crew_size")) or analysis.get("squad_size"),
             spawn_point_id=spawn_point_id,
             runner_id=runner_id,
             grade=analysis.get("grade"),
@@ -1602,6 +1404,11 @@ def save_run_to_db(analysis: dict, run_date: datetime | None = None) -> int | No
         db.refresh(run)
         run_id = run.id
         db.close()
+        try:
+            from .api.spawns import invalidate_heatmap_cache
+            invalidate_heatmap_cache()
+        except Exception:
+            pass
         print(f"[processor] Run #{run_id} saved to database")
         return run_id
     except Exception as e:
@@ -1673,8 +1480,7 @@ def _save_metrics(metrics: dict):
 def process_recording(recording_path: str, clips_dir: str, on_phase=None) -> dict:
     """Phase 1 pipeline: extract frames -> analyze stats -> save to DB.
 
-    Returns a result dict with status, run_id, and phase1_only flag.
-    If Phase 1 fails, falls back to legacy full-video analysis.
+    Returns a result dict with status and run_id.
     on_phase: optional callback(phase_name) for UI progress tracking.
     """
     def phase(name, detail=None):
@@ -1687,7 +1493,6 @@ def process_recording(recording_path: str, clips_dir: str, on_phase=None) -> dic
         "analysis": None,
         "clips": [],
         "run_id": None,
-        "phase1_only": False,
     }
 
     if not os.path.exists(recording_path):
@@ -1720,8 +1525,8 @@ def process_recording(recording_path: str, clips_dir: str, on_phase=None) -> dic
         wh = probe.stdout.strip().split(',')
         if len(wh) >= 2:
             metrics["resolution"] = f"{wh[0]}x{wh[1]}"
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[video_processor] Failed to detect video resolution: {e}")
 
     # Extract run timestamp from recording filename
     rec_basename = os.path.basename(recording_path).replace(".mp4", "").replace("run_", "")
@@ -1731,9 +1536,8 @@ def process_recording(recording_path: str, clips_dir: str, on_phase=None) -> dic
         run_date = None
 
     analysis = None
-    use_legacy = False
 
-    # -- Check for OCR screenshots (new pipeline) -------------------------
+    # -- Check for OCR screenshots -----------------------------------------
     rec_name = os.path.basename(recording_path).replace(".mp4", "")
     from .config import _DATA_DIR
     run_screenshots = os.path.join(_DATA_DIR, "clips", rec_name, "screenshots")
@@ -1757,8 +1561,8 @@ def process_recording(recording_path: str, clips_dir: str, on_phase=None) -> dic
             import json as _json
             _run_metadata = _json.load(open(_metadata_path))
             print(f"[processor] Run metadata: {_run_metadata}")
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[video_processor] Failed to load run metadata JSON: {e}")
 
     # Read endgame timestamp if available
     endgame_ts = None
@@ -1766,8 +1570,8 @@ def process_recording(recording_path: str, clips_dir: str, on_phase=None) -> dic
         try:
             endgame_ts = float(open(endgame_marker).read().strip())
             print(f"[processor] Endgame timestamp: {endgame_ts:.1f}s")
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[video_processor] Failed to read endgame timestamp: {e}")
 
     # -- Try Phase 1: screenshot-based or frame extraction -----------------
     if video_duration:
@@ -1822,7 +1626,6 @@ def process_recording(recording_path: str, clips_dir: str, on_phase=None) -> dic
                 )
 
             metrics["phase1_analysis_seconds"] = round(time.time() - t0, 1)
-            result["phase1_only"] = True
 
             print(f"[processor] Phase 1 result: {analysis.get('map_name')} | "
                   f"{'SURVIVED' if analysis.get('survived') else 'DIED'} | "
@@ -1843,46 +1646,24 @@ def process_recording(recording_path: str, clips_dir: str, on_phase=None) -> dic
                     f.write(f"\n--- {datetime.now().isoformat()} | {os.path.basename(recording_path)} ---\n")
                     f.write(traceback.format_exc())
                     f.write("\n")
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[video_processor] Failed to write Phase 1 error log: {e}")
 
             phase("phase1_failed", detail=error_detail)
-            import time as _time
-            _time.sleep(3)
-            use_legacy = True
+            metrics["status"] = "error"
+            metrics["error"] = error_detail
+            _save_metrics(metrics)
+            return result
         finally:
             if os.path.isdir(frames_dir):
                 shutil.rmtree(frames_dir, ignore_errors=True)
     else:
-        print("[processor] Could not determine video duration, using legacy pipeline")
+        print("[processor] Could not determine video duration")
         phase("phase1_failed", detail="Could not read video duration")
-        import time as _time
-        _time.sleep(2)
-        use_legacy = True
-
-    # -- Legacy fallback: full video analysis (no screenshots available) ---
-    if use_legacy:
-        analysis_path = recording_path
-        compressed_path = None
-        t0 = time.time()
-
-        phase("analyzing")
-        try:
-            analysis = analyze_video(analysis_path)
-            metrics["analysis_seconds"] = round(time.time() - t0, 1)
-        except Exception as e:
-            print(f"[processor] Legacy analysis failed: {e}")
-            metrics["status"] = "error"
-            metrics["error"] = str(e)[:200]
-            _save_metrics(metrics)
-            if compressed_path and os.path.exists(compressed_path):
-                os.remove(compressed_path)
-            return result
-
-        if compressed_path and os.path.exists(compressed_path):
-            os.remove(compressed_path)
-
-        result["phase1_only"] = False  # Legacy has everything
+        metrics["status"] = "error"
+        metrics["error"] = "Could not read video duration"
+        _save_metrics(metrics)
+        return result
 
     if not analysis:
         return result
@@ -1899,27 +1680,17 @@ def process_recording(recording_path: str, clips_dir: str, on_phase=None) -> dic
     if os.path.exists(_session_marker):
         try:
             analysis["_session_id"] = int(open(_session_marker).read().strip())
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[video_processor] Failed to read session marker: {e}")
 
     # -- Save to database --------------------------------------------------
     phase("saving")
     run_id = save_run_to_db(analysis, run_date=run_date)
     result["run_id"] = run_id
 
-    # If legacy (not phase1_only), also cut clips now since we have highlights
-    if not result["phase1_only"]:
-        phase("cutting_clips")
-        highlights = analysis.get("highlights", [])
-        if highlights:
-            result["clips"] = cut_clips(
-                recording_path, clips_dir, highlights, run_timestamp=rec_basename
-            )
-            print(f"[processor] Created {len(result['clips'])} clips")
-
     # Metrics
     metrics["total_seconds"] = round(time.time() - pipeline_start, 1)
-    metrics["status"] = "phase1_done" if result["phase1_only"] else "success"
+    metrics["status"] = "phase1_done"
     metrics["run_id"] = run_id
     metrics["clips_count"] = len(result.get("clips", []))
     metrics["map"] = analysis.get("map_name")
@@ -1951,15 +1722,11 @@ def process_recording_phase2(
     rec_basename = os.path.basename(recording_path).replace(".mp4", "").replace("run_", "")
     pipeline_start = time.time()
 
-    # Recording is native resolution from Rust recorder — send full video to Claude
-    analysis_path = recording_path
-    compressed_path = None
-
-    # Step 2: Analyze video for narrative
+    # Analyze video for narrative
     phase("analyzing_gameplay")
     t0 = time.time()
     try:
-        phase2_data = analyze_video_phase2(analysis_path, run_id=run_id)
+        phase2_data = analyze_video_phase2(recording_path, run_id=run_id)
         print(f"[processor-p2] Phase 2 analysis took {time.time() - t0:.0f}s, "
               f"grade={phase2_data.get('grade')}")
     except Exception as e:
@@ -1974,18 +1741,12 @@ def process_recording_phase2(
                 f.write(f"\n--- {_dt.now().isoformat()} | run #{run_id} | {os.path.basename(recording_path)} ---\n")
                 f.write(traceback.format_exc())
                 f.write("\n")
-        except Exception:
-            pass
-        if compressed_path and os.path.exists(compressed_path):
-            os.remove(compressed_path)
+        except Exception as e:
+            print(f"[video_processor] Failed to write Phase 2 error log: {e}")
         result["status"] = "phase2_failed"
         return result
 
-    # Clean up compressed file
-    if compressed_path and os.path.exists(compressed_path):
-        os.remove(compressed_path)
-
-    # Step 3: Update run with narrative data (never overwrites stats)
+    # Update run with narrative data (never overwrites stats)
     update_run_phase2(run_id, phase2_data)
 
     # Step 4: Cut clips from original 4K
@@ -2007,8 +1768,8 @@ def process_recording_phase2(
             run.viewed = False
             db.commit()
         db.close()
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[video_processor] Failed to re-mark run #{run_id} as unviewed: {e}")
 
     result["status"] = "success"
     print(f"[processor-p2] Phase 2 complete in {time.time() - pipeline_start:.0f}s")

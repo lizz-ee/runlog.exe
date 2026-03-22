@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import Run
+from ..utils import calc_kd, calc_survival_rate
 
 router = APIRouter()
 
@@ -61,14 +62,14 @@ def get_squad_stats(limit: int = Query(7, ge=1, le=7), db: Session = Depends(get
     # Calculate derived stats
     total_runs = len(runs)
     total_survived = sum(1 for r in runs if r.survived)
-    overall_survival = round(total_survived / total_runs * 100, 1) if total_runs else 0
+    overall_survival = calc_survival_rate(total_survived, total_runs)
 
     for m in mates.values():
-        m["survival_rate"] = round(m["survived"] / m["runs"] * 100, 1) if m["runs"] else 0
+        m["survival_rate"] = calc_survival_rate(m["survived"], m["runs"])
         m["survival_diff"] = round(m["survival_rate"] - overall_survival, 1)
         total_kills = m["pve_kills"] + m["pvp_kills"]
         m["kills"] = total_kills
-        m["kd"] = round(m["pvp_kills"] / m["deaths"], 2) if m["deaths"] else float(m["pvp_kills"])
+        m["kd"] = calc_kd(m["pvp_kills"], m["deaths"])
         m["avg_loot"] = round(m["loot"] / m["runs"]) if m["runs"] else 0
         m["avg_kills"] = round(total_kills / m["runs"], 1) if m["runs"] else 0
         m["avg_time"] = round(m["time"] / m["runs"]) if m["runs"] else 0

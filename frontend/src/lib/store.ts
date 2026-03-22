@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { getRecentRuns, getOverviewStats, getUnviewedCount } from './api'
-import type { View, Run, OverviewStats, Runner, Loadout, ParsedScreenshot, CaptureStatus } from './types'
+import type { View, Run, OverviewStats, Runner, Loadout, CaptureStatus } from './types'
 
 export interface Toast {
   id: string
@@ -118,7 +118,7 @@ export const useStore = create<AppState>((set) => ({
     try {
       const count = await getUnviewedCount()
       set({ unviewedCount: count })
-    } catch {}
+    } catch (e) { console.error('[store] refresh unviewed count failed:', e) }
   },
 
   pendingCapture: null,

@@ -87,6 +87,12 @@ class AutoCapture:
         self._p1_executor: ThreadPoolExecutor | None = None
         self._p2_executor: ThreadPoolExecutor | None = None
 
+        # P2 gating — track active count, hold overflow in waiting list
+        self._p2_active: int = 0
+        self._p2_active_lock = threading.Lock()
+        self._p2_waiting: list[tuple[str, int]] = []  # [(filepath, run_id), ...]
+        self._p2_max_workers: int = MAX_P2_WORKERS
+
     # -- Public API ----------------------------------------------------
 
     def start(self) -> dict:
@@ -104,11 +110,8 @@ class AutoCapture:
             handle = kernel32.GetCurrentProcess()
             kernel32.SetPriorityClass(handle, 0x00008000)  # ABOVE_NORMAL_PRIORITY_CLASS
             print("[capture] Python process priority: ABOVE_NORMAL")
-        except Exception:
-            pass
-
-        # Auto-resume unprocessed recordings
-        self._resume_unprocessed()
+        except Exception as e:
+            print(f"[capture] Could not set process priority: {e}")
 
         # Start Rust recorder
         if self._recorder.available:
@@ -138,6 +141,7 @@ class AutoCapture:
         from .api.settings_api import get_config_value
         p1_workers = get_config_value("p1_workers") or MAX_P1_WORKERS
         p2_workers = get_config_value("p2_workers") or MAX_P2_WORKERS
+        self._p2_max_workers = p2_workers
         print(f"[capture] Processing pools: P1={p1_workers} workers, P2={p2_workers} workers")
         self._p1_executor = ThreadPoolExecutor(
             max_workers=p1_workers, thread_name_prefix="p1-processor"
@@ -150,6 +154,10 @@ class AutoCapture:
         )
         self._dispatcher_thread.start()
 
+        # Auto-resume unprocessed recordings (after executors are ready)
+        self._resume_unprocessed()
+
+        self._broadcast_status()
         return self.get_status()
 
     def stop(self) -> dict:
@@ -168,12 +176,17 @@ class AutoCapture:
 
         if self._executor:
             self._executor.shutdown(wait=False)
+        if self._p1_executor:
+            self._p1_executor.shutdown(wait=False)
+        if self._p2_executor:
+            self._p2_executor.shutdown(wait=False)
 
         for thread in [self._ocr_thread, self._dispatcher_thread]:
             if thread and thread.is_alive():
                 thread.join(timeout=5)
 
         print("[capture] AutoCapture stopped.")
+        self._broadcast_status()
         return self.get_status()
 
     def get_status(self) -> dict:
@@ -233,6 +246,14 @@ class AutoCapture:
     def get_latest_frame_jpeg(self) -> bytes | None:
         with self._frame_lock:
             return self._latest_frame
+
+    def _broadcast_status(self):
+        """Push current status to all SSE clients."""
+        try:
+            from .api.sse import broadcast
+            broadcast("capture_status", self.get_status())
+        except Exception:
+            pass
 
     # -- Frame relay (OCR frames from Rust binary) -------------------------
 
@@ -380,23 +401,23 @@ class AutoCapture:
                 try:
                     shutil.move(buf_path, os.path.join(screenshots_dir, f"{phase_name}.jpg"))
                     moved += 1
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[capture] Failed to move {phase_name}.jpg buffer: {e}")
             # Move crop
             crop_path = os.path.join(self.recordings_dir, f"{name}_buf_{phase_name}_crop.jpg")
             if os.path.exists(crop_path):
                 try:
                     shutil.move(crop_path, os.path.join(screenshots_dir, f"{phase_name}_crop.jpg"))
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[capture] Failed to move {phase_name}_crop.jpg buffer: {e}")
         # Move character model + face crops (from deploying phase)
         for crop_name in ['character_crop', 'face_crop']:
             buf_path = os.path.join(self.recordings_dir, f"{name}_buf_{crop_name}.jpg")
             if os.path.exists(buf_path):
                 try:
                     shutil.move(buf_path, os.path.join(screenshots_dir, f"{crop_name}.jpg"))
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[capture] Failed to move {crop_name}.jpg buffer: {e}")
         # Also move legacy numbered files if they exist
         for i in range(1, 4):
             buf_path = os.path.join(self.recordings_dir, f"{name}_buf_{i}.jpg")
@@ -404,15 +425,13 @@ class AutoCapture:
                 try:
                     shutil.move(buf_path, os.path.join(screenshots_dir, f"{name}_{i}.jpg"))
                     moved += 1
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[capture] Failed to move numbered buffer {i}: {e}")
         return moved
 
     def _handle_detection(self, result: dict | None, frame_jpeg: bytes):
         """Process OCR detection result — act on first match, no debounce."""
         det_type = result['type'] if result else None
-
-        self._last_detection = det_type if det_type else self._last_detection
 
         if not det_type:
             return
@@ -426,10 +445,13 @@ class AutoCapture:
         elif det_type == 'endgame':
             # Ignore false endgame during deploy/loading — require at least 30s of recording
             if self._recording and (time.time() - self._recording_start) < 30:
-                return
+                return  # Don't update last_detection either — prevents overlay showing RUN.COMPLETE prematurely
             self._scan_state = 'postgame'  # Run complete → watch for stats screen
         elif det_type in ('exfiltrated', 'eliminated'):
             self._scan_state = 'lobby'     # Stats captured → watch lobby for PREPARE
+
+        # Only update last_detection AFTER guard checks pass
+        self._last_detection = det_type
         if self._scan_state != prev_state:
             self._state_changed_at = time.time()
 
@@ -457,8 +479,8 @@ class AutoCapture:
                     from .main import get_or_create_session
                     with open(self._recording_path + ".session", "w") as f:
                         f.write(str(get_or_create_session()))
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[capture] Failed to write session marker: {e}")
 
             if self._recording_path:
                 rec_name = os.path.basename(self._recording_path).replace(".mp4", "")
@@ -605,6 +627,7 @@ class AutoCapture:
             self._recording_start = time.time()
             self._recording_path = path
             print(f"[capture] Recording to: {path} ({encoder.upper()}, {bitrate_mbps}Mbps, {fps}fps)")
+            self._broadcast_status()
         else:
             print("[capture] Recording failed to start")
 
@@ -662,6 +685,7 @@ class AutoCapture:
         self._add_processing_item(filepath, duration)
         self._generate_thumbnail(filepath, duration)
         self._process_queue.put(filepath)
+        self._broadcast_status()
 
     # -- Processing queue tracking -------------------------------------
 
@@ -738,6 +762,7 @@ class AutoCapture:
         filename = os.path.basename(filepath)
         from datetime import datetime, timezone
         now = datetime.now(timezone.utc).isoformat()
+        status_changed = False
         with self._processing_lock:
             for item in self._processing_items:
                 if item["file"] == filename:
@@ -755,6 +780,7 @@ class AutoCapture:
                         item.pop("detail", None)
                     # Track phase timestamps
                     if status != old_status:
+                        status_changed = True
                         item["phase_started_at"] = now
                         if status == "extracting_frames":
                             item["p1_started_at"] = now
@@ -762,11 +788,13 @@ class AutoCapture:
                             item["p1_ended_at"] = now
                         if status == "phase1_failed":
                             item["p1_failed"] = True
-                        if status == "compressing":
+                        if status == "analyzing_gameplay":
                             item["p2_started_at"] = now
                         if status == "done" and "p2_started_at" in item:
                             item["p2_ended_at"] = now
                     break
+        if status_changed:
+            self._broadcast_status()
 
     def remove_processing_item(self, filename: str):
         """Remove a processing item by filename (after keep/delete)."""
@@ -774,6 +802,7 @@ class AutoCapture:
             self._processing_items = [
                 i for i in self._processing_items if i["file"] != filename
             ]
+        self._broadcast_status()
 
     def _auto_save_recording(self, filepath: str, run_id: int | None):
         """Auto-save recording after processing completes. Moves to clips folder,
@@ -850,7 +879,7 @@ class AutoCapture:
             print(f"[auto-save] Asset generation failed: {e}")
 
         # Clean up marker files
-        for ext in ('.done', '.p1done', '.encoded', '.endgame', '.session'):
+        for ext in ('.p1done', '.encoded', '.endgame', '.session'):
             marker = filepath + ext
             if os.path.exists(marker):
                 os.remove(marker)
@@ -885,9 +914,8 @@ class AutoCapture:
                     break
 
         if has_p1 and run_id and self._p2_executor:
-            # Phase 1 done — retry just Phase 2
-            self._update_processing_item(filepath, "analyzing_gameplay", run_id=run_id)
-            self._p2_executor.submit(self._process_phase2, filepath, run_id)
+            # Phase 1 done — retry just Phase 2 (gated by P2 worker limit)
+            self._submit_phase2(filepath, run_id)
             print(f"[capture] Retrying Phase 2 for run #{run_id}: {filename}")
             return True
         elif os.path.exists(filepath):
@@ -911,7 +939,7 @@ class AutoCapture:
         print("[dispatcher] Stopped.")
 
     def _process_phase1(self, filepath: str):
-        """Phase 1: encoding + stats extraction. Runs in P1 pool (fast, uncapped)."""
+        """Phase 1: stats extraction. Runs in P1 pool."""
         from .video_processor import process_recording
 
         def on_phase(phase, detail=None):
@@ -919,24 +947,13 @@ class AutoCapture:
 
         print(f"[p1] Processing: {filepath}")
 
-        # New recordings from Rust recorder have .encoded marker (skip re-encode).
-        encoded_marker = filepath + ".encoded"
-        if not os.path.exists(encoded_marker):
-            file_size_mb = os.path.getsize(filepath) / (1024 * 1024)
-            on_phase("encoding")
-            print(f"[p1] Legacy recording ({file_size_mb:.0f}MB), re-encoding...")
-            encoded = self._reencode_recording(filepath)
-            if encoded:
-                filepath = encoded
-
         # Check if Phase 1 was already completed in a previous session
         p1_marker = filepath + ".p1done"
         if os.path.exists(p1_marker):
             try:
                 run_id = int(open(p1_marker).read().strip())
                 print(f"[p1] Already done (run #{run_id}), submitting to Phase 2...")
-                self._update_processing_item(filepath, "phase1_done", run_id=run_id)
-                self._p2_executor.submit(self._process_phase2, filepath, run_id)
+                self._submit_phase2(filepath, run_id)
                 return
             except Exception as e:
                 print(f"[p1] Resume failed: {e}, starting fresh")
@@ -963,27 +980,43 @@ class AutoCapture:
                         item["loadout_tab_found"] = analysis.get("loadout_tab_found", False)
                         break
 
-            if result.get("phase1_only"):
-                self._update_processing_item(filepath, "phase1_done", run_id=run_id)
-                try:
-                    with open(filepath + ".p1done", "w") as f:
-                        f.write(str(run_id))
-                except Exception:
-                    pass
+            self._update_processing_item(filepath, "phase1_done", run_id=run_id)
+            try:
+                with open(filepath + ".p1done", "w") as f:
+                    f.write(str(run_id))
+            except Exception as e:
+                print(f"[p1] Failed to write .p1done marker: {e}")
 
-                # Submit Phase 2
-                print(f"[p1] Done, submitting Phase 2 for run #{run_id}...")
-                self._p2_executor.submit(self._process_phase2, filepath, run_id)
-            else:
-                # Legacy pipeline — auto-save and remove from queue
-                self._last_process_result = result
-                self._auto_save_recording(filepath, run_id)
-                self.remove_processing_item(os.path.basename(filepath))
-                print(f"[p1] Done (legacy): run #{run_id}")
+            # Submit Phase 2 (gated by worker limit)
+            self._submit_phase2(filepath, run_id)
 
         except Exception as e:
             self._update_processing_item(filepath, "error")
             print(f"[p1] Error: {e}")
+
+    def _submit_phase2(self, filepath: str, run_id: int):
+        """Submit a Phase 2 job if a slot is available, otherwise hold in waiting list."""
+        with self._p2_active_lock:
+            if self._p2_active < self._p2_max_workers:
+                self._p2_active += 1
+                self._update_processing_item(filepath, "analyzing_gameplay", run_id=run_id)
+                self._p2_executor.submit(self._process_phase2, filepath, run_id)
+                print(f"[p2] Submitted Phase 2 for run #{run_id} ({self._p2_active}/{self._p2_max_workers} active)")
+            else:
+                self._p2_waiting.append((filepath, run_id))
+                self._update_processing_item(filepath, "queued", run_id=run_id)
+                print(f"[p2] P2 full ({self._p2_active}/{self._p2_max_workers}), run #{run_id} waiting ({len(self._p2_waiting)} in queue)")
+
+    def _p2_finished(self):
+        """Called when a P2 job completes. Drains waiting list if slots available."""
+        with self._p2_active_lock:
+            self._p2_active = max(0, self._p2_active - 1)
+            while self._p2_waiting and self._p2_active < self._p2_max_workers:
+                filepath, run_id = self._p2_waiting.pop(0)
+                self._p2_active += 1
+                self._update_processing_item(filepath, "analyzing_gameplay", run_id=run_id)
+                self._p2_executor.submit(self._process_phase2, filepath, run_id)
+                print(f"[p2] Slot freed, submitting run #{run_id} from waiting list ({self._p2_active}/{self._p2_max_workers} active)")
 
     def _process_phase2(self, filepath: str, run_id: int):
         """Phase 2: video narrative + clip cutting. Runs in P2 pool.
@@ -997,7 +1030,6 @@ class AutoCapture:
             self._update_processing_item(filepath, phase, detail=detail)
 
         try:
-            time.sleep(1)
             print(f"[p2] Starting Phase 2 for run #{run_id}...")
             p2_result = process_recording_phase2(
                 filepath, self.clips_dir, run_id, on_phase=on_phase
@@ -1027,7 +1059,7 @@ class AutoCapture:
                 self.remove_processing_item(os.path.basename(filepath))
             else:
                 print(f"[p2] Failed: {p2_result}")
-                self._update_processing_item(filepath, "error", run_id=run_id)
+                self._update_processing_item(filepath, "error", run_id=run_id, p2_failed=True)
                 try:
                     log_path = os.path.join(self.recordings_dir, "phase2_errors.log")
                     with open(log_path, "a") as f:
@@ -1039,53 +1071,8 @@ class AutoCapture:
         except Exception as e:
             self._update_processing_item(filepath, "error", run_id=run_id)
             print(f"[p2] Error: {e}")
-
-    def _reencode_recording(self, raw_path: str) -> str | None:
-        """Re-encode recording to proper seekable H.264 MP4 (fallback for old recordings)."""
-        encoded_path = raw_path.replace(".mp4", "_enc.mp4")
-        raw_size = os.path.getsize(raw_path) / (1024 * 1024)
-        print(f"[capture] Re-encoding {raw_size:.0f}MB recording via NVENC...")
-        t0 = time.time()
-
-        try:
-            result = subprocess.run([
-                'ffmpeg', '-y', '-hide_banner', '-loglevel', 'warning',
-                '-i', raw_path,
-                '-c:v', 'h264_nvenc', '-preset', 'p4', '-cq', '23',
-                '-an', '-movflags', '+faststart', '-pix_fmt', 'yuv420p',
-                encoded_path,
-            ], capture_output=True, text=True, timeout=300)
-
-            if result.returncode != 0:
-                print(f"[capture] Re-encode failed: {result.stderr[:200]}")
-                if os.path.exists(encoded_path):
-                    os.remove(encoded_path)
-                return None
-
-            enc_size = os.path.getsize(encoded_path) / (1024 * 1024)
-            elapsed = time.time() - t0
-            print(f"[capture] Re-encoded: {raw_size:.0f}MB -> {enc_size:.0f}MB in {elapsed:.1f}s")
-
-            final_path = raw_path
-            os.remove(raw_path)
-            os.rename(encoded_path, final_path)
-            try:
-                with open(final_path + ".encoded", "w") as f:
-                    f.write(f"{enc_size:.1f}MB")
-            except Exception:
-                pass
-
-            return final_path
-        except subprocess.TimeoutExpired:
-            print("[capture] Re-encode timed out (300s)")
-            if os.path.exists(encoded_path):
-                os.remove(encoded_path)
-            return None
-        except Exception as e:
-            print(f"[capture] Re-encode error: {e}")
-            if os.path.exists(encoded_path):
-                os.remove(encoded_path)
-            return None
+        finally:
+            self._p2_finished()
 
     # -- Resume + helpers ----------------------------------------------
 
@@ -1095,7 +1082,7 @@ class AutoCapture:
             mp4_files = [
                 f for f in os.listdir(self.recordings_dir)
                 if f.endswith(".mp4") and f.startswith("run_")
-                and not any(f.endswith(s) for s in ("_compressed.mp4", "_2k.mp4", "_enc.mp4", "_thumb.jpg"))
+                and not f.endswith("_thumb.jpg")
             ]
             if not mp4_files:
                 return
@@ -1116,13 +1103,11 @@ class AutoCapture:
                     continue
 
                 # Check marker files for previous progress
-                done_marker = filepath + ".done"
                 p1_marker = filepath + ".p1done"
 
-                if os.path.exists(done_marker) or os.path.exists(p1_marker):
+                if os.path.exists(p1_marker):
                     try:
-                        marker = done_marker if os.path.exists(done_marker) else p1_marker
-                        run_id = int(open(marker).read().strip())
+                        run_id = int(open(p1_marker).read().strip())
                     except Exception:
                         run_id = None
 
@@ -1156,9 +1141,7 @@ class AutoCapture:
                         except Exception:
                             duration = 300
                         self._add_processing_item(filepath, duration)
-                        self._update_processing_item(filepath, "analyzing_gameplay", run_id=run_id)
-                        if self._p2_executor:
-                            self._p2_executor.submit(self._process_phase2, filepath, run_id)
+                        self._submit_phase2(filepath, run_id)
                         print(f"[resume] Run #{run_id} — resuming Phase 2")
                     resumed += 1
                     continue

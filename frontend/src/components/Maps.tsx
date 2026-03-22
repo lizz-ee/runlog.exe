@@ -2,7 +2,8 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { getMapStats, getSpawnHeatmap } from '../lib/api'
 import { useStore } from '../lib/store'
-import { MAPS, MAP_LIST } from '../lib/map-data'
+import { MAPS } from '../lib/map-data'
+import { formatDuration } from '../lib/utils'
 import type { SpawnRef } from '../lib/map-data'
 import type { MapStats, SpawnHeatmap } from '../lib/types'
 import axios from 'axios'
@@ -24,13 +25,6 @@ interface DragState {
   startMouseY: number
   startX: number
   startY: number
-}
-
-function formatTime(seconds: number): string {
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  if (h > 0) return `${h}h ${m}m`
-  return `${m}m`
 }
 
 export default function Maps({ selectedMap }: { selectedMap: string }) {
@@ -66,7 +60,7 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
       .then(({ data }) => {
         if (data.length > 0) {
           // Build SpawnRef objects from DB records
-          const dbSpawns: SpawnRef[] = data.map((s: any) => ({
+          const dbSpawns: SpawnRef[] = data.map((s: { id: number; spawn_location?: string; x?: number; y?: number; notes?: string; game_coord_x?: number; game_coord_y?: number }) => ({
             id: `${selectedMap.toLowerCase().replace(/\s/g, '_')}_${(s.spawn_location || 'unknown').toLowerCase().replace(/\s/g, '_')}_${s.id}`,
             zone: s.spawn_location || 'Unknown',
             x: s.x ?? 50,
@@ -171,7 +165,7 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
             color={currentStats.survival_rate >= 50 ? 'green' : 'red'} />
           <StatBlock label="K/D" value={String(currentStats.kd)}
             color={currentStats.kd >= 1 ? 'green' : 'red'} />
-          <StatBlock label="TOTAL TIME" value={formatTime(currentStats.time)} color="cyan" />
+          <StatBlock label="TOTAL TIME" value={formatDuration(currentStats.time)} color="cyan" />
         </div>
       )}
 
@@ -257,6 +251,8 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
           return (
             <div
               key={spawn.id}
+              role="button"
+              aria-label={`Spawn point: ${spawn.zone}`}
               className="absolute transform -translate-x-1/2 -translate-y-1/2"
               style={{
                 left: `${spawn.x}%`,
@@ -303,7 +299,7 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
                               setRenamingSpawn(null)
                               setLockedSpawn(null)
                               // Refresh heatmap so stats follow the renamed spawn
-                              getSpawnHeatmap().then(setHeatmap).catch(() => {})
+                              getSpawnHeatmap().then(setHeatmap).catch((e) => console.error('[Maps] refresh heatmap after rename failed:', e))
                             })
                         }}
                       >
@@ -338,8 +334,7 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
                       <p className="text-[10px] font-mono text-m-yellow mt-1">x: {spawn.x} &nbsp; y: {spawn.y}</p>
                     )}
                     {!isDragging && loc && totalRuns > 0 && (() => {
-                      const l = loc as any
-                      const killedBy = l.killed_by?.length > 0 ? l.killed_by[l.killed_by.length - 1] : null
+                      const killedBy = loc.killed_by?.length > 0 ? loc.killed_by[loc.killed_by.length - 1] : null
                       return (
                         <div className="mt-1.5 space-y-0.5">
                           <TooltipStat label="SPAWNS" value={`${loc.count}x`} />
@@ -352,16 +347,16 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
                           })()} color={loc.runs_survived > 0 && loc.runs_died === 0 ? 'green' : undefined} />
                           <div className="border-t border-m-border/30 my-1 pt-1" />
                           <TooltipStat label="AVG LOOT" value={`$${Math.round(loc.avg_loot ?? 0).toLocaleString()}`} color="yellow" />
-                          <TooltipStat label="BEST LOOT" value={l.best_loot != null ? `$${l.best_loot.toLocaleString()}` : '—'} color="yellow" />
-                          <TooltipStat label="WORST LOOT" value={l.worst_loot != null ? `$${l.worst_loot.toLocaleString()}` : '—'} color={l.worst_loot < 0 ? 'red' : undefined} />
+                          <TooltipStat label="BEST LOOT" value={loc.best_loot != null ? `$${loc.best_loot.toLocaleString()}` : '—'} color="yellow" />
+                          <TooltipStat label="WORST LOOT" value={loc.worst_loot != null ? `$${loc.worst_loot.toLocaleString()}` : '—'} color={loc.worst_loot != null && loc.worst_loot < 0 ? 'red' : undefined} />
                           <div className="border-t border-m-border/30 my-1 pt-1" />
-                          <TooltipStat label="PVE KILLS" value={String(l.pve_kills ?? 0)} color={l.pve_kills ? 'green' : undefined} />
-                          <TooltipStat label="RUNNER KILLS" value={String(l.runner_kills ?? 0)} color={l.runner_kills ? 'cyan' : undefined} />
-                          <TooltipStat label="DEATHS" value={String(l.total_deaths ?? 0)} color={l.total_deaths ? 'red' : undefined} />
-                          <TooltipStat label="REVIVES" value={String(l.total_revives ?? 0)} color={l.total_revives ? 'green' : undefined} />
+                          <TooltipStat label="PVE KILLS" value={String(loc.pve_kills ?? 0)} color={loc.pve_kills ? 'green' : undefined} />
+                          <TooltipStat label="RUNNER KILLS" value={String(loc.runner_kills ?? 0)} color={loc.runner_kills ? 'cyan' : undefined} />
+                          <TooltipStat label="DEATHS" value={String(loc.total_deaths ?? 0)} color={loc.total_deaths ? 'red' : undefined} />
+                          <TooltipStat label="REVIVES" value={String(loc.total_revives ?? 0)} color={loc.total_revives ? 'green' : undefined} />
                           <div className="border-t border-m-border/30 my-1 pt-1" />
-                          <TooltipStat label="WEAPON" value={l.fav_weapon ?? '—'} />
-                          <TooltipStat label="SHELL" value={l.fav_shell ?? '—'} />
+                          <TooltipStat label="WEAPON" value={loc.fav_weapon ?? '—'} />
+                          <TooltipStat label="SHELL" value={loc.fav_shell ?? '—'} />
                           {killedBy && (
                             <TooltipStat label="ENEMY" value={killedBy.name} color="red" />
                           )}
@@ -431,7 +426,7 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
                 switch (spawnSort) {
                   case 'name': return a.zone.localeCompare(b.zone)
                   case 'surv': return bSurv - aSurv
-                  case 'loot': return ((bLoc as any)?.avg_loot ?? -Infinity) - ((aLoc as any)?.avg_loot ?? -Infinity)
+                  case 'loot': return (bLoc?.avg_loot ?? -Infinity) - (aLoc?.avg_loot ?? -Infinity)
                   case 'streak': return bStreak - aStreak
                   default: return 0
                 }
@@ -451,8 +446,7 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
                   >
                     <p className={`text-2xs uppercase tracking-wider font-bold mb-1.5 ${isUnchartedItem ? 'text-m-cyan' : 'text-m-text'}`}>{spawn.zone}</p>
                     {loc && totalRuns > 0 && (() => {
-                      const l = loc as any
-                      const streak = loc!.runs_survived > 0 && loc!.runs_died === 0 ? loc!.runs_survived : 0
+                      const streak = loc.runs_survived > 0 && loc.runs_died === 0 ? loc.runs_survived : 0
                       return (
                         <div className="ml-0 mt-1 space-y-0.5 text-[9px] font-mono">
                           <div className="flex justify-between">
@@ -566,15 +560,15 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
               <p className="label-tag text-m-green">TIME</p>
             </div>
             <div className="divide-y divide-m-border">
-              <ColStat label="TOTAL TIME" value={formatTime(currentStats.time)} color="cyan" />
-              <ColStat label="AVG TIME" value={formatTime(currentStats.avg_time)} color="cyan" />
+              <ColStat label="TOTAL TIME" value={formatDuration(currentStats.time)} color="cyan" />
+              <ColStat label="AVG TIME" value={formatDuration(currentStats.avg_time)} color="cyan" />
               <ColStat label="LONGEST RUN" value={(() => {
                 const mapRuns = runs.filter(r => r.map_name === selectedMap && r.duration_seconds)
-                return mapRuns.length > 0 ? formatTime(Math.max(...mapRuns.map(r => r.duration_seconds!))) : '—'
+                return mapRuns.length > 0 ? formatDuration(Math.max(...mapRuns.map(r => r.duration_seconds!))) : '—'
               })()} color="cyan" />
               <ColStat label="SHORTEST RUN" value={(() => {
                 const mapRuns = runs.filter(r => r.map_name === selectedMap && r.duration_seconds)
-                return mapRuns.length > 0 ? formatTime(Math.min(...mapRuns.map(r => r.duration_seconds!))) : '—'
+                return mapRuns.length > 0 ? formatDuration(Math.min(...mapRuns.map(r => r.duration_seconds!))) : '—'
               })()} />
             </div>
           </div>
@@ -584,17 +578,7 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
   )
 }
 
-function StatRow({ label, value, color }: { label: string; value: string; color?: 'green' | 'red' | 'yellow' | 'cyan' }) {
-  const c = color === 'green' ? 'text-m-green' : color === 'red' ? 'text-m-red' : color === 'yellow' ? 'text-m-yellow' : color === 'cyan' ? 'text-m-cyan' : 'text-m-text'
-  return (
-    <div className="flex justify-between">
-      <span className="label-tag text-m-text-muted">{label}</span>
-      <span className={`text-2xs font-mono ${c}`}>{value}</span>
-    </div>
-  )
-}
-
-function StatBlock({ label, value, color, accent }: { label: string; value: string; color?: 'green' | 'red' | 'yellow' | 'cyan'; accent?: boolean }) {
+function StatBlock({ label, value, color, accent: _accent }: { label: string; value: string; color?: 'green' | 'red' | 'yellow' | 'cyan'; accent?: boolean }) {
   const c = { green: 'text-m-green', red: 'text-m-red', yellow: 'text-m-yellow', cyan: 'text-m-cyan' }[color as string] ?? 'text-m-text'
   return (
     <div className="bg-m-card p-5">

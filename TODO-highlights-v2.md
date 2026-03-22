@@ -9,28 +9,28 @@ Goal: Short, punchy, accurate highlight clips (15-25s) with correct event classi
 
 ## Phase 1: Quick Wins (Prompt Engineering Only)
 
-### 1.1 Validate Highlights Against Phase 1 Stats
-- [ ] Pass Phase 1 stats as hard constraints to Phase 2 prompt
-- [ ] "Phase 1 detected N Runner Eliminations — you MUST find exactly N pvp_kill clips"
-- [ ] If model can't find them, require explanation instead of fabricating
+### 1.1 Validate Highlights Against Phase 1 Stats (DONE)
+- [x] Pass Phase 1 stats as hard constraints to Phase 2 prompt
+- [x] "Phase 1 detected N Runner Eliminations — you MUST find exactly N pvp_kill clips"
+- [x] If model can't find them, require explanation instead of fabricating
 - **Effort**: Prompt change only
 - **Impact**: Eliminates mislabeled and fabricated PVP kills
 
-### 1.2 Burn Timestamps Into Frames
-- [ ] Add MM:SS overlay to extracted frames via ffmpeg `-vf drawtext`
-- [ ] Model sees the timestamp visually — no more mental math from frame index
-- [ ] Format: white text, top-left corner, semi-transparent background
+### 1.2 Burn Timestamps Into Frames (DONE)
+- [x] Add MM:SS overlay to extracted frames via ffmpeg `-vf drawtext`
+- [x] Model sees the timestamp visually — no more mental math from frame index
+- [x] Format: white text, top-left corner, semi-transparent background
 - **Effort**: One ffmpeg flag change
 - **Impact**: Dramatically improves timestamp accuracy
 
-### 1.3 Marathon HUD Description in Prompt
-- [ ] Add specific HUD element locations to Phase 2 prompt:
-  - Kill feed: top-right, "PlayerA [weapon] PlayerB" format
+### 1.3 Marathon HUD Description in Prompt (DONE)
+- [x] Add specific HUD element locations to Phase 2 prompt:
+  - Kill feed: top-left, "[PlayerName] eliminated [TargetName]" format
   - Death screen: full-screen "NEURAL LINK SEVERED" overlay, killer info right side
-  - Health bar: bottom-center, red when low
+  - Health bar: bottom-left, red when low
   - Hit markers: white crosshair flash when dealing damage
   - Damage vignette: red screen edges when taking damage
-  - Extraction UI: countdown timer at extraction point
+  - Extraction UI: "MATTER TRANSFER IN" countdown at top-center
 - **Effort**: Prompt addition
 - **Impact**: Model knows exactly what to look for and where
 

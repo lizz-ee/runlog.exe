@@ -118,13 +118,6 @@
 ### Capture Improvements
 - [ ] Death screen detection for mid-match death location tracking
 
-### Detection Feed Aesthetic
-- [ ] More Marathon data-ticker elements — random symbols, technical readouts, ambient data decoration
-- [ ] Reference Marathon art style (TRANSLINK VECT-Φ9, MATRIX BREACH DETECTED, etc.)
-
-### Phase 2 Prompt Quality
-- [ ] Story/summary prompt tuning — more accurate narratives, review against actual gameplay
-
 ### Processing Metrics
 - [ ] Add token usage tracking from API responses (input_tokens, output_tokens, cost estimate)
 
@@ -139,3 +132,23 @@
 
 ### Data
 - [ ] Death heatmap (map game coordinates to map image, mark death locations)
+
+---
+
+## Audit TODOs (completed)
+
+### Architecture
+- [x] Replace polling (setInterval 2s) with Server-Sent Events for capture status — SSE endpoint at /api/sse/events with polling fallback
+- [x] Add spawn heatmap caching with TTL invalidation — 10s TTL, invalidated on spawn/run mutations
+
+### Infrastructure
+- [ ] Code signing for Windows builds (requires certificate purchase) — electron-builder config scaffolded, needs cert
+- [x] Enable `noUnusedLocals`/`noUnusedParameters` in tsconfig.json and fix all resulting lint errors
+- [x] Add ARIA labels to TitleBar buttons, spawn map markers, and overlay controls for accessibility
+- [x] Add auto-update support via electron-updater — scaffolded, uncomment in main.js when releases are configured
+
+### Code quality
+- [x] Extract shared Python utilities for K/D ratio calculation — calc_kd() in backend/app/utils.py
+- [x] Replace remaining bare `except Exception: pass` blocks in video_processor.py — all 10 now log
+- [x] Replace silent `.catch(() => {})` in frontend components — 22 catches now log errors
+- [x] Reduce `any` type usage in frontend — proper interfaces added to types.ts

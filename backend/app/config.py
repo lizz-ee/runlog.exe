@@ -20,8 +20,8 @@ if os.path.isdir(_OLD_DATA_DIR) and not os.path.isdir(_DATA_DIR):
         old_parent = os.path.join(_APPDATA, "marathon-runlog")
         if os.path.isdir(old_parent) and not os.listdir(old_parent):
             os.rmdir(old_parent)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[config] Could not clean up old data directory: {e}")
 
     # Update any absolute paths stored in the database
     _migrated_db = os.path.join(_DATA_DIR, "runlog.db")

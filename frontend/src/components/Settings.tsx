@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { getSettings, setApiKey, testApiKey, removeApiKey, updateConfig, getCliStatus } from '../lib/api'
 import type { AppSettings } from '../lib/api'
+import type { OverlaySettings } from '../lib/types'
 
 type KeyStatus = 'idle' | 'testing' | 'valid' | 'invalid' | 'saving' | 'saved' | 'error'
 
@@ -13,7 +14,7 @@ const CORNERS = [
   { value: 'bottom-right', label: 'BR' },
 ] as const
 
-function SectionHeader({ tag, title, desc }: { tag: string; title: string; desc: string }) {
+function SectionHeader({ tag, title: _title, desc }: { tag: string; title: string; desc: string }) {
   return (
     <div className="px-5 py-4 border-b border-m-border">
       <p className="label-tag text-m-green mb-1">{tag}</p>
@@ -57,7 +58,7 @@ function ToggleButton({ options, value, onChange }: {
   )
 }
 
-function Slider({ min, max, step, value, onChange, unit, marks }: {
+function Slider({ min, max, step, value, onChange, unit, marks: _marks }: {
   min: number; max: number; step: number; value: number
   onChange: (v: number) => void; unit?: string; marks?: number[]
 }) {
@@ -104,12 +105,12 @@ export default function Settings() {
   const [cliStatus, setCliStatus] = useState<{ installed: boolean; authenticated: boolean; path: string | null } | null>(null)
 
   useEffect(() => {
-    getSettings().then(setConfig).catch(() => {})
+    getSettings().then(setConfig).catch((e) => console.error('[Settings] fetch settings failed:', e))
     checkCli()
 
     const runlog = (window as any).runlog
     if (runlog?.getOverlaySettings) {
-      runlog.getOverlaySettings().then((s: any) => {
+      runlog.getOverlaySettings().then((s: OverlaySettings) => {
         setOverlayEnabled(s.enabled ?? true)
         const corner = s.corner ?? 'top-left'
         setOverlayCorner(corner)
@@ -121,12 +122,12 @@ export default function Settings() {
           'bottom-left': { x: 0, y: 88 }, 'bottom-center': { x: 35, y: 88 }, 'bottom-right': { x: 70, y: 88 },
         }
         setOverlayPos(posMap[corner] || { x: s.customX != null ? 50 : 0, y: s.customY != null ? 50 : 0 })
-      }).catch(() => {})
+      }).catch((e: unknown) => console.error('[Settings] fetch overlay settings failed:', e))
     }
   }, [])
 
   function saveConfig(key: string, value: any) {
-    updateConfig(key, value).catch(() => {})
+    updateConfig(key, value).catch((e) => console.error('[Settings] save config failed:', e))
     setConfig(prev => prev ? { ...prev, [key]: value } : prev)
   }
 
@@ -240,7 +241,8 @@ export default function Settings() {
 
             <div className="pt-1 border-t border-m-border/30">
               <p className="text-[9px] font-mono text-m-text-muted/40 tracking-wider">
-                P1 = FRAMES + STATS — P2 = NARRATIVE + CLIPS
+                P1 = FRAMES + STATS — P2 = NARRATIVE + CLIPS<br/>
+                <span className="text-m-yellow/40">RESTART REQUIRED FOR CHANGES</span>
               </p>
             </div>
           </div>
@@ -256,6 +258,7 @@ export default function Settings() {
             <div className="flex-1 space-y-4 pr-5">
               <SettingRow label="OVERLAY">
                 <button
+                  aria-label={overlayEnabled ? 'Disable overlay' : 'Enable overlay'}
                   onClick={() => {
                     const next = !overlayEnabled
                     setOverlayEnabled(next)
@@ -297,15 +300,18 @@ export default function Settings() {
               </SettingRow>
 
               <SettingRow label="POSITION">
-                <div className="flex">
-                  {CORNERS.map((c, i) => {
+                <div className="grid grid-cols-3 gap-0">
+                  {CORNERS.map((c) => {
                     const posMap: Record<string, { x: number; y: number }> = {
                       'top-left': { x: 2, y: 4 }, 'top-center': { x: 50, y: 4 }, 'top-right': { x: 98, y: 4 },
                       'bottom-left': { x: 2, y: 100 }, 'bottom-center': { x: 50, y: 100 }, 'bottom-right': { x: 98, y: 100 },
                     }
+                    const row = c.value.startsWith('top') ? 0 : 1
+                    const col = c.value.endsWith('left') ? 0 : c.value.endsWith('center') ? 1 : 2
                     return (
                       <button
                         key={c.value}
+                        aria-label={`Position overlay ${c.value.replace('-', ' ')}`}
                         onClick={() => {
                           setOverlayCorner(c.value)
                           const pos = posMap[c.value]
@@ -313,7 +319,9 @@ export default function Settings() {
                           (window as any).runlog?.setOverlayCorner?.(c.value)
                         }}
                         className={`px-2 py-1 text-2xs font-mono tracking-widest border transition-all ${
-                          i > 0 ? 'border-l-0' : ''
+                          col > 0 ? 'border-l-0' : ''
+                        } ${
+                          row > 0 ? 'border-t-0' : ''
                         } ${
                           overlayCorner === c.value
                             ? 'border-m-green/40 text-m-green bg-m-green/10'
@@ -338,6 +346,9 @@ export default function Settings() {
               {/* Interactive screen preview — drag the bar to reposition */}
               <div
                 ref={posRef}
+                role="slider"
+                aria-label="Drag to reposition overlay"
+                aria-valuetext={`X: ${Math.round(overlayPos.x)}%, Y: ${Math.round(overlayPos.y)}%`}
                 className="relative border border-m-border/50 bg-m-black/80 aspect-video overflow-hidden cursor-crosshair select-none"
                 onMouseDown={(e) => {
                   e.preventDefault()
@@ -439,7 +450,7 @@ export default function Settings() {
                 </div>
                 <ToggleButton
                   options={[{ value: 'haiku', label: 'HAIKU' }, { value: 'sonnet', label: 'SONNET' }]}
-                  value={(config as any).uplink_model || 'haiku'}
+                  value={config.uplink_model || 'haiku'}
                   onChange={v => saveConfig('uplink_model', v)}
                 />
               </div>

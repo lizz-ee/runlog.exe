@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import axios from 'axios'
 import { apiBase } from '../lib/api'
 import { useStore } from '../lib/store'
-import type { View } from '../lib/types'
+import type { View, SpawnHeatmap, SpawnHeatmapEntry } from '../lib/types'
 
 interface NavItem {
   view: View
@@ -78,10 +78,10 @@ export default function Sidebar() {
   useEffect(() => {
     async function fetchStaging() {
       try {
-        const { data } = await axios.get(`${apiBase}/api/spawns/heatmap`)
+        const { data } = await axios.get<SpawnHeatmap[]>(`${apiBase}/api/spawns/heatmap`)
         const counts: Record<string, number> = {}
         for (const map of data) {
-          const uncharted = map.locations.filter((l: any) =>
+          const uncharted = map.locations.filter((l: SpawnHeatmapEntry) =>
             l.location.startsWith('VCTR//') || l.location.startsWith('//VCTR.RDCT//')
           ).length
           if (uncharted > 0) {
@@ -91,7 +91,7 @@ export default function Sidebar() {
           }
         }
         setStagingCounts(counts)
-      } catch {}
+      } catch (e) { console.error('[Sidebar] fetch staging counts failed:', e) }
     }
     fetchStaging()
     const interval = setInterval(fetchStaging, 10000)

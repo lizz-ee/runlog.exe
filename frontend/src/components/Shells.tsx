@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { getShellStats } from '../lib/api'
 import { useStore } from '../lib/store'
+import { formatTime, formatDuration } from '../lib/utils'
 import type { ShellStats } from '../lib/types'
 import Squad from './Squad'
 
@@ -34,19 +35,6 @@ function getShellImage(name: string): string | null {
   return SHELL_IMAGES[name.toLowerCase()] ?? null
 }
 
-function formatTime(seconds: number): string {
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  if (h > 0) return `${h}h ${m}m`
-  return `${m}m`
-}
-
-function formatDuration(seconds: number): string {
-  const m = Math.floor(seconds / 60)
-  const s = seconds % 60
-  return `${m}:${String(s).padStart(2, '0')}`
-}
-
 export default function Shells() {
   const [shells, setShells] = useState<ShellStats[]>([])
   const [selected, setSelected] = useState<string | null>(null)
@@ -64,14 +52,14 @@ export default function Shells() {
       } else if (!selected) {
         setSelected('triage')
       }
-    }).catch(() => {})
+    }).catch((e) => console.error('[Shells] fetch shell stats failed:', e))
   }, [lastRunId, doneCount])
 
   // Build shell map and sort: shells with data sorted by score (best first), then shells with no data
   const shellMap = new Map(shells.map((s) => [s.runner_name.toLowerCase(), s]))
   const withData = ALL_SHELLS
     .filter((name) => shellMap.has(name))
-    .sort((a, b) => ((shellMap.get(b) as any)?.score ?? 0) - ((shellMap.get(a) as any)?.score ?? 0))
+    .sort((a, b) => (shellMap.get(b)?.score ?? 0) - (shellMap.get(a)?.score ?? 0))
   const withoutData = ALL_SHELLS.filter((name) => !shellMap.has(name))
   // Also include any unknown shells from data
   const unknown = shells
@@ -97,7 +85,7 @@ export default function Shells() {
 
       {/* Shell cards */}
       <div className="grid grid-cols-7 gap-3">
-        {orderedNames.map((name, i) => {
+        {orderedNames.map((name) => {
           const shell = shellMap.get(name)
           const img = getShellImage(name)
           const isSelected = selected === name
@@ -142,7 +130,7 @@ export default function Shells() {
             />
             <StatBlock
               label="TOTAL TIME"
-              value={formatTime(selectedShell.time)}
+              value={formatDuration(selectedShell.time)}
               color={selectedShell.runs > 0 ? 'cyan' : undefined}
             />
           </div>
@@ -181,8 +169,8 @@ export default function Shells() {
               </div>
               <div className="divide-y divide-m-border">
                 <ColStat label="FAVORITE WEAPON" value={selectedShell.favorite_weapon ?? '—'} />
-                <ColStat label="AVG RUN TIME" value={formatDuration(selectedShell.avg_time)} color={selectedShell.avg_time > 0 ? 'cyan' : undefined} />
-                <ColStat label="TOTAL TIME" value={formatTime(selectedShell.time)} color={selectedShell.time > 0 ? 'cyan' : undefined} />
+                <ColStat label="AVG RUN TIME" value={formatTime(selectedShell.avg_time)} color={selectedShell.avg_time > 0 ? 'cyan' : undefined} />
+                <ColStat label="TOTAL TIME" value={formatDuration(selectedShell.time)} color={selectedShell.time > 0 ? 'cyan' : undefined} />
               </div>
             </div>
           </div>
@@ -228,11 +216,6 @@ function ShellCard({ name, img, runs, survivalRate, hasData, isSelected, rank, o
 
       {/* Gradient overlay */}
       <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/40 to-black/10 z-[1]" />
-
-      {/* Scan line on hover/select */}
-      <div className={`absolute inset-0 overflow-hidden pointer-events-none z-[2] ${active ? 'opacity-100' : 'opacity-0'} transition-opacity`}>
-        <div className="absolute top-0 left-0 right-0 h-[40px] bg-gradient-to-b from-[#c8ff00]/8 to-transparent animate-[scanDown_2s_linear_infinite]" />
-      </div>
 
       {/* Corner brackets */}
       <div className={`absolute top-1.5 left-1.5 w-3 h-3 border-l border-t z-[3] transition-colors duration-300 ${
@@ -335,7 +318,7 @@ function ShellCard({ name, img, runs, survivalRate, hasData, isSelected, rank, o
 
 /* ── Shared stat components ── */
 
-function StatBlock({ label, value, color, accent }: {
+function StatBlock({ label, value, color, accent: _accent }: {
   label: string; value: string; color?: 'green' | 'red' | 'yellow' | 'cyan'; accent?: boolean
 }) {
   const colorClass = { green: 'text-m-green', red: 'text-m-red', yellow: 'text-m-yellow', cyan: 'text-m-cyan' }[color as string] ?? 'text-m-text'

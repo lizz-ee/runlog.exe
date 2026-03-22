@@ -5,6 +5,7 @@ from sqlalchemy import func
 from ..database import get_db
 from ..models import Run, Runner
 from ..schemas import OverviewStats, MapTime
+from ..utils import calc_kd, calc_survival_rate
 
 router = APIRouter()
 
@@ -26,7 +27,7 @@ def get_overview_stats(db: Session = Depends(get_db)):
     loot = sum(r.loot_value_total or 0 for r in runs)
 
     # K/D is Runner K/D (PvP only) — PvE kills don't count for K/D
-    kd = round(pvp_kills / deaths, 2) if deaths else float(pvp_kills)
+    kd = calc_kd(pvp_kills, deaths)
 
     # Favorite map
     map_counts: dict[str, int] = {}
@@ -80,7 +81,7 @@ def get_overview_stats(db: Session = Depends(get_db)):
     return OverviewStats(
         total_runs=total,
         total_survived=survived,
-        survival_rate=round(survived / total * 100, 1) if total else 0,
+        survival_rate=calc_survival_rate(survived, total),
         total_kills=kills,
         total_deaths=deaths,
         total_assists=assists,
@@ -120,10 +121,10 @@ def stats_by_map(db: Session = Depends(get_db)):
         m["loot"] += r.loot_value_total or 0
         m["time"] += r.duration_seconds or 0
     for m in maps.values():
-        m["survival_rate"] = round(m["survived"] / m["runs"] * 100, 1) if m["runs"] else 0
+        m["survival_rate"] = calc_survival_rate(m["survived"], m["runs"])
         total_kills = m["pve_kills"] + m["pvp_kills"]
         m["kills"] = total_kills
-        m["kd"] = round(m["pvp_kills"] / m["deaths"], 2) if m["deaths"] else float(m["pvp_kills"])
+        m["kd"] = calc_kd(m["pvp_kills"], m["deaths"])
         m["avg_loot"] = round(m["loot"] / m["runs"], 0) if m["runs"] else 0
         m["avg_time"] = round(m["time"] / m["runs"]) if m["runs"] else 0
     return list(maps.values())
@@ -132,13 +133,14 @@ def stats_by_map(db: Session = Depends(get_db)):
 @router.get("/by-runner")
 def stats_by_runner(db: Session = Depends(get_db)):
     runs = db.query(Run).filter(Run.runner_id.isnot(None)).all()
+    # Pre-fetch all runners to avoid N+1 queries
+    all_runners = {r.id: r.name for r in db.query(Runner).all()}
     runners: dict[int, dict] = {}
     for r in runs:
         if r.runner_id not in runners:
-            runner = db.query(Runner).filter(Runner.id == r.runner_id).first()
             runners[r.runner_id] = {
                 "runner_id": r.runner_id,
-                "runner_name": runner.name if runner else "Unknown",
+                "runner_name": all_runners.get(r.runner_id, "Unknown"),
                 "runs": 0, "survived": 0, "kills": 0, "deaths": 0, "loot": 0,
                 "pve_kills": 0, "pvp_kills": 0, "revives": 0, "time": 0,
                 "weapon_counts": {},
@@ -156,8 +158,8 @@ def stats_by_runner(db: Session = Depends(get_db)):
         if r.primary_weapon:
             s["weapon_counts"][r.primary_weapon] = s["weapon_counts"].get(r.primary_weapon, 0) + 1
     for s in runners.values():
-        s["survival_rate"] = round(s["survived"] / s["runs"] * 100, 1) if s["runs"] else 0
-        s["kd"] = round(s["pvp_kills"] / s["deaths"], 2) if s["deaths"] else float(s["pvp_kills"])
+        s["survival_rate"] = calc_survival_rate(s["survived"], s["runs"])
+        s["kd"] = calc_kd(s["pvp_kills"], s["deaths"])
         s["avg_loot"] = round(s["loot"] / s["runs"]) if s["runs"] else 0
         s["avg_time"] = round(s["time"] / s["runs"]) if s["runs"] else 0
         wc = s.pop("weapon_counts")

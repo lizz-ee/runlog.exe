@@ -1,6 +1,7 @@
 import json
 import os
 import uuid
+import time as _time
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
@@ -17,6 +18,16 @@ from ..schemas import SpawnPointCreate, SpawnPointOut, ParsedSpawnScreenshot
 from .screenshot import _call_claude, _extract_json
 
 router = APIRouter()
+
+# Simple TTL cache for heatmap — invalidated on spawn/run changes
+_heatmap_cache: dict = {"data": None, "ts": 0}
+_HEATMAP_TTL = 10  # seconds
+
+
+def invalidate_heatmap_cache():
+    """Call after any spawn or run mutation to bust the cache."""
+    _heatmap_cache["data"] = None
+    _heatmap_cache["ts"] = 0
 
 SPAWN_PARSE_PROMPT = """Analyze this Marathon (Bungie 2026 extraction shooter) in-game screenshot taken at the start of a run when the player first spawns in.
 
@@ -48,7 +59,9 @@ async def _save_spawn_upload(file: UploadFile) -> str:
         raise HTTPException(status_code=400, detail="Invalid image file")
 
     os.makedirs(settings.media_upload_dir, exist_ok=True)
-    ext = file.filename.split(".")[-1] if file.filename and "." in file.filename else "png"
+    ext = file.filename.split(".")[-1].lower() if file.filename and "." in file.filename else "png"
+    if ext not in ("jpg", "jpeg", "png", "webp"):
+        ext = "png"
     filename = f"spawn_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}.{ext}"
     filepath = os.path.join(settings.media_upload_dir, filename)
 
@@ -85,6 +98,7 @@ def create_spawn(data: SpawnPointCreate, db: DBSession = Depends(get_db)):
     spawn = SpawnPoint(**data.model_dump(exclude_none=True))
     db.add(spawn)
     db.commit()
+    invalidate_heatmap_cache()
     db.refresh(spawn)
     return spawn
 
@@ -113,6 +127,7 @@ def update_spawn_coords(body: CoordsUpdate, db: DBSession = Depends(get_db)):
         s.y = body.y
 
     db.commit()
+    invalidate_heatmap_cache()
     return {"updated": len(spawns), "map": body.map_name, "location": body.spawn_location, "x": body.x, "y": body.y}
 
 
@@ -131,6 +146,7 @@ def update_spawn_coords_by_id(body: CoordsUpdateById, db: DBSession = Depends(ge
     spawn.x = body.x
     spawn.y = body.y
     db.commit()
+    invalidate_heatmap_cache()
     return {"updated": 1, "id": body.id, "x": body.x, "y": body.y}
 
 
@@ -145,9 +161,14 @@ def rename_spawn(body: SpawnRename, db: DBSession = Depends(get_db)):
     spawn = db.query(SpawnPoint).filter(SpawnPoint.id == body.id).first()
     if not spawn:
         raise HTTPException(status_code=404, detail=f"Spawn #{body.id} not found")
+    if len(body.spawn_location.strip()) > 200:
+        raise HTTPException(status_code=400, detail="Spawn name too long (max 200 characters)")
+    if not body.spawn_location.strip():
+        raise HTTPException(status_code=400, detail="Spawn name cannot be empty")
     old_name = spawn.spawn_location
     spawn.spawn_location = body.spawn_location.strip()
     db.commit()
+    invalidate_heatmap_cache()
     return {"id": body.id, "old_name": old_name, "new_name": spawn.spawn_location}
 
 
@@ -162,6 +183,10 @@ def list_spawns(map_name: str = None, db: DBSession = Depends(get_db)):
 @router.get("/heatmap")
 def spawn_heatmap(db: DBSession = Depends(get_db)):
     """Get spawn frequency data grouped by map + location for heatmap visualization."""
+    # Return cached result if fresh
+    if _heatmap_cache["data"] is not None and (_time.time() - _heatmap_cache["ts"]) < _HEATMAP_TTL:
+        return _heatmap_cache["data"]
+
     spawns = db.query(SpawnPoint).all()
 
     maps: dict[str, dict[str, dict]] = {}
@@ -283,4 +308,7 @@ def spawn_heatmap(db: DBSession = Depends(get_db)):
             "locations": sorted(loc_list, key=lambda x: x["count"], reverse=True),
         })
 
-    return sorted(result, key=lambda x: x["total_spawns"], reverse=True)
+    result_sorted = sorted(result, key=lambda x: x["total_spawns"], reverse=True)
+    _heatmap_cache["data"] = result_sorted
+    _heatmap_cache["ts"] = _time.time()
+    return result_sorted

@@ -73,6 +73,7 @@ export interface AppSettings {
   p2_workers: number
   auth_mode: string
   model: string
+  uplink_model?: string
 }
 
 export async function getSettings(): Promise<AppSettings> {

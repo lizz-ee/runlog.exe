@@ -9,6 +9,7 @@ export default function TitleBar() {
       <div className="absolute right-0 top-0 flex" style={{ WebkitAppRegion: 'no-drag' } as any}>
         <button
           onClick={minimize}
+          aria-label="Minimize window"
           className="w-8 h-8 flex items-center justify-center text-m-text-muted/30 hover:bg-m-surface hover:text-m-text transition-colors"
         >
           <svg width="8" height="1" viewBox="0 0 8 1" fill="currentColor">
@@ -17,6 +18,7 @@ export default function TitleBar() {
         </button>
         <button
           onClick={maximize}
+          aria-label="Maximize window"
           className="w-8 h-8 flex items-center justify-center text-m-text-muted/30 hover:bg-m-surface hover:text-m-text transition-colors"
         >
           <svg width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" strokeWidth="1">
@@ -25,6 +27,7 @@ export default function TitleBar() {
         </button>
         <button
           onClick={close}
+          aria-label="Close window"
           className="w-8 h-8 flex items-center justify-center text-m-text-muted/30 hover:bg-red-600/80 hover:text-white transition-colors"
         >
           <svg width="8" height="8" viewBox="0 0 8 8" stroke="currentColor" strokeWidth="1.2">

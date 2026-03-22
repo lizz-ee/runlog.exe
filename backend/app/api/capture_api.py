@@ -309,7 +309,7 @@ def keep_recording(body: RecordingAction):
             db.close()
 
     # Clean up marker files
-    for ext in ('.done', '.p1done', '.encoded', '.endgame'):
+    for ext in ('.p1done', '.encoded', '.endgame', '.session'):
         marker = filepath + ext
         if os.path.exists(marker):
             os.remove(marker)
@@ -375,7 +375,7 @@ def delete_recording(body: RecordingAction):
     thumb_path = os.path.join(RECORDINGS_DIR, thumb)
     if os.path.exists(thumb_path):
         os.remove(thumb_path)
-    for ext in ('.done', '.p1done', '.encoded', '.endgame'):
+    for ext in ('.p1done', '.encoded', '.endgame', '.session'):
         marker = filepath + ext
         if os.path.exists(marker):
             os.remove(marker)

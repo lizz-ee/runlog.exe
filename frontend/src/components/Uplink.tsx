@@ -2,7 +2,7 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import axios from 'axios'
 import { apiBase } from '../lib/api'
 import { useStore } from '../lib/store'
-import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Area, AreaChart } from 'recharts'
+import { XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Area, AreaChart } from 'recharts'
 
 interface SessionSummary {
   session_id: number
@@ -38,10 +38,6 @@ const CRT_SCANLINES = {
 const CRT_VIGNETTE = {
   boxShadow: 'inset 0 0 60px rgba(0,0,0,0.5), inset 0 0 120px rgba(0,0,0,0.3)',
 }
-const PHOSPHOR_GLOW = {
-  textShadow: '0 0 8px rgba(200,255,0,0.15)',
-}
-
 export default function Uplink() {
   const [summary, setSummary] = useState<SessionSummary | null>(null)
   const { uplinkMessages: messages, setUplinkMessages: setMessages, uplinkBriefing: briefing, setUplinkBriefing: setBriefing, captureStatus } = useStore()
@@ -51,7 +47,7 @@ export default function Uplink() {
   const [killsTrend, setKillsTrend] = useState<TrendPoint[]>([])
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
-  const [totalRuns, setTotalRuns] = useState(0)
+  const [, setTotalRuns] = useState(0)
   const chatRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const briefingRunCount = useRef(0)
@@ -60,11 +56,11 @@ export default function Uplink() {
   const doneCount = captureStatus?.processing_items?.filter(i => i.status === 'done').length ?? 0
 
   useEffect(() => {
-    axios.get(`${apiBase}/api/uplink/session-summary`).then(({ data }) => setSummary(data)).catch(() => {})
-    axios.get(`${apiBase}/api/uplink/trends?stat=survival&range=all&group_by=session`).then(({ data }) => setSurvivalTrend(data)).catch(() => {})
-    axios.get(`${apiBase}/api/uplink/trends?stat=loot&range=all&group_by=session`).then(({ data }) => setLootTrend(data)).catch(() => {})
-    axios.get(`${apiBase}/api/uplink/trends?stat=runner_kills&range=all&group_by=session`).then(({ data }) => setKillsTrend(data)).catch(() => {})
-    axios.get(`${apiBase}/api/runs/recent`).then(({ data }) => setTotalRuns(data.length)).catch(() => {})
+    axios.get(`${apiBase}/api/uplink/session-summary`).then(({ data }) => setSummary(data)).catch((e) => console.error('[Uplink] fetch session summary failed:', e))
+    axios.get(`${apiBase}/api/uplink/trends?stat=survival&range=all&group_by=session`).then(({ data }) => setSurvivalTrend(data)).catch((e) => console.error('[Uplink] fetch survival trend failed:', e))
+    axios.get(`${apiBase}/api/uplink/trends?stat=loot&range=all&group_by=session`).then(({ data }) => setLootTrend(data)).catch((e) => console.error('[Uplink] fetch loot trend failed:', e))
+    axios.get(`${apiBase}/api/uplink/trends?stat=runner_kills&range=all&group_by=session`).then(({ data }) => setKillsTrend(data)).catch((e) => console.error('[Uplink] fetch kills trend failed:', e))
+    axios.get(`${apiBase}/api/runs/recent`).then(({ data }) => setTotalRuns(data.length)).catch((e) => console.error('[Uplink] fetch recent runs failed:', e))
   }, [lastRunId, doneCount])
 
   useEffect(() => {
@@ -142,7 +138,7 @@ export default function Uplink() {
       <div className="mb-4">
         <p className="label-tag text-m-green">LIVE UPLINK</p>
         <h2 className="text-xl font-display font-black tracking-wider text-m-text mt-1">
-          {(summary as any)?.session_code || 'UPLINK'}
+          {summary?.session_code || 'UPLINK'}
         </h2>
       </div>
 

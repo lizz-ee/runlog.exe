@@ -1,8 +1,10 @@
 import { useEffect, useRef } from 'react'
 import axios from 'axios'
 import { useStore } from './lib/store'
+import { formatTime } from './lib/utils'
 import { getRecentRuns, getOverviewStats, getRunners, getLoadouts, getCaptureStatus, apiBase } from './lib/api'
 import { onScreenshotParsed } from './lib/electron'
+import type { CaptureStatus, OverlaySettings } from './lib/types'
 import Sidebar from './components/Sidebar'
 import Dashboard from './components/Dashboard'
 import RunHistory from './components/RunHistory'
@@ -14,18 +16,13 @@ import Settings from './components/Settings'
 import Uplink from './components/Uplink'
 import Toasts from './components/Toasts'
 import TitleBar from './components/TitleBar'
+import ErrorBoundary from './components/ErrorBoundary'
 
 const MAP_VIEW_TO_NAME: Record<string, string> = {
   'map-perimeter': 'Perimeter',
   'map-dire-marsh': 'Dire Marsh',
   'map-outpost': 'Outpost',
   'map-cryo-archive': 'Cryo Archive',
-}
-
-function formatTime(seconds: number): string {
-  const m = Math.floor(seconds / 60)
-  const s = Math.floor(seconds % 60)
-  return `${m}:${s.toString().padStart(2, '0')}`
 }
 
 function getSeenRunId(): number | null {
@@ -88,34 +85,64 @@ export default function App() {
     })
   }, [])
 
-  // Global capture status polling — always runs regardless of active page
+  // SSE for real-time capture status, with polling fallback
   useEffect(() => {
+    let eventSource: EventSource | null = null
+    let fallbackInterval: ReturnType<typeof setInterval> | null = null
+
+    function handleStatusUpdate(status: CaptureStatus) {
+      setCaptureStatus(status)
+      setCaptureError(null)
+    }
+
+    function startPolling() {
+      if (fallbackInterval) return
+      fallbackInterval = setInterval(poll, 10000) // Slower fallback when SSE unavailable
+    }
+
     async function poll() {
       try {
         const s = await getCaptureStatus()
-        setCaptureStatus(s)
-        setCaptureError(null)
-
-        // Auto-start the capture engine if it's not active
+        handleStatusUpdate(s)
         if (!s.active) {
-          try {
-            await axios.post(`${apiBase}/api/capture/start`, {})
-          } catch {}
+          try { await axios.post(`${apiBase}/api/capture/start`, {}) } catch {}
         }
       } catch {
         setCaptureError('Capture engine not running')
       }
     }
 
+    // Try SSE first
+    try {
+      eventSource = new EventSource(`${apiBase}/api/sse/events`)
+      eventSource.addEventListener('capture_status', (e) => {
+        try {
+          const status = JSON.parse((e as MessageEvent).data)
+          handleStatusUpdate(status)
+        } catch {}
+      })
+      eventSource.onerror = () => {
+        // SSE failed or disconnected — close and fall back to polling
+        eventSource?.close()
+        eventSource = null
+        startPolling()
+      }
+    } catch {
+      startPolling()
+    }
+
+    // Initial poll to get immediate status (SSE only pushes on changes)
     poll()
-    const interval = setInterval(poll, 2000)
 
     const runlog = (window as any).runlog
     if (runlog?.onRecordingStatus) {
       runlog.onRecordingStatus(() => poll())
     }
 
-    return () => clearInterval(interval)
+    return () => {
+      eventSource?.close()
+      if (fallbackInterval) clearInterval(fallbackInterval)
+    }
   }, [])
 
   // Push overlay updates when recording state changes
@@ -177,7 +204,7 @@ export default function App() {
       if (currentCount === 0) {
         const runlog = (window as any).runlog
         if (runlog?.getOverlaySettings) {
-          runlog.getOverlaySettings().then((s: any) => {
+          runlog.getOverlaySettings().then((s: OverlaySettings) => {
             if (s?.closeWhenDone) {
               setTimeout(() => { if (runlog?.windowClose) runlog.windowClose() }, 3000)
             }
@@ -214,6 +241,7 @@ export default function App() {
       <div className="flex flex-1 overflow-hidden relative z-10">
       <Sidebar />
       <main className="flex-1 overflow-y-auto px-8 pt-5 pb-8">
+        <ErrorBoundary>
         {view === 'dashboard' && <Dashboard />}
         {view === 'history' && <RunHistory />}
         {view === 'shells' && <Shells />}
@@ -222,6 +250,7 @@ export default function App() {
         {view === 'live' && <Live />}
         {view === 'uplink' && <Uplink />}
         {view === 'settings' && <Settings />}
+        </ErrorBoundary>
       </main>
       <Toasts />
       </div>

@@ -2,12 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import axios from 'axios'
 import { getFrameUrl, getThumbnailUrl, apiBase } from '../lib/api'
 import { useStore } from '../lib/store'
-
-function formatTime(seconds: number): string {
-  const m = Math.floor(seconds / 60)
-  const s = Math.floor(seconds % 60)
-  return `${m}:${s.toString().padStart(2, '0')}`
-}
+import { formatTime } from '../lib/utils'
 
 function formatTimestamp(isoStr: string | null): string {
   if (!isoStr) return ''
@@ -49,19 +44,22 @@ function getStageIndex(status: string): number {
   return idx >= 0 ? idx : -1
 }
 
-function PipelineProgress({ status, detail, p1Failed, p2Failed }: {
+function PipelineProgress({ status, detail, p1Failed, p2Failed, runId }: {
   status: string
   detail?: string | null
   p1Failed?: boolean
   p2Failed?: boolean
+  runId?: number | null
 }) {
-  const currentIdx = getStageIndex(status)
-  if (currentIdx < 0) return null
-
   const isP1Failed = status === 'phase1_failed' || !!p1Failed
   const isP2Failed = !!p2Failed
-  const p1EndIdx = 2  // QUEUED, FRAMES, STATS = indices 0-2
+  const p1EndIdx = 2  // FRAMES, STATS = indices 1-2 (QUEUED=0 is Phase 0)
   const p2StartIdx = 3  // GAMEPLAY, CLIPS = indices 3-4
+
+  // If status is "queued" but run_id exists, P1 is done — item is waiting for a P2 slot
+  const p1Done = !!runId
+  const isP2Waiting = status === 'queued' && p1Done
+  const currentIdx = isP2Waiting ? 0 : getStageIndex(status)  // Circle is "active" (queued)
 
   // Shape per stage: P1 (circle, triangle, square), P2 (triangle, square)
   const SHAPES = ['circle', 'triangle', 'square', 'triangle', 'square'] as const
@@ -70,9 +68,9 @@ function PipelineProgress({ status, detail, p1Failed, p2Failed }: {
     <div className="flex items-center gap-0">
       {/* Detail text + flags before shapes */}
       <div className="flex flex-col items-end mr-2 gap-0">
-        {status !== 'done' && status !== 'queued' && status !== 'encoding' && (
-          <span className={`text-[9px] font-mono tracking-wider ${isP1Failed ? 'text-m-red' : 'text-m-cyan'}`}>
-            {PHASE_LABELS[status] || status.toUpperCase()}
+        {status !== 'done' && status !== 'encoding' && !(status === 'queued' && !p1Done) && (
+          <span className={`text-[9px] font-mono tracking-wider ${isP1Failed ? 'text-m-red' : status === 'queued' ? 'text-m-text-muted' : 'text-m-cyan'}`}>
+            {status === 'queued' && p1Done ? 'QUEUED' : PHASE_LABELS[status] || status.toUpperCase()}
           </span>
         )}
         {detail && status !== 'done' && (
@@ -89,26 +87,30 @@ function PipelineProgress({ status, detail, p1Failed, p2Failed }: {
         const shape = SHAPES[i]
         const isP2Stage = i >= p2StartIdx
 
-        const colorClass = isDone
-          ? (isP1Failed && i <= p1EndIdx ? 'text-m-red/60'
-            : isP2Failed && isP2Stage ? 'text-m-red/60'
-            : 'text-m-green')
-          : isP1Failed && i <= p1EndIdx
-            ? (isActive ? 'text-m-red' : isCompleted ? 'text-m-red/60' : 'text-m-border/40')
-            : isCompleted
-              ? 'text-m-green'
-              : isActive
-                ? 'text-m-cyan'
-                : 'text-m-border/40'
+        const colorClass = isP2Waiting
+          ? (i === 0 ? 'text-m-cyan'          // Circle = queued (active cyan)
+            : i <= p1EndIdx ? 'text-m-green'   // P1 shapes = done (green)
+            : 'text-m-border/40')              // P2 shapes = not started (dim)
+          : isDone
+            ? (isP1Failed && i <= p1EndIdx ? 'text-m-red/60'
+              : isP2Failed && isP2Stage ? 'text-m-red/60'
+              : 'text-m-green')
+            : isP1Failed && i <= p1EndIdx
+              ? (isActive ? 'text-m-red' : isCompleted ? 'text-m-red/60' : 'text-m-border/40')
+              : isCompleted
+                ? 'text-m-green'
+                : isActive
+                  ? 'text-m-cyan'
+                  : 'text-m-border/40'
 
-        const spin = isActive && (shape === 'square' || shape === 'triangle')
+        const spin = isActive && !isP2Waiting && (shape === 'square' || shape === 'triangle')
 
         return (
           <div key={stage.key} className={`flex items-center ${phaseGap ? 'ml-2' : 'ml-[3px]'} ${i === 0 ? 'ml-0' : ''}`}>
             <div>
               <svg width="8" height="8" viewBox="0 0 8 8" className={`${colorClass} ${spin ? 'animate-spin-slow' : ''}`} style={{
                 ...(spin ? { animationDuration: '3s' } : {}),
-                ...(isActive ? { filter: 'drop-shadow(0 0 3px currentColor)' } : {}),
+                ...((isActive || (isP2Waiting && i === 0)) ? { filter: 'drop-shadow(0 0 3px currentColor)' } : {}),
               }}>
                 {shape === 'circle' && (
                   <circle cx="4" cy="4" r="3.5" fill="currentColor" />
@@ -147,22 +149,6 @@ function ScanLine({ gradient }: { gradient: string }) {
   )
 }
 
-function phaseLabel(status: string): string {
-  return PHASE_LABELS[status] || status.toUpperCase()
-}
-
-function phaseColor(status: string): string {
-  switch (status) {
-    case 'done': return 'text-m-green'
-    case 'phase1_done': return 'text-m-yellow'
-    case 'phase1_failed': return 'text-m-red'
-    case 'error': return 'text-m-red'
-    case 'queued': return 'text-m-text-muted'
-    default: return 'text-m-yellow'
-  }
-}
-
-
 
 export default function Live() {
   const status = useStore(s => s.captureStatus)
@@ -181,7 +167,6 @@ export default function Live() {
   // Filter out done/complete items — they vanish from the queue
   const processingItems = allItems.filter(i => !['done', 'complete'].includes(i.status))
   const counts = status?.status_counts || {}
-  const hasActive = Object.keys(counts).some(k => !['done', 'error', 'complete'].includes(k) && counts[k] > 0)
 
   // Show newest first
   const displayItems = [...processingItems].reverse()
@@ -366,7 +351,8 @@ export default function Live() {
         {/* Pill-shaped pipeline — Marathon HUD style */}
         {(() => {
           const phases = [
-            { label: 'PHASE.01 // STATS', stages: PIPELINE_STAGES.slice(0, 3) },
+            { label: 'PHASE.00 // QUEUE', stages: PIPELINE_STAGES.slice(0, 1) },
+            { label: 'PHASE.01 // STATS', stages: PIPELINE_STAGES.slice(1, 3) },
             { label: 'PHASE.02 // NARRATIVE', stages: PIPELINE_STAGES.slice(3) },
           ]
 
@@ -500,7 +486,7 @@ export default function Live() {
                         </div>
                       </div>
                     ) : (
-                      <PipelineProgress status={item.status} detail={item.detail} p1Failed={item.p1_failed} p2Failed={item.p2_failed} />
+                      <PipelineProgress status={item.status} detail={item.detail} p1Failed={item.p1_failed} p2Failed={item.p2_failed} runId={item.run_id} />
                     )}
                   </div>
                 </div>

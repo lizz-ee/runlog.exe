@@ -195,8 +195,9 @@ class RustRecorder:
                 line = raw_line.decode("utf-8", errors="replace").strip()
                 if line:
                     print(f"[recorder-rs] {line}")
-        except Exception:
-            pass
+        except Exception as e:
+            if self._running:
+                print(f"[recorder] Stderr reader error: {e}")
 
     def _handle_event(self, event: dict):
         """Process an event from the Rust binary."""
@@ -235,8 +236,8 @@ class RustRecorder:
                     with self._frame_lock:
                         self._latest_frame = jpeg_bytes
                         self._frame_seq += 1
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[recorder] Frame decode error: {e}")
 
         elif evt_type == "screenshot_saved":
             print(f"[recorder] Screenshot saved: {event.get('path')}")

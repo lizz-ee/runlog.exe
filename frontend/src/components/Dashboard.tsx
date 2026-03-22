@@ -3,22 +3,9 @@ import { useStore } from '../lib/store'
 import { getOverviewStats, getRecentRuns, markRunViewed, markAllRunsViewed, getClips, toggleFavorite, getVaultValues } from '../lib/api'
 import { RunRow, matchRunClips } from './RunHistory'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts'
+import { formatDuration } from '../lib/utils'
 
-import type { Run, Clip } from '../lib/types'
-
-function formatTime(seconds: number): string {
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  if (h > 0) return `${h}h ${m}m`
-  return `${m}m`
-}
-
-function formatDuration(seconds: number | null): string {
-  if (!seconds) return '—'
-  const m = Math.floor(seconds / 60)
-  const s = seconds % 60
-  return `${m}:${String(s).padStart(2, '0')}`
-}
+import type { Clip } from '../lib/types'
 
 export default function Dashboard() {
   const { stats, runs, setStats, setRuns, setView, refreshUnviewed, captureStatus } = useStore()
@@ -33,12 +20,12 @@ export default function Dashboard() {
   useEffect(() => {
     getOverviewStats().then(setStats)
     getRecentRuns(20).then(setRuns)
-    getClips().then(setClipsState).catch(() => {})
-    getVaultValues().then(setVaultData).catch(() => {})
+    getClips().then(setClipsState).catch((e) => console.error('[Dashboard] fetch clips failed:', e))
+    getVaultValues().then(setVaultData).catch((e) => console.error('[Dashboard] fetch vault values failed:', e))
   }, [lastRunId, doneCount])
 
   const refreshRuns = useCallback(() => {
-    getRecentRuns(20).then(setRuns).catch(() => {})
+    getRecentRuns(20).then(setRuns).catch((e) => console.error('[Dashboard] refresh runs failed:', e))
   }, [])
 
   const handleToggleFavorite = async (e: React.MouseEvent, runId: number) => {
@@ -46,7 +33,7 @@ export default function Dashboard() {
     try {
       const result = await toggleFavorite(runId)
       setRuns(runs.map(r => r.id === runId ? { ...r, is_favorite: result.is_favorite } : r))
-    } catch {}
+    } catch (e) { console.error('[Dashboard] toggle favorite failed:', e) }
   }
 
   const toggleExpand = (runId: number) => {
@@ -60,7 +47,7 @@ export default function Dashboard() {
           markRunViewed(runId).then(() => {
             setRuns(runs.map(r => r.id === runId ? { ...r, viewed: true } : r))
             refreshUnviewed()
-          }).catch(() => {})
+          }).catch((e) => console.error('[Dashboard] mark run viewed failed:', e))
         }
       }
       return next
@@ -87,7 +74,7 @@ export default function Dashboard() {
           color={(stats?.survival_rate ?? 0) >= 50 ? 'green' : 'red'} />
         <StatBlock label="K/D" value={stats?.kd_ratio?.toFixed(2) ?? '0.00'}
           color={(stats?.kd_ratio ?? 0) >= 1 ? 'green' : 'red'} />
-        <StatBlock label="TOTAL TIME" value={formatTime(stats?.total_time_seconds ?? 0)} color="cyan" />
+        <StatBlock label="TOTAL TIME" value={formatDuration(stats?.total_time_seconds ?? 0)} color="cyan" />
       </div>
 
       {/* Detail columns */}
@@ -145,7 +132,7 @@ export default function Dashboard() {
                 <ColStat
                   key={mapName}
                   label={mapName.toUpperCase()}
-                  value={formatTime(seconds)}
+                  value={formatDuration(seconds)}
                   color={seconds > 0 ? 'cyan' : undefined}
                 />
               )
@@ -261,7 +248,7 @@ export default function Dashboard() {
 
 
 function StatBlock({
-  label, value, color, small, accent,
+  label, value, color, small, accent: _accent,
 }: {
   label: string
   value: string

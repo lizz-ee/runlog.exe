@@ -47,7 +47,7 @@ class BackendManager {
       try {
         await new Promise((resolve) => {
           const { exec } = require('child_process')
-          exec(`for /f "tokens=5" %a in ('netstat -ano ^| findstr :${this.port} ^| findstr LISTENING') do taskkill /F /PID %a`, { shell: 'cmd.exe' }, () => resolve())
+          exec(`for /f "tokens=5" %a in ('netstat -ano ^| findstr :${API_PORT} ^| findstr LISTENING') do taskkill /F /PID %a`, { shell: 'cmd.exe' }, () => resolve())
         })
       } catch {}
     }
