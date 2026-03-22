@@ -12,7 +12,7 @@ A local-first desktop companion for **Marathon** (Bungie, 2026). Play your runs,
 1. Launch runlog.exe — sits in your system tray
 2. Launch Marathon — detected automatically via Windows Graphics Capture
 3. Play normally — recording starts when you deploy, stops when you return to lobby
-4. Stats extracted in ~60s (kills, deaths, loot, map, spawn, shell, loadout)
+4. Stats extracted automatically (kills, deaths, loot, map, spawn, shell, loadout)
 5. Narrative report + highlight clips generated asynchronously
 6. Dashboard, maps, and run history update automatically
 ```
