@@ -53,7 +53,7 @@ Two sections, **Shells** and **Runners**, both ranked by weighted performance sc
 
 ## MAPS
 
-Each map has its own page with interactive spawn markers, per-map stats (runs, survival rate, K/D, total time), a scrollable spawn point list, and map-wide breakdowns for favorites, economy, combat, and time.
+Each map has its own page with interactive spawn markers, per-map stats (runs, survival rate, K/D, total time), a scrollable spawn point list, and map-wide breakdowns for favorites, economy, combat, and time. Spawn coordinates are extracted from the deployment loading screen and matched to map locations — every run's stats automatically accumulate at the spawn point you deployed from.
 
 ![PERIMETER — Spawn Map](docs/screenshots/perimeter.png)
 
