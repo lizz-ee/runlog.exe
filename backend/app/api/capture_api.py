@@ -104,11 +104,17 @@ def serve_thumbnail(filename: str):
     filepath = os.path.join(RECORDINGS_DIR, filename)
     if os.path.exists(filepath):
         return FileResponse(filepath, media_type="image/jpeg")
-    # Check clips dir (thumbnail moves with auto-save)
+    # Check clips dir (thumbnail moves with auto-save into run subfolder)
     clips_dir = os.path.join(os.path.dirname(RECORDINGS_DIR), "clips")
+    # Direct path
     clips_path = os.path.join(clips_dir, filename)
     if os.path.exists(clips_path):
         return FileResponse(clips_path, media_type="image/jpeg")
+    # Inside run subfolder (e.g. clips/run_xxx/run_xxx_thumb.jpg)
+    run_tag = filename.replace("_thumb.jpg", "")
+    subfolder_path = os.path.join(clips_dir, run_tag, filename)
+    if os.path.exists(subfolder_path):
+        return FileResponse(subfolder_path, media_type="image/jpeg")
     raise HTTPException(status_code=404, detail="Thumbnail not found")
 
 

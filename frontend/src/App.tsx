@@ -157,8 +157,20 @@ export default function App() {
     const phase1Item = items.find(i => i.status === 'phase1_done' && i.run_id)
     if (phase1Item?.run_id) {
       refreshData()
+      const runlog = (window as any).runlog
+      if (runlog?.notifyOverlay) runlog.notifyOverlay('NEW STATS AVAILABLE', 4000)
     }
   }, [captureStatus?.processing_items?.find(i => i.status === 'phase1_done')?.run_id])
+
+  // Notify overlay when Phase 2 narrative completes
+  useEffect(() => {
+    const items = captureStatus?.processing_items || []
+    const doneItem = items.find(i => i.status === 'done' && i.run_id)
+    if (doneItem?.run_id) {
+      const runlog = (window as any).runlog
+      if (runlog?.notifyOverlay) runlog.notifyOverlay('NEW NARRATIVE AVAILABLE', 4000)
+    }
+  }, [captureStatus?.processing_items?.filter(i => i.status === 'done').length])
 
   // Show toast for auto-resumed recordings
   useEffect(() => {

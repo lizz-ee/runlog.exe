@@ -83,13 +83,14 @@ function createOverlay() {
     ? { x: settings.customX, y: settings.customY }
     : getOverlayPosition(settings.corner || 'top-left')
   const dims = getOverlayDims()
+  const overlayHeight = dims.height + 28  // Extra space for notification above bar
   overlayWindow = new BrowserWindow({
     width: 500,
-    height: dims.height,
+    height: overlayHeight,
     minWidth: 100,
     maxWidth: 600,
-    minHeight: dims.height,
-    maxHeight: dims.height,
+    minHeight: overlayHeight,
+    maxHeight: overlayHeight,
     x: pos.x,
     y: pos.y,
     frame: false,
@@ -126,7 +127,9 @@ function createOverlay() {
 <html><head><meta charset="utf-8"><style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { background: transparent; overflow: hidden; user-select: none; -webkit-app-region: no-drag; }
+html, body { height: 100%; }
+body { background: transparent; overflow: hidden; user-select: none; -webkit-app-region: no-drag;
+       display: flex; flex-direction: column; justify-content: flex-end; }
 #bar { background: rgba(5,5,8,0.88); border-bottom: 1px solid rgba(200,255,0,0.15);
        border-right: 1px solid rgba(200,255,0,0.08);
        padding: 0 10px; font: 700 11px 'JetBrains Mono', monospace; letter-spacing: 0.18em;
@@ -144,14 +147,38 @@ body { background: transparent; overflow: hidden; user-select: none; -webkit-app
 #bar.rec #main { color: rgba(255,60,60,0.75); }
 #bar.rec #aux { color: rgba(255,60,60,0.25); }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.2} }
+#wrap { position: relative; display: inline-flex; flex-direction: column; align-items: flex-start; }
+#notif { background: rgba(5,5,8,0.92); border: 1px solid rgba(0,255,255,0.3);
+         padding: 0 10px; font: 700 9px 'JetBrains Mono', monospace; letter-spacing: 0.2em;
+         color: rgba(0,255,255,0.8); height: 24px; display: inline-flex; align-items: center;
+         white-space: nowrap; width: fit-content; position: relative;
+         transform: translateY(100%); opacity: 0; transition: transform 0.4s ease, opacity 0.3s ease;
+         pointer-events: none; margin-bottom: 2px; }
+#notif.show { transform: translateY(0); opacity: 1; }
+#notif::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 1px;
+                background: linear-gradient(90deg, rgba(0,255,255,0.4), transparent 60%); }
 </style></head><body>
-<div id="bar">
-  <span id="sym">&#x25C8;</span>
-  <span id="main">RUNLOG.EXE</span>
-  <span id="sep">&#x2500;&#x2500;</span>
-  <span id="aux">INIT</span>
+<div id="wrap">
+  <div id="notif"></div>
+  <div id="bar">
+    <span id="sym">&#x25C8;</span>
+    <span id="main">RUNLOG.EXE</span>
+    <span id="sep">&#x2500;&#x2500;</span>
+    <span id="aux">INIT</span>
+  </div>
 </div>
 <script>
+var _notifTimer = null;
+window.showNotification = function(msg, duration) {
+  var notif = document.getElementById('notif');
+  notif.textContent = msg;
+  notif.classList.add('show');
+  if (_notifTimer) clearTimeout(_notifTimer);
+  _notifTimer = setTimeout(function() {
+    notif.classList.remove('show');
+    _notifTimer = null;
+  }, duration || 4000);
+};
 window.updateOverlay = function(s, d) {
   var bar = document.getElementById('bar');
   var sym = document.getElementById('sym');
@@ -568,6 +595,12 @@ ipcMain.on('get-api-base-url', (event) => {
 ipcMain.on('overlay-update', (_event, state, detail) => {
   updateOverlay(state, detail)
 })
+ipcMain.on('overlay-notify', (_event, message, duration) => {
+  if (!overlayWindow) return
+  overlayWindow.webContents.executeJavaScript(
+    `window.showNotification && window.showNotification('${(message || '').replace(/'/g, "\\'")}', ${duration || 4000})`,
+  ).catch(() => {})
+})
 ipcMain.on('overlay-toggle', (_event, enabled) => {
   const settings = loadOverlaySettings()
   settings.enabled = enabled
@@ -629,10 +662,11 @@ ipcMain.on('overlay-set-size', (_event, size) => {
   if (overlayWindow) {
     const dims = OVERLAY_SIZES[size] || OVERLAY_SIZES.medium
     const bounds = overlayWindow.getBounds()
+    const oh = dims.height + 28
     // Update constraints then resize — allow flexible width
-    overlayWindow.setMinimumSize(100, dims.height)
-    overlayWindow.setMaximumSize(600, dims.height)
-    overlayWindow.setBounds({ x: bounds.x, y: bounds.y, width: 500, height: dims.height })
+    overlayWindow.setMinimumSize(100, oh)
+    overlayWindow.setMaximumSize(600, oh)
+    overlayWindow.setBounds({ x: bounds.x, y: bounds.y, width: 500, height: oh })
     overlayWindow.webContents.executeJavaScript(
       `document.getElementById('bar').style.font = '700 ${dims.fontSize}px "JetBrains Mono", monospace';
        document.getElementById('bar').style.height = '${dims.height}px';`

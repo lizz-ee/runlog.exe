@@ -805,6 +805,37 @@ class AutoCapture:
             except Exception as e:
                 print(f"[auto-save] DB update failed: {e}")
 
+        # Generate thumbnail + sprite sheet BEFORE marking complete
+        try:
+            probe = subprocess.run(
+                ['ffprobe', '-v', 'quiet', '-show_entries',
+                 'format=duration', '-of', 'csv=p=0', saved_path],
+                capture_output=True, text=True, timeout=10
+            )
+            duration = float(probe.stdout.strip()) if probe.stdout.strip() else 300
+
+            keep_thumb = saved_path.replace(".mp4", "_thumb.jpg")
+            if not os.path.exists(keep_thumb):
+                endgame_jpg = os.path.join(os.path.dirname(saved_path), "screenshots", "endgame.jpg")
+                if os.path.exists(endgame_jpg):
+                    shutil.copy2(endgame_jpg, keep_thumb)
+                else:
+                    mid = duration * 0.5
+                    subprocess.run(
+                        ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
+                         '-ss', str(mid), '-i', saved_path,
+                         '-vframes', '1', '-vf', 'scale=384:-1',
+                         '-q:v', '5', keep_thumb],
+                        capture_output=True, timeout=30,
+                    )
+
+            sprite_path = saved_path.replace(".mp4", "_sprite.jpg")
+            if not os.path.exists(sprite_path):
+                from .video_processor import _generate_sprite_sheet
+                _generate_sprite_sheet(saved_path, duration)
+        except Exception as e:
+            print(f"[auto-save] Asset generation failed: {e}")
+
         # Clean up marker files
         for ext in ('.done', '.p1done', '.encoded', '.endgame', '.session'):
             marker = filepath + ext
@@ -814,38 +845,6 @@ class AutoCapture:
         # Update status to complete
         self._update_processing_item(filepath, "complete", run_id=run_id)
         print(f"[auto-save] Recording saved: {saved_path}")
-
-        # Generate thumbnail + sprite sheet in background
-        def _gen_assets():
-            try:
-                probe = subprocess.run(
-                    ['ffprobe', '-v', 'quiet', '-show_entries',
-                     'format=duration', '-of', 'csv=p=0', saved_path],
-                    capture_output=True, text=True, timeout=10
-                )
-                duration = float(probe.stdout.strip())
-
-                keep_thumb = saved_path.replace(".mp4", "_thumb.jpg")
-                if not os.path.exists(keep_thumb):
-                    endgame_jpg = os.path.join(os.path.dirname(saved_path), "screenshots", "endgame.jpg")
-                    if os.path.exists(endgame_jpg):
-                        shutil.copy2(endgame_jpg, keep_thumb)
-                    else:
-                        mid = duration * 0.5
-                        subprocess.run(
-                            ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
-                             '-ss', str(mid), '-i', saved_path,
-                             '-vframes', '1', '-vf', 'scale=384:-1',
-                             '-q:v', '5', keep_thumb],
-                            capture_output=True, timeout=30,
-                        )
-
-                from .video_processor import _generate_sprite_sheet
-                _generate_sprite_sheet(saved_path, duration)
-            except Exception as e:
-                print(f"[auto-save] Asset generation failed: {e}")
-
-        threading.Thread(target=_gen_assets, daemon=True).start()
 
     def reset_processing_item(self, filename: str):
         """Reset a failed processing item to queued and re-queue it."""

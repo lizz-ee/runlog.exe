@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('runlog', {
 
   // Overlay
   updateOverlay: (state, detail) => ipcRenderer.send('overlay-update', state, detail),
+  notifyOverlay: (message, duration) => ipcRenderer.send('overlay-notify', message, duration),
   toggleOverlay: (enabled) => ipcRenderer.send('overlay-toggle', enabled),
   setOverlayCorner: (corner) => ipcRenderer.send('overlay-set-corner', corner),
   nudgeOverlay: (direction) => ipcRenderer.send('overlay-nudge', direction),

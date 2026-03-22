@@ -161,15 +161,16 @@ PRIORITY ORDER: pvp_kill > death > revive > close_call > extraction > combat > l
    - **Encounter clips** (pvp_kill, death, close_call, combat): Set timestamp_seconds to when the ENCOUNTER BEGINS — the first shots fired, first enemy contact, the start of the engagement. NOT the kill shot or death moment. The clip should capture the full fight from start to finish.
    - **Moment clips** (extraction, loot, funny): Set timestamp_seconds to the exact moment of the event. The system adds 3 seconds of lead-up automatically.
 
-5. DURATION — set duration to match what is ACTUALLY HAPPENING on screen. There are NO hard caps or fixed ranges. Let the action dictate the length:
-   - pvp_kill: Full fight from first contact through the kill, PLUS 2-3 seconds after (kill confirm, body drop, kill feed).
-   - death: Full encounter from first enemy contact through NEURAL LINK SEVERED screen.
-   - revive: The approach to the downed teammate, the full revive animation, and the teammate getting back up.
-   - close_call: From the start of danger through survival.
-   - combat: The full firefight from first shot to last.
-   - extraction: The run-up to extraction, the full countdown, and the "EXFILTRATED" confirmation.
-   - loot: The approach, the pickup or crate open animation, and the item reveal.
-   - funny: Whatever makes the moment land — include the setup and the payoff.
+5. DURATION — these are SHORT highlight clips, not full replays. Keep them punchy:
+   - pvp_kill: 8-15s. First contact through kill + 2s after. MAX 20s.
+   - death: 8-15s. First enemy contact through death screen. MAX 20s.
+   - revive: 6-10s. Approach + revive animation. MAX 15s.
+   - close_call: 8-15s. Start of danger through survival. MAX 20s.
+   - combat: 10-20s. The best part of the firefight, not the entire thing. MAX 25s.
+   - extraction: 10-15s. Countdown and exfil confirmation. MAX 20s.
+   - loot: 5-8s. Pickup animation + item reveal. MAX 10s.
+   - funny: 5-12s. Setup + payoff. MAX 15s.
+   If the action is longer, clip the BEST PART, not all of it. Highlight clips should be fast and exciting.
 
 6. NEVER CLIP THESE:
    - Inventory, menu, loadout, or map screens
@@ -1321,7 +1322,7 @@ def cut_clips(source_path: str, clips_dir: str, highlights: list[dict], run_time
 
     for i, h in enumerate(highlights):
         ts = h.get("timestamp_seconds", 0)
-        dur = h.get("duration_seconds", 12)
+        dur = min(h.get("duration_seconds", 12), 25)  # Hard cap at 25s
         clip_type = h.get("type", "highlight")
 
         # Encounter clips (pvp_kill, death, close_call, combat) timestamp the encounter start
@@ -1497,14 +1498,8 @@ def save_run_to_db(analysis: dict, run_date: datetime | None = None) -> int | No
                 runner_id = runner.id
                 print(f"[processor] New shell created: {shell_name} (#{runner.id})")
 
-        # Use session from .session marker (alongside recording) or create new
-        _sid = None
-        _session_marker = recording_path + ".session" if recording_path else None
-        if _session_marker and os.path.exists(_session_marker):
-            try:
-                _sid = int(open(_session_marker).read().strip())
-            except Exception:
-                pass
+        # Use session from analysis (injected from .session marker) or create new
+        _sid = analysis.get("_session_id")
         if not _sid:
             try:
                 from .main import get_or_create_session
@@ -1839,6 +1834,14 @@ def process_recording(recording_path: str, clips_dir: str, on_phase=None) -> dic
     if _run_metadata:
         if _run_metadata.get("is_ranked") and not analysis.get("is_ranked"):
             analysis["is_ranked"] = True
+
+    # Inject session ID from .session marker into analysis for save_run_to_db
+    _session_marker = recording_path + ".session"
+    if os.path.exists(_session_marker):
+        try:
+            analysis["_session_id"] = int(open(_session_marker).read().strip())
+        except Exception:
+            pass
 
     # -- Save to database --------------------------------------------------
     phase("saving")
