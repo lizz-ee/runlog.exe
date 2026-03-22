@@ -33,6 +33,10 @@ Every run, chronologically. Filter by outcome, grade, map, ranked mode, or favor
 
 ![RUN.LOG — Run History](docs/screenshots/run_log.png)
 
+Expand any run for the full breakdown — date, squad, weapons, inventory delta, survival status, highlight clips with sprite sheet hover scrub, full video player with custom clip editor (IN/OUT markers, loop, create clip), and the AI-generated debrief narrative.
+
+![RUN.LOG — Expanded Run](docs/screenshots/run_log_expanded.png)
+
 ---
 
 ## NEURAL.LINK
