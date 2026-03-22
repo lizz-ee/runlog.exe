@@ -75,13 +75,17 @@ class AutoCapture:
         # Detection state
         self._last_detection: str | None = None
         self._endgame_timestamp: float | None = None
+        self._scan_state: str = 'lobby'
+        self._state_changed_at: float = 0
 
-        # Processing queue
+        # Processing queue + executors
         self._process_queue: queue.Queue = queue.Queue()
         self._last_process_result: dict | None = None
         self._processing_items: list[dict] = []
         self._processing_lock = threading.Lock()
         self.resumed_count: int = 0
+        self._p1_executor: ThreadPoolExecutor | None = None
+        self._p2_executor: ThreadPoolExecutor | None = None
 
     # -- Public API ----------------------------------------------------
 
@@ -876,7 +880,7 @@ class AutoCapture:
                     if os.path.exists(done_marker):
                         os.remove(done_marker)
                     break
-        if run_id and os.path.exists(filepath):
+        if run_id and os.path.exists(filepath) and self._p2_executor:
             self._p2_executor.submit(self._process_phase2, filepath, run_id)
             print(f"[capture] Retrying Phase 2 for run #{run_id}: {filename}")
             return True
