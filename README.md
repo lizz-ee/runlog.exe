@@ -14,7 +14,7 @@ A local-first desktop companion for **Marathon** (Bungie, 2026). Play your runs,
 3. Play normally — recording starts when you deploy, stops when you return to lobby
 4. Stats extracted in ~60s (kills, deaths, loot, map, spawn, shell, loadout)
 5. Narrative report + highlight clips generated asynchronously
-6. Dashboard, maps, and run history update in real-time
+6. Dashboard, maps, and run history update automatically
 ```
 
 ---
