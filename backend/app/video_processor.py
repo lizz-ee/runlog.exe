@@ -1497,12 +1497,20 @@ def save_run_to_db(analysis: dict, run_date: datetime | None = None) -> int | No
                 runner_id = runner.id
                 print(f"[processor] New shell created: {shell_name} (#{runner.id})")
 
-        # Get or create session on first run
-        try:
-            from .main import get_or_create_session
-            _sid = get_or_create_session()
-        except ImportError:
-            _sid = None
+        # Use session from .session marker (alongside recording) or create new
+        _sid = None
+        _session_marker = recording_path + ".session" if recording_path else None
+        if _session_marker and os.path.exists(_session_marker):
+            try:
+                _sid = int(open(_session_marker).read().strip())
+            except Exception:
+                pass
+        if not _sid:
+            try:
+                from .main import get_or_create_session
+                _sid = get_or_create_session()
+            except ImportError:
+                _sid = None
 
         run = Run(
             map_name=analysis.get("map_name"),

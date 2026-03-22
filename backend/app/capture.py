@@ -411,6 +411,9 @@ class AutoCapture:
         elif det_type == 'deploy':
             self._scan_state = 'endgame'   # Map found → watch for RUN_COMPLETE
         elif det_type == 'endgame':
+            # Ignore false endgame during deploy/loading — require at least 30s of recording
+            if self._recording and (time.time() - self._recording_start) < 30:
+                return
             self._scan_state = 'postgame'  # Run complete → watch for stats screen
         elif det_type in ('exfiltrated', 'eliminated'):
             self._scan_state = 'lobby'     # Stats captured → watch lobby for PREPARE
@@ -435,12 +438,21 @@ class AutoCapture:
             print(f"[capture] Detected deployment: {map_name}{' (RANKED)' if is_ranked else ''} -- starting recording")
             self._start_recording()
 
+            # Write session marker alongside recording
+            if self._recording_path:
+                try:
+                    from .main import get_or_create_session
+                    with open(self._recording_path + ".session", "w") as f:
+                        f.write(str(get_or_create_session()))
+                except Exception:
+                    pass
+
             if self._recording_path:
                 rec_name = os.path.basename(self._recording_path).replace(".mp4", "")
                 screenshots_dir = os.path.join(self.clips_dir, rec_name, "screenshots")
                 os.makedirs(screenshots_dir, exist_ok=True)
 
-                # Save run metadata for the processor
+                # Save run metadata for the processor (ranked flag)
                 if is_ranked:
                     with open(os.path.join(screenshots_dir, "metadata.json"), "w") as f:
                         _json.dump({"is_ranked": True}, f)
@@ -794,7 +806,7 @@ class AutoCapture:
                 print(f"[auto-save] DB update failed: {e}")
 
         # Clean up marker files
-        for ext in ('.done', '.p1done', '.encoded', '.endgame'):
+        for ext in ('.done', '.p1done', '.encoded', '.endgame', '.session'):
             marker = filepath + ext
             if os.path.exists(marker):
                 os.remove(marker)

@@ -876,7 +876,7 @@ export default function RunHistory() {
       </div>
 
       {/* Column headers */}
-      <div className="grid grid-cols-[36px_6px_auto_1fr_30px_30px_30px_30px_75px_50px_18px] items-center gap-x-3 px-4 py-2 border-b border-m-border">
+      <div className="grid grid-cols-[36px_6px_auto_1fr_36px_36px_36px_36px_75px_50px_18px] items-center gap-x-3 px-4 py-2 border-b border-m-border">
         <span className="label-tag text-m-text-muted text-center">GRADE</span>
         <span />
         <span className="label-tag text-m-text-muted">SHELL</span>
@@ -986,7 +986,7 @@ export function RunRow({ run, isExpanded, onToggle, onToggleFavorite, onUpdate, 
       {/* Collapsed row */}
       <div
         onClick={onToggle}
-        className={`relative grid grid-cols-[36px_6px_auto_1fr_30px_30px_30px_30px_75px_50px_18px] items-center gap-x-3 px-4 py-3 transition-colors cursor-pointer ${
+        className={`relative grid grid-cols-[36px_6px_auto_1fr_36px_36px_36px_36px_75px_50px_18px] items-center gap-x-3 px-4 py-3 transition-colors cursor-pointer ${
           !run.viewed
             ? 'bg-m-cyan/[0.04] border-l-2 border-l-m-cyan/40 hover:bg-m-cyan/[0.08]'
             : 'bg-m-card hover:bg-m-surface'
@@ -1087,7 +1087,7 @@ export function RunRow({ run, isExpanded, onToggle, onToggleFavorite, onUpdate, 
               <span className="text-[10px] font-mono text-m-text">{run.secondary_weapon ?? '—'}</span>
             </div>
 
-            {/* INVENTORY — start → end delta when available */}
+            {/* INVENTORY — survived: start → end (+delta), eliminated: just lost value */}
             <div className="flex items-center gap-2">
               <span className="text-[9px] font-mono text-m-text-muted tracking-wider w-20">INVENTORY</span>
               {run.starting_loadout_value != null ? (() => {
@@ -1099,9 +1099,11 @@ export function RunRow({ run, isExpanded, onToggle, onToggleFavorite, onUpdate, 
                     <span className={run.loot_value_total >= 0 ? 'text-m-yellow' : 'text-m-red'}>
                       ${run.loot_value_total.toLocaleString()}
                     </span>
-                    <span className={`ml-2 ${delta >= 0 ? 'text-m-green' : 'text-m-red'}`}>
-                      ({delta >= 0 ? '+' : ''}{delta.toLocaleString()})
-                    </span>
+                    {run.survived !== false && (
+                      <span className={`ml-2 ${delta >= 0 ? 'text-m-green' : 'text-m-red'}`}>
+                        ({delta >= 0 ? '+' : ''}{delta.toLocaleString()})
+                      </span>
+                    )}
                   </span>
                 )
               })() : (
@@ -1125,7 +1127,7 @@ export function RunRow({ run, isExpanded, onToggle, onToggleFavorite, onUpdate, 
                       {run.damage_contributors.map((c, i) => (
                         <span key={i}>
                           {i > 0 && <span className="text-m-text-muted"> + </span>}
-                          {c.name} {c.damage}<span className="text-m-text-muted">dmg</span>
+                          {c.finished && run.killed_by ? run.killed_by : c.name} {c.damage}<span className="text-m-text-muted">dmg</span>
                         </span>
                       ))}
                     </span>
