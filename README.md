@@ -29,11 +29,11 @@ Your command center. Career stats at a glance — total runs, survival rate, K/D
 
 ## RUN.LOG
 
-Every run, chronologically. Filter by outcome, grade, map, ranked mode, or favorites. Each row shows shell, map, summary snippet, PvE/PvP kills, deaths, revives, loot delta, duration, and letter grade. Expand any row for full details — squad, weapons, inventory value change, killed-by with damage contributors, AI debrief narrative, and highlight clips with sprite sheet hover scrub. Custom clip editor with draggable IN/OUT markers built into every video.
+Every run, chronologically. Filter by outcome, grade, map, ranked mode, or favorites. Each row shows shell, map, PvE/PvP kills, deaths, revives, loot delta, duration, and letter grade.
 
 ![RUN.LOG — Run History](docs/screenshots/run_log.png)
 
-Expand any run for the full breakdown — date, squad, weapons, inventory delta, survival status, highlight clips with sprite sheet hover scrub, full video player with custom clip editor (IN/OUT markers, loop, create clip), and the AI-generated debrief narrative.
+Expand any run for the full breakdown — squad, weapons, inventory value change, killed-by with full damage contributors, and auto-generated highlight clips with sprite sheet hover scrub. Built-in video player with custom clip editor — set IN/OUT markers, name your clip, instant stream copy from the original 4K footage. AI debrief narrative at the bottom grades and recaps the run.
 
 ![RUN.LOG — Expanded Run](docs/screenshots/run_log_expanded.png)
 
