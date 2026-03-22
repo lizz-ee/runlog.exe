@@ -134,6 +134,23 @@ Weight: Survival (35%) > Runner Kills (25%) > Loot (15%) > Revives (10%) > PvE K
 - D: Died relatively quickly with little to show — few kills, low loot, short run (under 3 minutes).
 - F: Died almost immediately (under 1 minute), no kills, no loot. Nothing happened.
 
+MARATHON HUD GUIDE — use these visual cues to identify events:
+- **TIMER**: Top-left corner, red pill showing remaining time (e.g. "1:56", "20:07"). Counts down.
+- **COMPASS**: Top-center bar with cardinal directions (N, NE, E, etc.) and location name below (e.g. "STATION", "NORTH RELAY", "HAULER").
+- **OBJECTIVES**: Top-right panel, "IN A SINGLE RUN" header with checklist (checkmarks = complete). Shows "Defeat UESC Commanders", "Defeat Runners", etc.
+- **SQUAD LIST**: Left side, vertical list of squad member gamertags with shell icons and status indicators. Pink/magenta icon = downed teammate. Green checkmark circle = EXFILTRATED status.
+- **HEALTH BAR**: Bottom-left, horizontal bar. Green = healthy, depleting = taking damage. When critically low, screen edges flash red (damage vignette).
+- **WEAPON HUD**: Bottom-center, shows current weapon icon + ammo count (e.g. "25 | 148"). Three ability icons (square icons with keybinds F, G, V).
+- **MINIMAP**: Not always visible. When present, bottom-right area.
+- **CROSSHAIR**: Center screen, small white cross. WHITE FLASH on crosshair = dealing damage (hit markers). Red crosshair or red X = headshot indicator.
+- **KILL FEED**: Top-left area (near timer), brief text messages when kills happen. Format: "[PlayerName] eliminated [TargetName]". Runner names have #numbers (e.g. "kale#8064"). UESC enemies are NPCs (e.g. "UESC Recruit", "UESC Ghost").
+- **DAMAGE VIGNETTE**: Red overlay on screen edges when taking damage. More red = more damage.
+- **DEATH SCREEN**: Full black screen with "NEURAL LINK SEVERED" text, killer info widget on right showing finisher name + damage + all contributors.
+- **//RUN_COMPLETE**: Bright yellow/green banner, full-screen overlay on black background. Appears when the run ends (extraction timer expires or all crew extracts).
+- **EXTRACTION UI**: At extraction points — "MATTER TRANSFER IN" + countdown timer in red/pink bar at top-center. Player model starts glowing/phasing.
+- **INVENTORY SCREEN**: Full-screen overlay with weapons, backpack grid, equipment. "LOADOUT VALUE" shown at top. This is a MENU, not gameplay — NEVER clip this.
+- **LOOT INTERACTION**: Small UI popup when near lootable items. Purple/gold rarity items have colored borders and are notable.
+
 HIGHLIGHT RULES:
 
 PRIORITY ORDER: pvp_kill > death > revive > close_call > extraction > combat > loot > funny.
@@ -1036,9 +1053,9 @@ def _get_phase1_context(run_id: int | None) -> str:
         if run.combatant_eliminations is not None:
             lines.append(f"- Combatant Eliminations (PvE kills): {run.combatant_eliminations}")
         if run.runner_eliminations is not None:
-            lines.append(f"- Runner Eliminations (PvP kills): {run.runner_eliminations} — find EACH of these kills in the video")
+            lines.append(f"- Runner Eliminations (PvP kills): {run.runner_eliminations} — you MUST find EXACTLY {run.runner_eliminations} pvp_kill clip(s) in the video. If you cannot find them, explain what you see instead. Do NOT fabricate kills or mislabel PvE kills as PvP.")
         if run.crew_revives is not None and run.crew_revives > 0:
-            lines.append(f"- Crew Revives: {run.crew_revives} — find EACH revive moment in the video")
+            lines.append(f"- Crew Revives: {run.crew_revives} — you MUST find EXACTLY {run.crew_revives} revive clip(s) in the video")
         if run.duration_seconds:
             mins, secs = divmod(run.duration_seconds, 60)
             lines.append(f"- Run Time: {mins}:{secs:02d}")
@@ -1070,8 +1087,10 @@ def _analyze_phase2_with_cli(video_path: str, run_id: int | None = None) -> dict
 
 Use ffmpeg to extract frames from the video, then read them to analyze the gameplay. Steps:
 1. Use ffprobe to get the video duration
-2. Extract frames at 1fps using ffmpeg (to a temp directory)
-3. Read the extracted frames to understand the gameplay
+2. Extract frames at 1fps using ffmpeg with burned-in timestamps. Use this exact command:
+   ffmpeg -i VIDEO -vf "fps=1,drawtext=text='%{{pts\\:hms}}':x=10:y=10:fontsize=36:fontcolor=white:box=1:boxcolor=black@0.5:boxborderw=5" -q:v 3 OUTPUT_DIR/frame_%04d.jpg
+   This overlays MM:SS timestamps on each frame so you can read exact times directly from the images.
+3. Read the extracted frames — the timestamp is BURNED INTO each frame in the top-left corner. Use THESE visible timestamps for your highlight timestamps, not frame index math.
 4. After analyzing ALL frames, output the JSON result
 
 ABSOLUTE REQUIREMENT: After you have completed your analysis, your VERY LAST message must contain the JSON object. Do NOT say "the JSON was output above" or "see my previous response" — you MUST output the complete JSON again as your final output. Even if you already output it earlier, REPEAT IT as your last message. The JSON must start with {{ and end with }}.
