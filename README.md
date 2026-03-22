@@ -43,9 +43,9 @@ Expand any run for the full breakdown — date, squad, weapons, inventory delta,
 
 Two sections: **Shells** and **Runners**.
 
-**Shells** — all 7 Marathon character classes with performance cards. Weighted scoring (survival 35%, runner kills 25%, loot 15%, revives 10%, PvE 5%, base 10%). Per-shell stats: runs, survival rate, K/D, avg loot, combat breakdown, economy.
+**Shells** — all 7 Marathon character classes with performance cards and weighted scoring. Per-shell stats: runs, survival rate, K/D, avg loot, combat breakdown, economy.
 
-**Runners** — your top 7 squad mates ranked by weighted score. Per-mate stats show how your survival rate and loot change when you play together. Marathon-themed runner art on each card.
+**Runners** — your top 7 squad mates ranked by weighted score. Per-mate stats show how your survival rate and loot change when you play together. Marathon-themed art on each card.
 
 ![NEURAL.LINK — Shells + Squad](docs/screenshots/neural_link.png)
 
