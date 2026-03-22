@@ -41,7 +41,7 @@ Expand any run for the full breakdown — squad, weapons, inventory value change
 
 ## NEURAL.LINK
 
-Two sections, both ranked by weighted performance score.
+Two sections, **Shells** and **Runners**, both ranked by weighted performance score.
 
 **Shells** — all 7 Marathon character classes. Per-shell stats: runs, survival rate, K/D, avg loot, combat breakdown, economy.
 
