@@ -1014,6 +1014,13 @@ class AutoCapture:
             if p2_failed:
                 # Keep as "done" with p2_failed flag so RETRY is available
                 self._update_processing_item(filepath, "done", run_id=run_id, p2_failed=True)
+                # Also try the original filename in case file was already moved by auto-save
+                filename = os.path.basename(filepath)
+                with self._processing_lock:
+                    for item in self._processing_items:
+                        if item["file"] == filename:
+                            item["p2_failed"] = True
+                            break
                 try:
                     with open(filepath + ".done", "w") as f:
                         f.write(str(run_id))

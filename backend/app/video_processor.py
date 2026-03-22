@@ -525,12 +525,9 @@ def _analyze_with_screenshots(deploy_jpg: str, readyup_jpg: str, frames_dir: str
     # Deploy screenshots — 3-shot burst (deploy_1/2/3) + legacy single (deploy.jpg)
     # Later shots are more likely to have the clear blue loading screen with coordinates
     for deploy_name in ['deploy_3', 'deploy_2', 'deploy_1', 'deploy']:
-        full = os.path.join(screenshot_dir, f"{deploy_name}.jpg")
         crop = os.path.join(screenshot_dir, f"{deploy_name}_crop.jpg")
         if os.path.exists(crop):
             screenshots.append(os.path.abspath(crop).replace("\\", "/"))
-        if os.path.exists(full):
-            screenshots.append(os.path.abspath(full).replace("\\", "/"))
     # Add phase screenshots (new naming: readyup.jpg, run.jpg, deploying.jpg + crops)
     for phase in ['readyup', 'run', 'deploying']:
         full = os.path.join(screenshot_dir, f"{phase}.jpg")
@@ -572,7 +569,7 @@ def _analyze_with_screenshots(deploy_jpg: str, readyup_jpg: str, frames_dir: str
 
         image_list = "\n".join(f"- {p}" for p in screenshots)
         prompt1 = f"""Read these Marathon (2026 extraction shooter) screenshots. You may receive multiple images:
-1. **deploy_1/2/3.jpg** + **deploy_1/2/3_crop.jpg** — 3 burst shots of the deployment loading screen taken 500ms apart. The LATER shots (deploy_3, deploy_2) are more likely to show the actual blue loading screen with clear map name and spawn coordinates. The EARLIER shot (deploy_1) may catch the contract/lobby screen before the loading screen appears. **ALWAYS prefer _crop.jpg versions** — they are center-cropped and much easier to read. Use the CLEAREST image with visible coordinates. Legacy single deploy.jpg may also be present as fallback.
+1. **deploy_1/2/3_crop.jpg** — 3 center-cropped shots of the deployment loading screen taken 2s apart. Shows a BLUE or BLACK screen with the map name (e.g. "DIRE MARSH") in large yellow/green text, a description line, and TWO COORDINATE NUMBERS stacked vertically below. The LATER shots (deploy_3, deploy_2) are more likely to show the actual loading screen. deploy_1 may catch the contract/lobby before loading. Use the CLEAREST image with visible coordinates.
 2. **readyup.jpg** (READY UP screen), **run.jpg** (RUN screen), **deploying.jpg** (DEPLOYING screen) — one screenshot from each pre-deployment phase. Each may also have a **_crop.jpg** version (center-cropped to focus on loadout/shell/HUD). **ALWAYS examine _crop.jpg versions FIRST** — they are higher detail for the important center content. Fall back to full screenshots only if crops are missing or unclear. Some may be black/loading screens — IGNORE those and use the ones with actual game content (shell visible, loadout grid, weapons, map name, crew size, gamertag).
 
 **CRITICAL: These screenshots may span multiple lobbies** (player swapped lobbies or joined a friend). The screenshots have different file timestamps — **ALWAYS prefer the MOST RECENT screenshot** (by file modification time) for loadout, shell, weapons, squad, and map data. An older screenshot may show a previous lobby with a different kit, map, or squad. When data conflicts between screenshots (different map names, different loadouts, different squad), **trust the newest one**. The chronological order is: readyup (earliest) → run (middle) → deploying (latest/closest to deployment).
@@ -606,7 +603,7 @@ Key distinguishing features:
 Extract and return ONLY valid JSON:
 {{
   "map_name": "Perimeter" or "Outpost" or "Dire Marsh" or "Cryo Archive" or null,
-  "spawn_coordinates": [x, y] from the deployment loading screen (a BLACK or BLUE screen showing the map name, description, and coordinates in yellow/green text). The coordinates are TWO decimal numbers stacked vertically in small text BELOW the map description (below "AGRICULTURAL AND HARVESTING OPERATIONS" etc.). Read EACH digit carefully — these are typically 6+ decimal digits like 522.803894 and -39.408157. DOUBLE-CHECK your reading: re-examine the image and verify every digit before returning. If you cannot read them clearly, return null rather than guessing. Format: [first_number, second_number] or null,
+  "spawn_coordinates": [x, y] from the deploy_crop.jpg images ONLY. Look for TWO decimal numbers stacked vertically in small yellow/green text at the BOTTOM CENTER of the blue/black loading screen, BELOW the map description text. Example format: "10.215867" on one line, "191.408676" on the next line. These are 6-9 digit decimal numbers (e.g. 522.803894, -39.408157). Read EVERY digit precisely — zoom in mentally on the small text. The first number is X, the second is Y. DOUBLE-CHECK by re-reading each digit. Return null if you cannot read them clearly. Format: [first_number, second_number] or null,
   "shell_name": "Assassin" or "Destroyer" or "Recon" or "Thief" or "Triage" or "Vandal" or null,
   "player_gamertag": "gamertag of LOCAL player (CENTER character)" or null,
   "squad_members": ["all", "gamertags", "visible above each character"] or null — include ALL members (local player is center, mates are left/right),

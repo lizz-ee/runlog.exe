@@ -474,9 +474,9 @@ export default function Live() {
                       {item.run_id && (
                         <span className="text-[10px] font-mono flex gap-2">
                           <span className="text-m-green">STATS ✓</span>
-                          {item.status === 'done' && !item.p1_failed ? (
+                          {(item.status === 'done' || item.status === 'complete') && !item.p1_failed && !item.p2_failed ? (
                             <span className="text-m-green">NARRATIVE ✓</span>
-                          ) : item.status === 'done' && item.p1_failed ? (
+                          ) : (item.status === 'done' || item.status === 'complete') && (item.p1_failed || item.p2_failed) ? (
                             <span className="text-m-red">NARRATIVE ✗</span>
                           ) : (
                             <span className="text-m-text-muted/40">NARRATIVE ...</span>
@@ -490,9 +490,15 @@ export default function Live() {
                   <div className="flex items-center gap-3 flex-shrink-0 w-[200px] justify-end">
                     {item.status === 'complete' ? (
                       <div className="flex items-center">
-                        <span className="label-tag px-3 py-1 font-mono font-bold tracking-widest text-m-green border border-m-green/30">
+                        <button
+                          onClick={() => {
+                            axios.post(`${apiBase}/api/capture/recording/keep`, { filename: item.file })
+                              .catch(() => {})
+                          }}
+                          className="label-tag px-3 py-1 font-mono font-bold tracking-widest text-m-green border border-m-green/30 hover:bg-m-green/10 transition-all cursor-pointer"
+                        >
                           COMPLETE
-                        </span>
+                        </button>
                       </div>
                     ) : item.status === 'done' && item.p2_failed ? (
                       <div className="flex flex-col items-center gap-1">
