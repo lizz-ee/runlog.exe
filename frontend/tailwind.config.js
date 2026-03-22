@@ -46,6 +46,7 @@ export default {
         'scan': 'scan 4s linear infinite',
         'scanDown': 'scanDown 2s linear infinite',
         'spin-slow': 'spin 3s linear infinite',
+        'wipe-delete': 'wipe-delete 1.5s ease-in-out infinite',
       },
       keyframes: {
         scan: {
@@ -55,6 +56,11 @@ export default {
         scanDown: {
           '0%': { transform: 'translateY(-100%)' },
           '100%': { transform: 'translateY(800%)' },
+        },
+        'wipe-delete': {
+          '0%': { transform: 'translateX(-100%)' },
+          '50%': { transform: 'translateX(0%)' },
+          '100%': { transform: 'translateX(100%)' },
         },
       },
     },

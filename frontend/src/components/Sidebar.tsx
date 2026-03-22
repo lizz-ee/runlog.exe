@@ -21,7 +21,7 @@ const sections: NavSection[] = [
     title: 'SYSTEM',
     items: [
       { view: 'dashboard', label: 'TERMINAL', tag: '01' },
-      { view: 'history', label: 'TRANSMISSIONS', tag: '02' },
+      { view: 'history', label: 'RUNS', tag: '02' },
       { view: 'shells', label: 'NEURAL.LINK', tag: '03' },
     ],
   },

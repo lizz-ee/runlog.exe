@@ -172,7 +172,7 @@ export default function Live() {
   const status = useStore(s => s.captureStatus)
   const error = useStore(s => s.captureError)
   const [frameKey, setFrameKey] = useState(0)
-  const [dismissing, setDismissing] = useState<Record<string, 'keeping' | 'deleting'>>({})
+  // dismissing state removed — recordings auto-save on completion
   const { addToast } = useStore()
 
   // Frame refresh interval — specific to Live page preview
@@ -488,134 +488,40 @@ export default function Live() {
 
                   {/* Status + actions — fixed width for alignment */}
                   <div className="flex items-center gap-3 flex-shrink-0 w-[200px] justify-end">
-                    {item.status === 'done' && dismissing[item.file] ? (
-                      <div className={`flex items-center gap-2 animate-pulse ${
-                        dismissing[item.file] === 'keeping' ? 'text-m-green' : 'text-m-red'
-                      }`}>
-                        <span className="text-xs font-mono font-bold tracking-wider">
-                          {dismissing[item.file] === 'keeping'
-                            ? '▸ ARCHIVING RECORDING...'
-                            : '▸ DISCARDING RECORDING...'}
+                    {item.status === 'complete' ? (
+                      <div className="flex items-center">
+                        <span className="label-tag px-3 py-1 font-mono font-bold tracking-widest text-m-green border border-m-green/30">
+                          COMPLETE
                         </span>
                       </div>
                     ) : item.status === 'done' && item.p2_failed ? (
-                      <>
-                        <div className="flex flex-col items-center gap-1">
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => {
-                                axios.post(`${apiBase}/api/capture/recording/retry-phase2`, { filename: item.file })
-                                  .then(() => addToast({ type: 'info', title: 'RETRYING NARRATIVE', body: item.file }))
-                                  .catch(() => addToast({ type: 'error', title: 'RETRY FAILED', body: item.file }))
-                              }}
-                              className="label-tag px-2 py-1 border border-m-cyan/40 text-m-cyan hover:bg-m-cyan/10 transition-all"
-                            >
-                              RETRY
-                            </button>
-                            <button
-                              onClick={() => {
-                                setDismissing(prev => ({ ...prev, [item.file]: 'deleting' }))
-                                axios.post(`${apiBase}/api/capture/recording/delete`, { filename: item.file })
-                                  .then(() => {
-                                    setTimeout(() => {
-                                      addToast({ type: 'info', title: 'RECORDING DISCARDED', body: item.file })
-                                      setDismissing(prev => { const n = { ...prev }; delete n[item.file]; return n })
-                                    }, 1500)
-                                  })
-                              }}
-                              className="label-tag px-2 py-1 border border-m-red/40 text-m-red hover:bg-m-red-glow transition-all"
-                            >
-                              DISCARD
-                            </button>
-                          </div>
-                          <span className="text-[8px] font-mono text-m-red/60 tracking-wider">
-                            NARRATIVE FAILED{item.file_size_mb ? ` · ${item.file_size_mb >= 1000 ? `${(item.file_size_mb / 1000).toFixed(1)}GB` : `${item.file_size_mb}MB`}` : ''}
-                          </span>
-                        </div>
-                      </>
-                    ) : item.status === 'done' ? (
-                      <>
-                        <div className="flex flex-col items-center gap-1">
-                          <div className="flex gap-2">
+                      <div className="flex flex-col items-center gap-1">
                         <button
                           onClick={() => {
-                            setDismissing(prev => ({ ...prev, [item.file]: 'keeping' }))
-                            axios.post(`${apiBase}/api/capture/recording/keep`, { filename: item.file, run_id: item.run_id })
-                              .then(() => {
-                                setTimeout(() => {
-                                  addToast({ type: 'success', title: 'RECORDING ARCHIVED', body: 'Saved to run folder' })
-                                  setDismissing(prev => { const n = { ...prev }; delete n[item.file]; return n })
-                                }, 2000)
-                              })
-                              .catch(() => {
-                                addToast({ type: 'error', title: 'SAVE FAILED', body: item.file })
-                                setDismissing(prev => { const n = { ...prev }; delete n[item.file]; return n })
-                              })
+                            axios.post(`${apiBase}/api/capture/recording/retry-phase2`, { filename: item.file })
+                              .then(() => addToast({ type: 'info', title: 'RETRYING NARRATIVE', body: item.file }))
+                              .catch(() => addToast({ type: 'error', title: 'RETRY FAILED', body: item.file }))
                           }}
-                          className="label-tag px-2 py-1 border border-m-green/40 text-m-green hover:bg-m-green-glow transition-all"
+                          className="label-tag px-2 py-1 border border-m-cyan/40 text-m-cyan hover:bg-m-cyan/10 transition-all"
                         >
-                          SAVE
+                          RETRY
                         </button>
-                        <button
-                          onClick={() => {
-                            setDismissing(prev => ({ ...prev, [item.file]: 'deleting' }))
-                            axios.post(`${apiBase}/api/capture/recording/delete`, { filename: item.file })
-                              .then(() => {
-                                setTimeout(() => {
-                                  addToast({ type: 'info', title: 'RECORDING DISCARDED', body: item.file })
-                                  setDismissing(prev => { const n = { ...prev }; delete n[item.file]; return n })
-                                }, 1500)
-                              })
-                              .catch(() => {
-                                addToast({ type: 'error', title: 'DELETE FAILED', body: item.file })
-                                setDismissing(prev => { const n = { ...prev }; delete n[item.file]; return n })
-                              })
-                          }}
-                          className="label-tag px-2 py-1 border border-m-red/40 text-m-red hover:bg-m-red-glow transition-all"
-                        >
-                          DISCARD
-                        </button>
-                          </div>
-                          <span className="text-[8px] font-mono text-m-text-muted/50 tracking-wider">
-                            FULL RECORDING{item.file_size_mb ? ` · ${item.file_size_mb >= 1000 ? `${(item.file_size_mb / 1000).toFixed(1)}GB` : `${item.file_size_mb}MB`}` : ''}
-                          </span>
-                        </div>
-                        <PipelineProgress status={item.status} detail={item.detail} p1Failed={item.p1_failed} p2Failed={item.p2_failed} />
-                      </>
+                        <span className="text-[8px] font-mono text-m-red/60 tracking-wider">
+                          NARRATIVE FAILED
+                        </span>
+                      </div>
                     ) : item.status === 'error' ? (
                       <div className="flex items-center gap-3">
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => {
-                              // Remove error markers so it retries
-                              axios.post(`${apiBase}/api/capture/recording/retry`, { filename: item.file })
-                                .then(() => addToast({ type: 'info', title: 'RETRYING', body: item.file }))
-                                .catch(() => addToast({ type: 'error', title: 'RETRY FAILED', body: item.file }))
-                            }}
-                            className="label-tag px-2 py-1 border border-m-yellow/40 text-m-yellow hover:bg-m-yellow/10 transition-all"
-                          >
-                            RETRY
-                          </button>
-                          <button
-                            onClick={() => {
-                              setDismissing(prev => ({ ...prev, [item.file]: 'deleting' }))
-                              axios.post(`${apiBase}/api/capture/recording/delete`, { filename: item.file })
-                                .then(() => {
-                                  setTimeout(() => {
-                                    addToast({ type: 'info', title: 'RECORDING DISCARDED', body: item.file })
-                                    setDismissing(prev => { const n = { ...prev }; delete n[item.file]; return n })
-                                  }, 1500)
-                                })
-                                .catch(() => {
-                                  addToast({ type: 'error', title: 'DELETE FAILED', body: item.file })
-                                  setDismissing(prev => { const n = { ...prev }; delete n[item.file]; return n })
-                                })
-                            }}
-                            className="label-tag px-2 py-1 border border-m-red/40 text-m-red hover:bg-m-red-glow transition-all"
-                          >
-                            DISCARD
-                          </button>
-                        </div>
+                        <button
+                          onClick={() => {
+                            axios.post(`${apiBase}/api/capture/recording/retry`, { filename: item.file })
+                              .then(() => addToast({ type: 'info', title: 'RETRYING', body: item.file }))
+                              .catch(() => addToast({ type: 'error', title: 'RETRY FAILED', body: item.file }))
+                          }}
+                          className="label-tag px-2 py-1 border border-m-yellow/40 text-m-yellow hover:bg-m-yellow/10 transition-all"
+                        >
+                          RETRY
+                        </button>
                         <div className="flex flex-col items-end">
                           <span className="text-xs font-mono font-bold tracking-wider text-m-red">
                             FAILED

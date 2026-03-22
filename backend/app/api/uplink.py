@@ -341,10 +341,10 @@ def tool_get_performance_trend(db: Session, stat: str = "survival", range: str =
             revives = sum(r.crew_revives or 0 for r in grp)
             val = {
                 "survival": round(survived / total * 100, 1) if total else 0,
-                "runner_kills": round(pvp / total, 1) if total else 0,
-                "pve_kills": round(pve / total, 1) if total else 0,
-                "loot": round(loot / total) if total else 0,
-                "revives": round(revives / total, 1) if total else 0,
+                "runner_kills": pvp,
+                "pve_kills": pve,
+                "loot": round(loot),
+                "revives": revives,
             }.get(stat, 0)
             result.append({
                 "label": session_codes.get(sid, f"S.{i + 1:02d}"),

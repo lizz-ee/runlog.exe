@@ -475,6 +475,7 @@ function ClipPill({ label, thumbnail, sprite, spriteCols, spriteRows, spriteFram
   const [scrubProgress, setScrubProgress] = useState(0)
   const [spritePos, setSpritePos] = useState<{ x: number; y: number } | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (!sprite || !spriteCols || !spriteRows || !spriteFrames || !pillRef.current) return
@@ -574,7 +575,7 @@ function ClipPill({ label, thumbnail, sprite, spriteCols, spriteRows, spriteFram
       </button>
 
       {/* Hover delete X */}
-      {onDelete && !confirmDelete && (
+      {onDelete && !confirmDelete && !deleting && (
         <button
           onClick={(e) => { e.stopPropagation(); setConfirmDelete(true) }}
           className="absolute top-1 right-1 z-20 w-5 h-5 flex items-center justify-center rounded-full bg-black/70 text-m-text-muted/60 hover:text-m-red hover:bg-black/90 transition-all opacity-0 group-hover/clip:opacity-100"
@@ -586,8 +587,25 @@ function ClipPill({ label, thumbnail, sprite, spriteCols, spriteRows, spriteFram
         </button>
       )}
 
+      {/* Deleting animation overlay */}
+      {deleting && (
+        <div className="absolute inset-0 z-30 rounded-2xl overflow-hidden pointer-events-none"
+          onClick={(e) => e.stopPropagation()}>
+          {/* Red wipe sweeping left to right */}
+          <div className="absolute inset-0 bg-m-red/40 animate-wipe-delete" />
+          {/* Scanline effect */}
+          <div className="absolute inset-0 bg-[repeating-linear-gradient(0deg,transparent,transparent_2px,rgba(0,0,0,0.15)_2px,rgba(0,0,0,0.15)_4px)]" />
+          {/* DELETING text */}
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="text-[11px] font-mono font-bold tracking-[0.3em] text-m-red drop-shadow-[0_0_8px_rgba(255,0,68,0.8)] animate-pulse">
+              DELETING
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Confirmation overlay */}
-      {confirmDelete && (
+      {confirmDelete && !deleting && (
         <div className="absolute inset-0 z-20 rounded-2xl bg-black/85 flex flex-col items-center justify-center gap-3 p-4"
           onClick={(e) => e.stopPropagation()}>
           <span className="text-[10px] font-mono font-bold tracking-widest text-m-red text-center leading-relaxed">
@@ -596,7 +614,7 @@ function ClipPill({ label, thumbnail, sprite, spriteCols, spriteRows, spriteFram
           </span>
           <div className="flex gap-2">
             <button
-              onClick={(e) => { e.stopPropagation(); setConfirmDelete(false); onDelete?.() }}
+              onClick={(e) => { e.stopPropagation(); setDeleting(true); setConfirmDelete(false); onDelete?.() }}
               className="label-tag px-3 py-1 border border-m-red/60 text-m-red hover:bg-m-red/20 transition-all text-[9px]"
             >
               CONFIRM
@@ -733,9 +751,9 @@ export default function RunHistory() {
   return (
     <div className="max-w-7xl mx-auto space-y-4">
       <div>
-        <p className="label-tag text-m-green">SYSTEM // TRANSMISSIONS</p>
+        <p className="label-tag text-m-green">SYSTEM // RUNS</p>
         <h2 className="text-xl font-display font-black tracking-wider text-m-text mt-1">
-          TRANSMISSIONS
+          RUN HISTORY
         </h2>
       </div>
 
@@ -851,7 +869,7 @@ export default function RunHistory() {
       {filtered.length === 0 ? (
         <div className="border border-1 border-m-border bg-m-card p-10 text-center">
           <p className="text-xs text-m-text-muted tracking-wider">
-            {favFilter ? 'NO FAVORITED TRANSMISSIONS' : 'NO MATCHING TRANSMISSIONS'}
+            {favFilter ? 'NO FAVORITED RUNS' : 'NO MATCHING RUNS'}
           </p>
         </div>
       ) : (

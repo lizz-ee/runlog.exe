@@ -55,12 +55,13 @@ FRAME_FPS_END = 5             # post-match tabs — flip fast, need higher fps
 PHASE1_CALL2_PROMPT = """You are analyzing end-of-run screenshots from a Marathon (Bungie 2026 extraction shooter) gameplay recording.
 
 These images are from the LAST 30 SECONDS of the run. Look for:
-- **DEATH SCREEN**: "NEURAL LINK SEVERED" — shows who killed the player (gamertag#number), their damage, and ALL damage contributors with their damage numbers. Read EVERY contributor, do not skip any.
-- **STATS tab**: Shows "EXFILTRATED" or "ELIMINATED" status, "Combatant Eliminations" (PvE), "Runner Eliminations" (PvP), "Crew Revives", "Inventory Value" (loot), "Run Time" (MM:SS). The CENTER column is the local player's stats. USE THESE EXACT NUMBERS.
-- **PROGRESS tab**: Season level, faction ranks. Less important.
-- **LOADOUT tab**: Shows weapons extracted, backpack items, "Wallet Balance" with gain amount, "Report Summary".
+- **//RUN_COMPLETE screen**: Appears at the end of every run. If the player was ELIMINATED, a "NEURAL LINK SEVERED" widget appears on the RIGHT side showing who killed them (gamertag#number), damage, and ALL damage contributors. If the player EXTRACTED, this widget is absent. Read EVERY contributor, do not skip any.
+- **POST-MATCH REPORTS**: After a run ends, three report screens are shown. They are navigated via tabs in the TOP-RIGHT corner labeled "STATS", "PROGRESS", "LOADOUT". The ACTIVE screen is indicated by its tab being HIGHLIGHTED (bright/filled) in the top-right — the other tabs appear dimmed. The player clicks through them in order:
+  1. **STATS** (tab highlighted in top-right): First screen. Shows "EXFILTRATED" or "ELIMINATED" status, player stats in columns (local player is CENTER column). Look for "Combatant Eliminations" (PvE), "Runner Eliminations" (PvP), "Crew Revives", "Inventory Value" (loot), "Run Time" (MM:SS). USE THESE EXACT NUMBERS.
+  2. **PROGRESS REPORT** (tab highlighted in top-right): Second screen. Title "PROGRESS REPORT" at top-left. Shows "SEASON LEVEL" label with an XP progress bar below it. The CURRENT level is the number DIRECTLY BELOW the words "SEASON LEVEL" (green circular icon + number, e.g. 34). The number on the far RIGHT of the bar is the NEXT level — do NOT use that number. Below that shows "FACTION RANKS" with faction logos and rep bars. The season level here is the POST-RUN level — if the player leveled up during the run, this reflects the new level.
+  3. **LOADOUT REPORT** (tab highlighted in top-right): Third screen. Title "LOADOUT REPORT" at top-left. Shows weapons extracted with mod slots, backpack grid on the right, and "Wallet Balance:" in bright green text at the bottom-left (e.g. "Wallet Balance: 66,089" — this is the post-run vault value).
 
-The STATS tab is GROUND TRUTH — use its exact numbers. Do NOT estimate from gameplay.
+The STATS screen is GROUND TRUTH — use its exact numbers. Do NOT estimate from gameplay.
 
 Return ONLY valid JSON:
 {
@@ -71,21 +72,25 @@ Return ONLY valid JSON:
   "deaths": 0 if EXFILTRATED, 1 if died, or null if unclear,
   "crew_revives": exact number from STATS tab "Crew Revives" or null,
   "duration_seconds": convert STATS tab "Run Time" MM:SS to total seconds or null,
-  "loot_value_total": "Inventory Value" from STATS tab or null. NEVER zero for survived runs. Check LOADOUT tab "Wallet Balance" gain if STATS not found.,
-  "primary_weapon": "weapon name from LOADOUT tab" or null,
-  "secondary_weapon": "weapon name from LOADOUT tab" or null,
+  "loot_value_total": "Inventory Value" from STATS or null. NEVER zero for survived runs. Check LOADOUT REPORT "Wallet Balance" gain if STATS not found.,
+  "primary_weapon": "weapon name from LOADOUT REPORT" or null,
+  "secondary_weapon": "weapon name from LOADOUT REPORT" or null,
   "killed_by": "exact gamertag#number of finisher from death screen" or null,
   "killed_by_weapon": "weapon from death screen" or null,
   "killed_by_damage": finisher's damage number from death screen or null,
   "damage_contributors": [{"name": "gamertag", "damage": number, "finished": true/false}] or null — list ALL players/enemies from the death screen. The finisher has "finished": true. Include EVERY entry, even UESC Recruits or AI enemies.,
   "player_gamertag": "local player's gamertag from STATS tab (CENTER column)" or null,
   "squad_members": ["all", "squad", "gamertags", "from STATS tab columns"] or null — include ALL members shown,
+  "player_level": season level from PROGRESS REPORT — the number DIRECTLY BELOW the words "SEASON LEVEL" (green circular icon, e.g. 34). NOT the number on the far right (that is the next level). Or null,
+  "vault_value": "Wallet Balance" from LOADOUT REPORT (bright green number at bottom, e.g. 66089) or null — this is the post-run vault value,
   "stats_tab_found": true if you found the STATS tab with kill/loot numbers,
   "stats_tab_needs_more_frames": true if stats tab is visible but too blurry/fast to read — request higher fps,
-  "loadout_tab_found": true if you found the LOADOUT tab with weapons/wallet
+  "loadout_tab_found": true if you found the LOADOUT REPORT with weapons/wallet
 }
 
 IMPORTANT: Return null for ANY field you cannot confidently read. Do NOT guess or default to 0. null means "not found" — 0 means "the STATS tab explicitly showed 0". These are different.
+
+FONT NOTE: Marathon uses a slashed-zero font where the digit 0 has a diagonal line through it. Do NOT misread 0 as 8. If a digit looks like it could be 0 or 8, it is almost certainly 0 (slashed zero). Pay extra attention to damage numbers.
 
 Return ONLY valid JSON, no markdown fences, no explanation."""
 
@@ -107,9 +112,9 @@ Return ONLY valid JSON:
   "summary": "A narrative story of this run written in second person (you). Scale length to match the run: F/D grade or under 3 min = 1-2 sentences (quick death, not much to say); C grade or 3-5 min = 1 short paragraph; B grade or 5-10 min = 1-2 paragraphs; A/S grade or 10+ min = 2-4 paragraphs (full story treatment). Describe the flow like a sports commentator recap — the drop, key fights, turning points, and how it ended. Make it engaging and specific.",
   "highlights": [
     {
-      "timestamp_seconds": number (seconds from start of video when the action STARTS),
-      "duration_seconds": number (6 to 20 seconds — short for quick kills, long for extended fights),
-      "type": "pvp_kill" or "combat" or "death" or "close_call" or "extraction" or "loot" or "funny",
+      "timestamp_seconds": number (seconds from start of video — see TIMESTAMP RULES below for what this should point to),
+      "duration_seconds": number (see DURATION RULES below),
+      "type": "pvp_kill" or "combat" or "death" or "revive" or "close_call" or "extraction" or "loot" or "funny",
       "description": "What makes this moment exciting — be specific"
     }
   ]
@@ -127,39 +132,59 @@ Weight: Survival (35%) > Runner Kills (25%) > Loot (15%) > Revives (10%) > PvE K
 
 HIGHLIGHT RULES:
 
-PRIORITY ORDER: pvp_kill > death > close_call > extraction > combat > loot > funny.
+PRIORITY ORDER: pvp_kill > death > revive > close_call > extraction > combat > loot > funny.
 
 1. MANDATORY clips — ALWAYS include if they happen:
    - Every PVP KILL (runner kill) — NEVER skip a runner kill, these are the most valuable clips
    - The DEATH moment — if the player died, ALWAYS clip it
+   - Every REVIVE — if the player revived a teammate, ALWAYS clip it
    - The EXTRACTION — if the player extracted, ALWAYS clip the extraction sequence
    You are guaranteed at least one of death or extraction every run, plus at least one other notable moment from gameplay. After mandatory clips, include ALL other notable combat moments, close calls, and loot finds. No hard cap — if a long run has 8 great moments, clip all 8. Short runs (under 3 min) will naturally have 2-3 clips. Long runs (10+ min) may have 5-10+. Quality still matters — don't clip filler.
 
 2. VISUAL VERIFICATION — For each highlight, you MUST describe what is ON SCREEN at that exact timestamp in the "description" field. If you see a menu, inventory, loadout screen, stats screen, loading screen, solid color screen, or the player staring at a wall/floor/empty room — DO NOT include it. Only clip frames showing active gameplay with visible action.
 
 3. CLIP TYPES (in priority order):
-   - "pvp_kill": Player kills another RUNNER (human player). ALWAYS include if it happens. Kill feed shows names with # tags. If two PvP kills happen within 20 seconds, COMBINE them into one longer clip. NPC/AI kills are NOT pvp_kills.
-   - "death": The moment the player dies — the final fight leading to the NEURAL LINK SEVERED screen. Include the combat that caused the death, not just the death screen. Duration 8-12s.
-   - "close_call": Player nearly dies but survives — visible low health, clutch heal, narrow escape. Must show ACTUAL danger on screen (health bar critical, damage effects). Duration 8-15s. NOTE: If the player dies shortly after a "close call" moment, that is a DEATH clip, not a close_call. Do not split one encounter into close_call + death.
+   - "pvp_kill": Player kills another RUNNER (human player). ALWAYS include if it happens. Kill feed shows names with # tags. If two PvP kills happen within 20 seconds, COMBINE them into one longer clip. NPC/AI kills are NOT pvp_kills. IMPORTANT: Capture the FULL ENCOUNTER — from when the fight starts (first shots fired, enemy spotted) through the kill. Do NOT just clip the final kill shot.
+   - "death": The FULL encounter that led to the player's death — from when the fight/engagement STARTS through to the NEURAL LINK SEVERED screen. Include ALL the combat leading up to the death, not just the final hit. If there was a 15-second firefight before dying, the clip should cover the entire firefight.
+   - "revive": Player revives a downed teammate. ALWAYS include if it happens. Show the approach to the downed teammate and the full revive animation.
+   - "close_call": Player nearly dies but survives — visible low health, clutch heal, narrow escape. Must show ACTUAL danger on screen (health bar critical, damage effects). NOTE: If the player dies shortly after a "close call" moment, that is a DEATH clip, not a close_call. Do not split one encounter into close_call + death.
    - "extraction": The extraction countdown and escape sequence. Duration 10-15s.
-   - "combat": Extended firefight with enemies VISIBLE on screen — muzzle flash, hit markers, enemy models. Must show actual shooting, not just walking around. Duration 12-20s.
+   - "combat": Extended firefight with enemies VISIBLE on screen — the player must be ACTIVELY SHOOTING and enemies must be VISIBLE (muzzle flash, hit markers, enemy models on screen). The player simply running, walking, or traversing the map is NOT combat, even if in a dangerous area. There must be actual gunfire exchange.
    - "loot": ONLY clip if you see a PURPLE or GOLD rarity item being picked up, or a locked crate being opened with a visible animation. Routine pickups and gray/green items are NOT highlights.
    - "funny": Unusual, unexpected, or humorous events. Duration varies.
 
-4. TIMESTAMP ACCURACY: Your timestamp_seconds should be the EXACT second the key action happens (the kill shot, the hit that kills you, the loot pickup). The system automatically includes 3 seconds of lead-up. Do NOT add your own buffer.
+4. TIMESTAMP RULES — different clip types need different timestamp strategies:
+   - **Encounter clips** (pvp_kill, death, close_call, combat): Set timestamp_seconds to when the ENCOUNTER BEGINS — the first shots fired, first enemy contact, the start of the engagement. NOT the kill shot or death moment. The clip should capture the full fight from start to finish.
+   - **Moment clips** (extraction, loot, funny): Set timestamp_seconds to the exact moment of the event. The system adds 3 seconds of lead-up automatically.
 
-5. DURATION: Set duration based on the actual content length. Short kills = 6-8s. Extended fights = 15-20s. Deaths = 8-12s. Do NOT default to 12 for everything — each clip should have a specific duration matching the action.
+5. DURATION — set duration to match what is ACTUALLY HAPPENING on screen. There are NO hard caps or fixed ranges. Let the action dictate the length:
+   - pvp_kill: Full fight from first contact through the kill, PLUS 2-3 seconds after (kill confirm, body drop, kill feed).
+   - death: Full encounter from first enemy contact through NEURAL LINK SEVERED screen.
+   - revive: The approach to the downed teammate, the full revive animation, and the teammate getting back up.
+   - close_call: From the start of danger through survival.
+   - combat: The full firefight from first shot to last.
+   - extraction: The run-up to extraction, the full countdown, and the "EXFILTRATED" confirmation.
+   - loot: The approach, the pickup or crate open animation, and the item reveal.
+   - funny: Whatever makes the moment land — include the setup and the payoff.
 
 6. NEVER CLIP THESE:
    - Inventory, menu, loadout, or map screens
    - Post-match stats screens (ELIMINATED / EXFILTRATED results)
-   - Player walking/running with no enemies or events
+   - Player walking, running, crouching, or traversing the map with no enemies visible and no shots being fired — this is NOT combat, it is traversal
    - Solid red/black/blue screens (death transitions, loading)
    - Any moment where no enemies, combat effects, or events are visible
+   - Looting containers or picking up common items (gray/green/blue) without enemy contact
 
 7. SPACING: Clips must be at least 30 seconds apart. If two exciting moments happen within 30 seconds, combine them into one longer clip or pick the better one.
 
 8. COMBINING KILLS: If the player gets multiple PvP kills within 20 seconds, make ONE clip that covers the entire multi-kill sequence. Title it "pvp_kill" and note "double kill" or "triple kill" in description.
+
+9. OVERLAPPING TYPES — when one encounter leads into another, make ONE clip with the HIGHEST PRIORITY type:
+   - Combat that ends in a PvP kill = ONE "pvp_kill" clip covering the full firefight through the kill.
+   - Combat that ends in the player's death = ONE "death" clip covering the full fight through NEURAL LINK SEVERED.
+   - Close call that leads directly into a kill = ONE "pvp_kill" clip.
+   - Close call followed immediately by death = ONE "death" clip.
+   Do NOT split a continuous encounter into separate clips. One fight = one clip, typed by how it ends.
 
 Return ONLY valid JSON, no markdown fences, no explanation."""
 
@@ -552,9 +577,6 @@ Key distinguishing features:
 - Map name (e.g. PERIMETER) and crew size (e.g. "Crew: Solo", "Crew: Duo")
 - Player gamertag (shown above the LOCAL player's character, CENTER of screen)
 - Squad members: ALL gamertags visible above each character (local player is CENTER, squad mates are LEFT and RIGHT). Include ALL members including the local player.
-- Player level: the FIRST number in the top-left HUD bar (next to the green circular icon, e.g. 34)
-- Vault value: the VERY LAST number on the far RIGHT end of the top-left HUD bar. It is next to a gear/cog icon (⚙). The HUD bar reads left-to-right: green circle + level | rank bars | box icon + currency | list icon + fraction | gear icon + VAULT VALUE. The vault value is typically a large 5-digit number like 65,131 or 82,875. Do NOT confuse it with the currency value (box icon, typically 1,000-5,000) which appears earlier in the bar.
-
 **LOADOUT VALUE (from _crop.jpg screenshots):**
 - The gear icon number shown DIRECTLY ABOVE the loadout grid (e.g. "1.5K" = 1500, "830", "3.3K" = 3300). Convert K notation to full number.
 
@@ -567,8 +589,6 @@ Extract and return ONLY valid JSON:
   "squad_members": ["all", "gamertags", "visible above each character"] or null — include ALL members (local player is center, mates are left/right),
   "crew_size": "Solo" or "Duo" or "Trio" or null,
   "loadout_value": total loadout value as integer (from gear icon above loadout grid, convert K notation) or null,
-  "player_level": runner level from top-left HUD bar (first number, green circle icon, e.g. 34) or null,
-  "vault_value": the LAST number on the far RIGHT of the top-left HUD bar (gear/cog icon ⚙, typically a large 5-digit number like 65131). NOT the currency/box icon number. Or null,
 }}
 
 Use null for anything not visible."""
@@ -607,11 +627,14 @@ Use null for anything not visible."""
     CRITICAL_FIELDS = ['primary_weapon', 'secondary_weapon', 'survived', 'kills',
                        'combatant_eliminations', 'runner_eliminations', 'loot_value_total']
 
-    # Collect endgame screenshot (death screen / RUN_COMPLETE)
+    # Collect endgame screenshot (death screen / RUN_COMPLETE) + damage crop
     endgame_screenshots = []
     eg_path = os.path.join(os.path.dirname(deploy_jpg), "endgame.jpg")
     if os.path.exists(eg_path):
         endgame_screenshots.append(eg_path)
+    eg_damage_path = os.path.join(os.path.dirname(deploy_jpg), "endgame_damage.jpg")
+    if os.path.exists(eg_damage_path):
+        endgame_screenshots.append(eg_damage_path)
 
     if all_end_frames or endgame_screenshots:
         # Prepend endgame screenshots to the first batch — they show who killed the player
@@ -966,13 +989,64 @@ def compress_for_api(input_path: str, output_path: str, max_size_mb: int = 20) -
 
 # -- Phase 2 analysis (video -> narrative) ---------------------------------
 
-def _analyze_phase2_with_cli(video_path: str) -> dict:
+def _get_phase1_context(run_id: int | None) -> str:
+    """Fetch Phase 1 stats from DB and format as context for Phase 2 prompt."""
+    if not run_id:
+        return ""
+    try:
+        from .database import SessionLocal
+        from .models import Run
+        db = SessionLocal()
+        run = db.query(Run).filter(Run.id == run_id).first()
+        if not run:
+            db.close()
+            return ""
+
+        lines = ["PHASE 1 STATS (already extracted — use these as ground truth for your analysis):"]
+        lines.append(f"- Survived: {'Yes (EXFILTRATED)' if run.survived else 'No (ELIMINATED)' if run.survived is not None else 'Unknown'}")
+        if run.killed_by:
+            lines.append(f"- Killed by: {run.killed_by}")
+        if run.damage_contributors:
+            import json
+            try:
+                contribs = json.loads(run.damage_contributors) if isinstance(run.damage_contributors, str) else run.damage_contributors
+                contrib_strs = [f"{c['name']} ({c['damage']} dmg{', finisher' if c.get('finished') else ''})" for c in contribs]
+                lines.append(f"- Damage contributors: {', '.join(contrib_strs)}")
+            except Exception:
+                pass
+        if run.combatant_eliminations is not None:
+            lines.append(f"- Combatant Eliminations (PvE kills): {run.combatant_eliminations}")
+        if run.runner_eliminations is not None:
+            lines.append(f"- Runner Eliminations (PvP kills): {run.runner_eliminations} — find EACH of these kills in the video")
+        if run.crew_revives is not None and run.crew_revives > 0:
+            lines.append(f"- Crew Revives: {run.crew_revives} — find EACH revive moment in the video")
+        if run.duration_seconds:
+            mins, secs = divmod(run.duration_seconds, 60)
+            lines.append(f"- Run Time: {mins}:{secs:02d}")
+        if run.loot_value_total is not None:
+            lines.append(f"- Loot Value: {int(run.loot_value_total)}")
+        if run.primary_weapon:
+            lines.append(f"- Primary Weapon: {run.primary_weapon}")
+        if run.secondary_weapon:
+            lines.append(f"- Secondary Weapon: {run.secondary_weapon}")
+        if run.map_name:
+            lines.append(f"- Map: {run.map_name}")
+
+        db.close()
+        return "\n".join(lines)
+    except Exception as e:
+        print(f"[processor-p2] Failed to fetch Phase 1 context: {e}")
+        return ""
+
+
+def _analyze_phase2_with_cli(video_path: str, run_id: int | None = None) -> dict:
     """Send video to CLI for Phase 2 narrative analysis."""
     claude_bin = _find_claude_cli()
     if not claude_bin:
         raise RuntimeError("Claude CLI not found")
 
     abs_path = os.path.abspath(video_path).replace("\\", "/")
+    phase1_context = _get_phase1_context(run_id)
     prompt = f"""There is a gameplay video file at: {abs_path}
 
 Use ffmpeg to extract frames from the video, then read them to analyze the gameplay. Steps:
@@ -982,6 +1056,8 @@ Use ffmpeg to extract frames from the video, then read them to analyze the gamep
 4. After analyzing ALL frames, output the JSON result
 
 ABSOLUTE REQUIREMENT: After you have completed your analysis, your VERY LAST message must contain the JSON object. Do NOT say "the JSON was output above" or "see my previous response" — you MUST output the complete JSON again as your final output. Even if you already output it earlier, REPEAT IT as your last message. The JSON must start with {{ and end with }}.
+
+{phase1_context}
 
 {PHASE2_PROMPT}"""
 
@@ -1019,7 +1095,7 @@ ABSOLUTE REQUIREMENT: After you have completed your analysis, your VERY LAST mes
     return _extract_json(output)
 
 
-def _analyze_phase2_with_api(video_path: str) -> dict:
+def _analyze_phase2_with_api(video_path: str, run_id: int | None = None) -> dict:
     """Send video to API for Phase 2 narrative analysis (fallback)."""
     import anthropic
 
@@ -1028,6 +1104,9 @@ def _analyze_phase2_with_api(video_path: str) -> dict:
 
     size_mb = os.path.getsize(video_path) / (1024 * 1024)
     print(f"[processor-p2] Sending {size_mb:.1f}MB video to API for narrative...")
+
+    phase1_context = _get_phase1_context(run_id)
+    prompt_text = f"{phase1_context}\n\n{PHASE2_PROMPT}" if phase1_context else PHASE2_PROMPT
 
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
     message = client.messages.create(
@@ -1044,19 +1123,19 @@ def _analyze_phase2_with_api(video_path: str) -> dict:
                         "data": video_data,
                     },
                 },
-                {"type": "text", "text": PHASE2_PROMPT},
+                {"type": "text", "text": prompt_text},
             ],
         }],
     )
     return _extract_json(message.content[0].text)
 
 
-def analyze_video_phase2(video_path: str) -> dict:
+def analyze_video_phase2(video_path: str, run_id: int | None = None) -> dict:
     """Phase 2: analyze video for narrative content. CLI first, API fallback."""
     claude_bin = _find_claude_cli()
     if claude_bin:
         try:
-            return _analyze_phase2_with_cli(video_path)
+            return _analyze_phase2_with_cli(video_path, run_id=run_id)
         except Exception as e:
             print(f"[processor-p2] CLI failed: {e}")
             if settings.anthropic_api_key:
@@ -1065,7 +1144,7 @@ def analyze_video_phase2(video_path: str) -> dict:
                 raise
 
     if settings.anthropic_api_key:
-        return _analyze_phase2_with_api(video_path)
+        return _analyze_phase2_with_api(video_path, run_id=run_id)
 
     raise RuntimeError("No Claude auth available for Phase 2")
 
@@ -1227,8 +1306,11 @@ def cut_clips(source_path: str, clips_dir: str, highlights: list[dict], run_time
         dur = h.get("duration_seconds", 12)
         clip_type = h.get("type", "highlight")
 
-        # Start 3 seconds before the moment
-        start = max(0, ts - 3)
+        # Encounter clips (pvp_kill, death, close_call, combat) timestamp the encounter start
+        # — no lead-up needed. Moment clips (extraction, loot, funny) get 3s lead-up.
+        encounter_types = {"pvp_kill", "death", "revive", "close_call", "combat"}
+        lead_up = 0 if clip_type in encounter_types else 3
+        start = max(0, ts - lead_up)
 
         filename = f"clip_{tag}_{clip_type}_{i+1}.mp4"
         clip_path = os.path.join(run_clips_dir, filename)
@@ -1772,7 +1854,7 @@ def process_recording_phase2(
     phase("analyzing_gameplay")
     t0 = time.time()
     try:
-        phase2_data = analyze_video_phase2(analysis_path)
+        phase2_data = analyze_video_phase2(analysis_path, run_id=run_id)
         print(f"[processor-p2] Phase 2 analysis took {time.time() - t0:.0f}s, "
               f"grade={phase2_data.get('grade')}")
     except Exception as e:

@@ -199,7 +199,7 @@ class AutoCapture:
 
         processing_phase = None
         for item in items:
-            if item["status"] not in ("queued", "done", "error"):
+            if item["status"] not in ("queued", "done", "complete", "error"):
                 processing_phase = item["status"]
                 break
 
@@ -471,6 +471,18 @@ class AutoCapture:
                     f.write(frame_jpeg)
                 print(f"[capture] Endgame screenshot saved")
 
+                # Crop the damage widget (Neural Link Severed / death screen)
+                try:
+                    from PIL import Image
+                    import io
+                    img = Image.open(io.BytesIO(frame_jpeg))
+                    w, h = img.size
+                    crop = img.crop((int(w * 0.74), int(h * 0.17), int(w * 0.97), int(h * 0.75)))
+                    crop.save(os.path.join(screenshots_dir, "endgame_damage.jpg"), "JPEG", quality=95)
+                    print(f"[capture] Endgame damage crop saved ({crop.size[0]}x{crop.size[1]})")
+                except Exception as e:
+                    print(f"[capture] Damage crop failed: {e}")
+
         # --- PREPARE: stop recording (back in lobby) ---
         elif det_type == 'prepare' and self._recording:
             print(f"[capture] Detected PREPARE -- stopping recording")
@@ -674,6 +686,84 @@ class AutoCapture:
                 i for i in self._processing_items if i["file"] != filename
             ]
 
+    def _auto_save_recording(self, filepath: str, run_id: int | None):
+        """Auto-save recording after processing completes. Moves to clips folder,
+        links to run, generates thumbnail + sprite sheet, sets status to 'complete'."""
+        import shutil
+        filename = os.path.basename(filepath)
+        run_tag = filename.replace(".mp4", "")
+        run_folder = os.path.join(self.clips_dir, run_tag)
+        os.makedirs(run_folder, exist_ok=True)
+        saved_path = os.path.join(run_folder, filename)
+
+        try:
+            shutil.move(filepath, saved_path)
+        except Exception as e:
+            print(f"[auto-save] Failed to move recording: {e}")
+            return
+
+        # Move thumbnail if it exists
+        thumb = filename.replace(".mp4", "_thumb.jpg")
+        thumb_path = os.path.join(self.recordings_dir, thumb)
+        if os.path.exists(thumb_path):
+            shutil.move(thumb_path, os.path.join(run_folder, thumb))
+
+        # Link recording to run in database
+        if run_id:
+            try:
+                from .database import SessionLocal
+                from .models import Run
+                db = SessionLocal()
+                run = db.query(Run).filter(Run.id == run_id).first()
+                if run:
+                    run.recording_path = saved_path
+                    db.commit()
+                db.close()
+            except Exception as e:
+                print(f"[auto-save] DB update failed: {e}")
+
+        # Clean up marker files
+        for ext in ('.done', '.p1done', '.encoded', '.endgame'):
+            marker = filepath + ext
+            if os.path.exists(marker):
+                os.remove(marker)
+
+        # Update status to complete
+        self._update_processing_item(filepath, "complete", run_id=run_id)
+        print(f"[auto-save] Recording saved: {saved_path}")
+
+        # Generate thumbnail + sprite sheet in background
+        def _gen_assets():
+            try:
+                probe = subprocess.run(
+                    ['ffprobe', '-v', 'quiet', '-show_entries',
+                     'format=duration', '-of', 'csv=p=0', saved_path],
+                    capture_output=True, text=True, timeout=10
+                )
+                duration = float(probe.stdout.strip())
+
+                keep_thumb = saved_path.replace(".mp4", "_thumb.jpg")
+                if not os.path.exists(keep_thumb):
+                    endgame_jpg = os.path.join(os.path.dirname(saved_path), "screenshots", "endgame.jpg")
+                    if os.path.exists(endgame_jpg):
+                        shutil.copy2(endgame_jpg, keep_thumb)
+                    else:
+                        mid = duration * 0.5
+                        subprocess.run(
+                            ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
+                             '-ss', str(mid), '-i', saved_path,
+                             '-vframes', '1', '-vf', 'scale=384:-1',
+                             '-q:v', '5', keep_thumb],
+                            capture_output=True, timeout=30,
+                        )
+
+                from .video_processor import _generate_sprite_sheet
+                _generate_sprite_sheet(saved_path, duration)
+            except Exception as e:
+                print(f"[auto-save] Asset generation failed: {e}")
+
+        threading.Thread(target=_gen_assets, daemon=True).start()
+
     def reset_processing_item(self, filename: str):
         """Reset a failed processing item to queued and re-queue it."""
         filepath = os.path.join(self.recordings_dir, filename)
@@ -787,14 +877,9 @@ class AutoCapture:
                 print(f"[p1] Done, submitting Phase 2 for run #{run_id}...")
                 self._p2_executor.submit(self._process_phase2, filepath, run_id)
             else:
-                # Legacy pipeline — no Phase 2 needed
-                self._update_processing_item(filepath, "done", run_id=run_id)
+                # Legacy pipeline — no Phase 2 needed, auto-save directly
                 self._last_process_result = result
-                try:
-                    with open(filepath + ".done", "w") as f:
-                        f.write(str(run_id))
-                except Exception:
-                    pass
+                self._auto_save_recording(filepath, run_id)
                 print(f"[p1] Done (legacy): run #{run_id}")
 
         except Exception as e:
@@ -840,16 +925,20 @@ class AutoCapture:
                 except Exception:
                     p2_failed = True
 
-            self._update_processing_item(filepath, "done", run_id=run_id, p2_failed=p2_failed)
-            try:
-                with open(filepath + ".done", "w") as f:
-                    f.write(str(run_id))
-                # Clean up p1done marker
-                p1_marker = filepath + ".p1done"
-                if os.path.exists(p1_marker):
-                    os.remove(p1_marker)
-            except Exception:
-                pass
+            if p2_failed:
+                # Keep as "done" with p2_failed flag so RETRY is available
+                self._update_processing_item(filepath, "done", run_id=run_id, p2_failed=True)
+                try:
+                    with open(filepath + ".done", "w") as f:
+                        f.write(str(run_id))
+                    p1_marker = filepath + ".p1done"
+                    if os.path.exists(p1_marker):
+                        os.remove(p1_marker)
+                except Exception:
+                    pass
+            else:
+                # Auto-save recording and mark complete
+                self._auto_save_recording(filepath, run_id)
 
         except Exception as e:
             self._update_processing_item(filepath, "error")
@@ -930,7 +1019,7 @@ class AutoCapture:
                 if file_size < 1024 * 1024:
                     continue
 
-                # Already processed — restore to queue as "done" so user can SAVE/DISCARD
+                # Already processed — auto-save on restart (was waiting from previous session)
                 done_marker = filepath + ".done"
                 if os.path.exists(done_marker):
                     try:
@@ -947,7 +1036,7 @@ class AutoCapture:
                     except Exception:
                         duration = 300
                     self._add_processing_item(filepath, duration)
-                    self._update_processing_item(filepath, "done", run_id=run_id)
+                    self._auto_save_recording(filepath, run_id)
                     resumed += 1
                     continue
 
