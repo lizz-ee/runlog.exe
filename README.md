@@ -57,9 +57,13 @@ Per-map stats with interactive spawn markers. Each map page shows total runs, su
 
 ![PERIMETER — Spawn Map](docs/screenshots/perimeter.png)
 
-Hover any spawn marker to see per-spawn stats — survival rate, loot averages, weapons used, and who killed you there. New spawns are detected automatically and appear as uncharted markers that you can drag into position and rename.
+Hover any spawn marker to see per-spawn stats — survival rate, loot averages, weapons used, and who killed you there.
 
 ![DIRE MARSH — Spawn Stats](docs/screenshots/dire_marsh.png)
+
+New spawns are detected automatically and appear as uncharted markers in the staging bracket (top-left). Drag them onto the map and rename to build out your spawn knowledge over time.
+
+![OUTPOST — Uncharted Spawns](docs/screenshots/outpost.png)
 
 ---
 
