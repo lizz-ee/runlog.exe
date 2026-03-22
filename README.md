@@ -69,7 +69,7 @@ New spawns are detected automatically and staged in the top-left bracket as unch
 
 ## UPLINK
 
-AI tactical advisor. Auto-generated session briefings with trend analysis and alerts. Charts track survival rate, loot extracted, and runner eliminations across sessions. Terminal-style chat interface — ask UPLINK anything about your stats. Backed by 12 read-only database tools, separate model selection (Haiku for speed, Sonnet for depth).
+AI tactical advisor and session tracker. Every time you launch the app and play, a new session is created. UPLINK generates a briefing for each session — how many runs, survival rate, trends vs your career baseline, and alerts when you're performing above or below average. Charts track survival rate, loot, and runner eliminations across sessions. Terminal-style chat interface — ask UPLINK anything about your stats and it queries your database directly.
 
 ![UPLINK — AI Tactical Advisor](docs/screenshots/uplink.png)
 
