@@ -53,17 +53,17 @@ Two sections, **Shells** and **Runners**, both ranked by weighted performance sc
 
 ## MAPS
 
-Per-map stats with interactive spawn markers. Each map page shows total runs, survival rate, K/D, and time played for that map. Scrollable spawn point list on the right for quick navigation. Map-wide favorites, economy, combat, and time breakdowns at the bottom.
+Each map has its own page with interactive spawn markers, per-map stats (runs, survival rate, K/D, total time), a scrollable spawn point list, and map-wide breakdowns for favorites, economy, combat, and time.
 
 ![PERIMETER — Spawn Map](docs/screenshots/perimeter.png)
 
-Hover any spawn marker to see per-spawn stats — survival rate, loot averages, weapons used, and who killed you there.
+Hover any spawn marker for per-spawn stats — survival rate, loot averages, kill counts, favorite weapon and shell at that location, and who killed you there.
 
-![DIRE MARSH — Spawn Stats](docs/screenshots/dire_marsh.png)
+![DIRE MARSH — Per-Spawn Stats](docs/screenshots/dire_marsh.png)
 
-New spawns are detected automatically and appear as uncharted markers in the staging bracket (top-left). Drag them onto the map and rename to build out your spawn knowledge over time.
+New spawns are detected automatically and staged in the top-left bracket as uncharted markers. Drag them onto the map, rename them, and save.
 
-![OUTPOST — Uncharted Spawns](docs/screenshots/outpost.png)
+![OUTPOST — Uncharted Spawn Staging](docs/screenshots/outpost.png)
 
 ---
 
