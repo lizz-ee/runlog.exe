@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useStore } from '../lib/store'
-import { getOverviewStats, getRecentRuns, markRunViewed, markAllRunsViewed, getClips, toggleFavorite, getRuns } from '../lib/api'
+import { getOverviewStats, getRecentRuns, markRunViewed, markAllRunsViewed, getClips, toggleFavorite, getVaultValues } from '../lib/api'
 import { RunRow, matchRunClips } from './RunHistory'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts'
 
@@ -34,13 +34,7 @@ export default function Dashboard() {
     getOverviewStats().then(setStats)
     getRecentRuns(20).then(setRuns)
     getClips().then(setClipsState).catch(() => {})
-    getRuns({ limit: 500 }).then(allRuns => {
-      const points = allRuns
-        .filter(r => r.vault_value != null)
-        .reverse()
-        .map(r => ({ value: r.vault_value! }))
-      setVaultData(points)
-    }).catch(() => {})
+    getVaultValues().then(setVaultData).catch(() => {})
   }, [lastRunId, doneCount])
 
   const refreshRuns = useCallback(() => {

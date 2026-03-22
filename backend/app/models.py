@@ -85,6 +85,7 @@ class Run(Base):
     recording_path = Column(String(500), nullable=True)  # Path to kept full recording
     viewed = Column(Boolean, default=False)  # Whether user has seen this run
     is_favorite = Column(Boolean, default=False)  # User-favorited run
+    is_ranked = Column(Boolean, default=False)  # Ranked mode run
     session_id = Column(Integer, ForeignKey("sessions.id"), nullable=True)
     spawn_point_id = Column(Integer, ForeignKey("spawn_points.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)

@@ -58,8 +58,12 @@ These images are from the LAST 30 SECONDS of the run. Look for:
 - **//RUN_COMPLETE screen**: Appears at the end of every run. If the player was ELIMINATED, a "NEURAL LINK SEVERED" widget appears on the RIGHT side showing who killed them (gamertag#number), damage, and ALL damage contributors. If the player EXTRACTED, this widget is absent. Read EVERY contributor, do not skip any.
 - **POST-MATCH REPORTS**: After a run ends, three report screens are shown. They are navigated via tabs in the TOP-RIGHT corner labeled "STATS", "PROGRESS", "LOADOUT". The ACTIVE screen is indicated by its tab being HIGHLIGHTED (bright/filled) in the top-right — the other tabs appear dimmed. The player clicks through them in order:
   1. **STATS** (tab highlighted in top-right): First screen. Shows "EXFILTRATED" or "ELIMINATED" status, player stats in columns (local player is CENTER column). Look for "Combatant Eliminations" (PvE), "Runner Eliminations" (PvP), "Crew Revives", "Inventory Value" (loot), "Run Time" (MM:SS). USE THESE EXACT NUMBERS.
-  2. **PROGRESS REPORT** (tab highlighted in top-right): Second screen. Title "PROGRESS REPORT" at top-left. Shows "SEASON LEVEL" label with an XP progress bar below it. The CURRENT level is the number DIRECTLY BELOW the words "SEASON LEVEL" (green circular icon + number, e.g. 34). The number on the far RIGHT of the bar is the NEXT level — do NOT use that number. Below that shows "FACTION RANKS" with faction logos and rep bars. The season level here is the POST-RUN level — if the player leveled up during the run, this reflects the new level.
-  3. **LOADOUT REPORT** (tab highlighted in top-right): Third screen. Title "LOADOUT REPORT" at top-left. Shows weapons extracted with mod slots, backpack grid on the right, and "Wallet Balance:" in bright green text at the bottom-left (e.g. "Wallet Balance: 66,089" — this is the post-run vault value).
+  2. **PROGRESS REPORT** (tab highlighted in top-right): Second screen. Title "PROGRESS REPORT" at top-left. Shows "SEASON LEVEL" label with an XP progress bar below it.
+     **ANIMATION WARNING**: Like the LOADOUT REPORT, the PROGRESS REPORT animates in. The season level starts at the PRE-RUN value and ticks up if the player leveled up. The number shown mid-animation is STALE.
+     **CROSS-REFERENCE**: The TOP-LEFT pill on the screen always shows the correct post-run season level (green circular icon + number, e.g. 34). This is ALWAYS the final value. Use the TOP-LEFT pill as ground truth for player level, not the animated "SEASON LEVEL" number in the body of the report.
+  3. **LOADOUT REPORT** (tab highlighted in top-right): Third screen. Title "LOADOUT REPORT" at top-left. Shows weapons extracted with mod slots, backpack grid on the right, and "Wallet Balance:" in bright green text at the bottom-left.
+     **ANIMATION WARNING**: The LOADOUT REPORT (and PROGRESS REPORT) animate in their data over 1-2 seconds. When first opened, values are STALE (from before the run). Items tick in one by one, and ONLY when "Report Summary" appears at the bottom of the left column (with "Exfil Successful" or similar) are the numbers FINAL. If "Report Summary" is NOT visible, the Wallet Balance is STALE — do NOT use it.
+     **CROSS-REFERENCE**: The TOP BAR of the screen always shows a pill with the player's vault value (e.g. the gear icon + "66,149"). This top bar value is ALWAYS the final/correct value. Use it as ground truth. The Wallet Balance at the bottom should MATCH the top bar value — if it doesn't, the animation hasn't finished and you should use the TOP BAR value instead.
 
 The STATS screen is GROUND TRUTH — use its exact numbers. Do NOT estimate from gameplay.
 
@@ -81,8 +85,8 @@ Return ONLY valid JSON:
   "damage_contributors": [{"name": "gamertag", "damage": number, "finished": true/false}] or null — list ALL players/enemies from the death screen. The finisher has "finished": true. Include EVERY entry, even UESC Recruits or AI enemies.,
   "player_gamertag": "local player's gamertag from STATS tab (CENTER column)" or null,
   "squad_members": ["all", "squad", "gamertags", "from STATS tab columns"] or null — include ALL members shown,
-  "player_level": season level from PROGRESS REPORT — the number DIRECTLY BELOW the words "SEASON LEVEL" (green circular icon, e.g. 34). NOT the number on the far right (that is the next level). Or null,
-  "vault_value": "Wallet Balance" from LOADOUT REPORT (bright green number at bottom, e.g. 66089) or null — this is the post-run vault value,
+  "player_level": season level from the TOP-LEFT pill on screen (green circular icon + number, always correct). Do NOT use the animated "SEASON LEVEL" number in the PROGRESS REPORT body — it may be mid-animation and stale. The top-left pill is ground truth. Or null,
+  "vault_value": vault value from the TOP BAR pill (gear icon + number, always correct) or from "Wallet Balance" at bottom of LOADOUT REPORT ONLY if "Report Summary" is visible. Top bar is ground truth — if Wallet Balance differs from top bar, use the top bar value. Or null,
   "stats_tab_found": true if you found the STATS tab with kill/loot numbers,
   "stats_tab_needs_more_frames": true if stats tab is visible but too blurry/fast to read — request higher fps,
   "loadout_tab_found": true if you found the LOADOUT REPORT with weapons/wallet
@@ -575,6 +579,7 @@ Key distinguishing features:
 
 **FULL SCREEN INFO (from readyup.jpg / run.jpg / deploying.jpg FULL screenshots, NOT crops):**
 - Map name (e.g. PERIMETER) and crew size (e.g. "Crew: Solo", "Crew: Duo")
+- **Ranked mode**: Check if the word "Ranked" appears ABOVE the map name (e.g. "Ranked" above "PERIMETER"). This indicates a ranked match with a $3,000 loadout requirement. If "Ranked" is visible, set is_ranked to true.
 - Player gamertag (shown above the LOCAL player's character, CENTER of screen)
 - Squad members: ALL gamertags visible above each character (local player is CENTER, squad mates are LEFT and RIGHT). Include ALL members including the local player.
 **LOADOUT VALUE (from _crop.jpg screenshots):**
@@ -589,6 +594,7 @@ Extract and return ONLY valid JSON:
   "squad_members": ["all", "gamertags", "visible above each character"] or null — include ALL members (local player is center, mates are left/right),
   "crew_size": "Solo" or "Duo" or "Trio" or null,
   "loadout_value": total loadout value as integer (from gear icon above loadout grid, convert K notation) or null,
+  "is_ranked": true if "Ranked" text appears above the map name, false otherwise,
 }}
 
 Use null for anything not visible."""
@@ -635,6 +641,11 @@ Use null for anything not visible."""
     eg_damage_path = os.path.join(os.path.dirname(deploy_jpg), "endgame_damage.jpg")
     if os.path.exists(eg_damage_path):
         endgame_screenshots.append(eg_damage_path)
+    # Postgame stats screenshots (3-shot burst: banner → stats screen)
+    for i in range(1, 4):
+        stats_shot = os.path.join(os.path.dirname(deploy_jpg), f"stats_{i}.jpg")
+        if os.path.exists(stats_shot):
+            endgame_screenshots.append(stats_shot)
 
     if all_end_frames or endgame_screenshots:
         # Prepend endgame screenshots to the first batch — they show who killed the player
@@ -663,10 +674,17 @@ Use null for anything not visible."""
                 if missing:
                     missing_hint = f"\n\nPREVIOUS BATCH DID NOT FIND: {', '.join(missing)}. Look carefully for the LOADOUT tab (weapons), STATS tab (kills/loot), and death screen."
 
+            # Tell Sonnet which images are high-quality OCR captures vs video frames
+            ocr_note = ""
+            ocr_files = [p for p in abs_paths if any(n in p for n in ['endgame.jpg', 'endgame_damage.jpg', 'stats_1.jpg', 'stats_2.jpg', 'stats_3.jpg'])]
+            if ocr_files:
+                ocr_list = ", ".join(os.path.basename(p) for p in ocr_files)
+                ocr_note = f"\n\nPRIORITY IMAGES: {ocr_list} are direct 4K screen captures (not video frames). These are the highest quality — read stats, kills, loot, and death info from these FIRST. The remaining images are extracted video frames (lower quality) for finding PROGRESS REPORT and LOADOUT REPORT tabs."
+
             prompt2 = f"""Read these {len(batch)} Marathon end-of-run screenshot images using your Read tool:
 {image_list2}
 
-These are from the END of a Marathon run — stats screens, death screen, loadout report.{missing_hint}
+These are from the END of a Marathon run — stats screens, death screen, loadout report.{missing_hint}{ocr_note}
 {PHASE1_CALL2_PROMPT}"""
 
             frames_parent = os.path.dirname(batch[0])
@@ -1515,6 +1533,7 @@ def save_run_to_db(analysis: dict, run_date: datetime | None = None) -> int | No
             grade=analysis.get("grade"),
             summary=analysis.get("summary"),
             notes=_build_notes(analysis),
+            is_ranked=_run_metadata.get("is_ranked") or analysis.get("is_ranked", False),
         )
         db.add(run)
         db.commit()
@@ -1667,6 +1686,17 @@ def process_recording(recording_path: str, clips_dir: str, on_phase=None) -> dic
         os.path.exists(os.path.join(run_screenshots, f"deploy_{i}.jpg")) for i in range(1, 4)
     )
     has_screenshots = has_deploy or has_readyup
+
+    # Read run metadata (ranked flag, etc.)
+    _run_metadata = {}
+    _metadata_path = os.path.join(run_screenshots, "metadata.json")
+    if os.path.exists(_metadata_path):
+        try:
+            import json as _json
+            _run_metadata = _json.load(open(_metadata_path))
+            print(f"[processor] Run metadata: {_run_metadata}")
+        except Exception:
+            pass
 
     # Read endgame timestamp if available
     endgame_ts = None

@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { getApiBaseUrl } from './electron'
 import type {
-  Run, Runner, Loadout, Weapon, ShellStats,
+  Run, PaginatedRuns, Runner, Loadout, Weapon, ShellStats,
   OverviewStats, MapStats, TrendData, Session, SpawnHeatmap,
   CaptureStatus, Clip,
 } from './types'
@@ -12,8 +12,13 @@ const api = axios.create({ baseURL: `${apiBase}/api` })
 export { apiBase }
 
 // Runs
-export async function getRuns(params?: Record<string, any>): Promise<Run[]> {
-  const { data } = await api.get<Run[]>('/runs', { params })
+export async function getRuns(params?: Record<string, any>): Promise<PaginatedRuns> {
+  const { data } = await api.get<PaginatedRuns>('/runs', { params })
+  return data
+}
+
+export async function getVaultValues(): Promise<{ value: number }[]> {
+  const { data } = await api.get<{ value: number }[]>('/runs/vault-values')
   return data
 }
 

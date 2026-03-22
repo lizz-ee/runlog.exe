@@ -126,6 +126,8 @@ export default function App() {
       const det = captureStatus.last_detection
       let recDetail = formatTime(captureStatus.recording_seconds)
       if (det === 'endgame') recDetail += '|RUN.COMPLETE'
+      if (det === 'exfiltrated') recDetail += '|EXFILTRATED'
+      if (det === 'eliminated') recDetail += '|ELIMINATED'
       runlog.updateOverlay('recording', recDetail)
     } else if (captureStatus.active && captureStatus.last_detection) {
       const det = captureStatus.last_detection === 'run' ? 'RUN.EXE' : captureStatus.last_detection.toUpperCase().replace('_', '.')

@@ -660,7 +660,9 @@ export function matchRunClips(run: Run, clips: Clip[]): Clip[] {
 /* ── Main Component ── */
 export default function RunHistory() {
   const { focusRunId, setFocusRunId } = useStore()
-  const [allRuns, setAllRuns] = useState<Run[]>([])
+  const [pageRuns, setPageRuns] = useState<Run[]>([])
+  const [totalCount, setTotalCount] = useState(0)
+  const [maps, setMaps] = useState<string[]>([])
   const [clips, setClips] = useState<Clip[]>([])
   const [outcomeFilter, setOutcomeFilter] = useState<'all' | 'survived' | 'died'>('all')
   const [gradeFilter, setGradeFilter] = useState<string>('')
@@ -670,51 +672,55 @@ export default function RunHistory() {
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
   const RUNS_PER_PAGE = 21
 
-  const refreshRuns = useCallback(() => {
-    getRuns({ limit: 500 }).then(setAllRuns).catch(() => {})
-  }, [])
+  const fetchPage = useCallback(() => {
+    const params: Record<string, any> = {
+      limit: RUNS_PER_PAGE,
+      offset: page * RUNS_PER_PAGE,
+    }
+    if (outcomeFilter === 'survived') params.survived = true
+    if (outcomeFilter === 'died') params.survived = false
+    if (gradeFilter) params.grade = gradeFilter
+    if (mapFilter) params.map_name = mapFilter
+    if (favFilter) params.is_favorite = true
 
-  const loadData = useCallback(() => {
-    Promise.all([
-      getRuns({ limit: 500 }),
-      getClips(),
-    ]).then(([runs, allClips]) => {
-      setAllRuns(runs)
-      setClips(allClips)
-      if (focusRunId) {
-        const idx = runs.findIndex(r => r.id === focusRunId)
-        if (idx >= 0) {
-          setPage(Math.floor(idx / RUNS_PER_PAGE))
-          setExpanded(new Set([focusRunId]))
-          setFocusRunId(null)
-        }
-      }
+    getRuns(params).then(result => {
+      setPageRuns(result.items)
+      setTotalCount(result.total)
+      setMaps(result.maps)
     }).catch(() => {})
-  }, [])
+  }, [page, outcomeFilter, gradeFilter, mapFilter, favFilter])
 
-  // Load on mount
-  useEffect(() => { loadData() }, [])
+  const refreshRuns = useCallback(() => {
+    fetchPage()
+  }, [fetchPage])
+
+  // Load clips on mount
+  useEffect(() => { getClips().then(setClips).catch(() => {}) }, [])
+
+  // Fetch page whenever page/filters change
+  useEffect(() => { fetchPage() }, [fetchPage])
+
+  // Handle focusRunId — new runs are always page 0
+  useEffect(() => {
+    if (focusRunId) {
+      setPage(0)
+      setExpanded(new Set([focusRunId]))
+      setFocusRunId(null)
+    }
+  }, [focusRunId])
 
   // Auto-refresh on Phase 1 (new run_id) AND Phase 2 (done count changes)
   const { captureStatus } = useStore()
   const lastRunId = captureStatus?.last_result?.run_id
   const doneCount = captureStatus?.processing_items?.filter(i => i.status === 'done').length ?? 0
   useEffect(() => {
-    if (lastRunId || doneCount) loadData()
+    if (lastRunId || doneCount) {
+      fetchPage()
+      getClips().then(setClips).catch(() => {})
+    }
   }, [lastRunId, doneCount])
 
-  const filtered = allRuns.filter((r) => {
-    if (outcomeFilter === 'survived' && r.survived !== true) return false
-    if (outcomeFilter === 'died' && r.survived !== false) return false
-    if (gradeFilter && (r.grade || '') !== gradeFilter) return false
-    if (mapFilter && r.map_name?.toLowerCase() !== mapFilter.toLowerCase()) return false
-    if (favFilter && !r.is_favorite) return false
-    return true
-  })
-
-  const maps = [...new Set(allRuns.map((r) => r.map_name).filter(Boolean))]
-  const totalPages = Math.max(1, Math.ceil(filtered.length / RUNS_PER_PAGE))
-  const pageRuns = filtered.slice(page * RUNS_PER_PAGE, (page + 1) * RUNS_PER_PAGE)
+  const totalPages = Math.max(1, Math.ceil(totalCount / RUNS_PER_PAGE))
 
   useEffect(() => { setPage(0) }, [outcomeFilter, gradeFilter, mapFilter, favFilter])
 
@@ -726,7 +732,9 @@ export default function RunHistory() {
     e.stopPropagation()
     try {
       const result = await toggleFavorite(runId)
-      setAllRuns(prev => prev.map(r => r.id === runId ? { ...r, is_favorite: result.is_favorite } : r))
+      setPageRuns(prev => prev.map(r => r.id === runId ? { ...r, is_favorite: result.is_favorite } : r))
+      // If favorite filter is active, removing a favorite should refresh the page
+      if (favFilter) fetchPage()
     } catch (err) {
       console.error('Failed to toggle favorite:', err)
     }
@@ -739,7 +747,7 @@ export default function RunHistory() {
       else {
         next.add(runId)
         // Mark as viewed
-        const run = allRuns.find(r => r.id === runId)
+        const run = pageRuns.find(r => r.id === runId)
         if (run && !run.viewed) {
           axios.post(`${apiBase}/api/runs/${runId}/viewed`).catch(() => {})
         }
@@ -846,7 +854,7 @@ export default function RunHistory() {
         </button>
 
         <span className="label-tag text-m-text-muted ml-auto">
-          {filtered.length} TRANSMISSION{filtered.length !== 1 ? 'S' : ''}
+          {totalCount} TRANSMISSION{totalCount !== 1 ? 'S' : ''}
         </span>
       </div>
 
@@ -866,7 +874,7 @@ export default function RunHistory() {
       </div>
 
       {/* Run List */}
-      {filtered.length === 0 ? (
+      {totalCount === 0 ? (
         <div className="border border-1 border-m-border bg-m-card p-10 text-center">
           <p className="text-xs text-m-text-muted tracking-wider">
             {favFilter ? 'NO FAVORITED RUNS' : 'NO MATCHING RUNS'}
@@ -883,7 +891,7 @@ export default function RunHistory() {
               onToggleFavorite={(e) => handleToggleFavorite(e, run.id)}
               onUpdate={refreshRuns}
               clips={getRunClips(run)}
-              onClipsRefresh={loadData}
+              onClipsRefresh={() => { fetchPage(); getClips().then(setClips).catch(() => {}) }}
             />
           ))}
         </div>
@@ -995,7 +1003,10 @@ export function RunRow({ run, isExpanded, onToggle, onToggleFavorite, onUpdate, 
         </span>
 
         {/* Map + Spawn */}
-        <span className="text-xs text-m-text tracking-wider uppercase truncate">
+        <span className="text-xs text-m-text tracking-wider uppercase truncate flex items-center gap-1.5">
+          {run.is_ranked && (
+            <span className="text-[9px] font-bold text-m-yellow border border-m-yellow/50 px-1 rounded-sm leading-tight">R</span>
+          )}
           {run.map_name ?? 'UNKNOWN'}
           {run.spawn_location && (
             <span className="text-m-text-muted"> — {run.spawn_location}</span>

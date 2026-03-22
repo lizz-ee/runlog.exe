@@ -242,7 +242,7 @@ class AutoCapture:
                 with self._frame_lock:
                     self._latest_frame = frame
                     self._frame_seq += 1
-            time.sleep(0.3)  # Rust sends frames at ~2fps, check ~3x/sec
+            time.sleep(0.05)  # Poll fast — relay is just a reference copy, negligible CPU
         print("[capture] Frame relay stopped.")
 
     # -- OCR loop (state machine) ------------------------------------------
@@ -251,8 +251,8 @@ class AutoCapture:
 
     # State timeouts — fall back to lobby if stuck too long
     _STATE_TIMEOUTS = {
-        'deploy': 30,     # 30s without finding map name → probably backed out
         'endgame': 1800,  # 30min without RUN_COMPLETE → game crashed or alt-tabbed
+        'postgame': 30,   # 30s without stats screen → missed it, back to lobby
     }
 
     def _ocr_loop(self):
@@ -280,11 +280,11 @@ class AutoCapture:
                         print(f"[capture] Stopping orphaned recording due to timeout")
                         self._stop_recording()
 
-                # While in deploy state, check lobby every 3rd cycle to detect
+                # While in deploy state, check lobby every 5th cycle to detect
                 # if user cancelled matchmaking and returned to lobby
                 if self._scan_state == 'deploy':
                     deploy_cycle += 1
-                    if deploy_cycle % 3 == 0:
+                    if deploy_cycle % 5 == 0:
                         lobby_result = detect_game_state(frame, scan_mode='lobby')
                         if lobby_result and lobby_result['type'] in ('prepare', 'select_zone', 'ready_up'):
                             print(f"[capture] Lobby re-detected ({lobby_result['type']}) while in deploy — returning to lobby state")
@@ -397,7 +397,9 @@ class AutoCapture:
         elif det_type == 'deploy':
             self._scan_state = 'endgame'   # Map found → watch for RUN_COMPLETE
         elif det_type == 'endgame':
-            self._scan_state = 'lobby'     # Run complete → watch lobby for PREPARE
+            self._scan_state = 'postgame'  # Run complete → watch for stats screen
+        elif det_type in ('exfiltrated', 'eliminated'):
+            self._scan_state = 'lobby'     # Stats captured → watch lobby for PREPARE
         if self._scan_state != prev_state:
             self._state_changed_at = time.time()
 
@@ -413,14 +415,21 @@ class AutoCapture:
         # --- DEPLOY: 3-shot burst + start recording + move readyup buffer ---
         elif det_type == 'deploy' and not self._recording:
             import shutil
+            import json as _json
             map_name = result.get('map_name', 'Unknown')
-            print(f"[capture] Detected deployment: {map_name} -- starting recording")
+            is_ranked = result.get('is_ranked', False)
+            print(f"[capture] Detected deployment: {map_name}{' (RANKED)' if is_ranked else ''} -- starting recording")
             self._start_recording()
 
             if self._recording_path:
                 rec_name = os.path.basename(self._recording_path).replace(".mp4", "")
                 screenshots_dir = os.path.join(self.clips_dir, rec_name, "screenshots")
                 os.makedirs(screenshots_dir, exist_ok=True)
+
+                # Save run metadata for the processor
+                if is_ranked:
+                    with open(os.path.join(screenshots_dir, "metadata.json"), "w") as f:
+                        _json.dump({"is_ranked": True}, f)
 
                 # Shot 1: immediate (may catch contract screen — too early)
                 self._save_deploy_shot(screenshots_dir, "deploy_1", frame_jpeg)
@@ -482,6 +491,45 @@ class AutoCapture:
                     print(f"[capture] Endgame damage crop saved ({crop.size[0]}x{crop.size[1]})")
                 except Exception as e:
                     print(f"[capture] Damage crop failed: {e}")
+
+        # --- POSTGAME: stats screenshot (exfiltrated/eliminated) ---
+        elif det_type in ('exfiltrated', 'eliminated') and self._recording:
+            print(f"[capture] Detected {det_type.upper()} — saving stats screenshots (3-shot burst)")
+            if self._recording_path:
+                rec_name = os.path.basename(self._recording_path).replace(".mp4", "")
+                screenshots_dir = os.path.join(self.clips_dir, rec_name, "screenshots")
+                os.makedirs(screenshots_dir, exist_ok=True)
+
+                # Shot 1: immediate (banner screen)
+                self._save_deploy_shot(screenshots_dir, "stats_1", frame_jpeg)
+                print(f"[capture] Stats shot 1/3 saved ({det_type})")
+
+                # Shots 2 & 3: delayed to catch the actual stats screen after banner
+                def _delayed_stats_shots():
+                    prev_seq = self._frame_seq
+                    # Shot 2: wait ~2s for stats screen to appear
+                    time.sleep(2.0)
+                    for _ in range(10):
+                        if self._frame_seq != prev_seq:
+                            break
+                        time.sleep(0.1)
+                    frame2 = self._latest_frame
+                    if frame2:
+                        self._save_deploy_shot(screenshots_dir, "stats_2", frame2)
+                        print(f"[capture] Stats shot 2/3 saved (seq {self._frame_seq})")
+                    # Shot 3: wait another ~2s
+                    prev_seq = self._frame_seq
+                    time.sleep(2.0)
+                    for _ in range(10):
+                        if self._frame_seq != prev_seq:
+                            break
+                        time.sleep(0.1)
+                    frame3 = self._latest_frame
+                    if frame3:
+                        self._save_deploy_shot(screenshots_dir, "stats_3", frame3)
+                        print(f"[capture] Stats shot 3/3 saved (seq {self._frame_seq})")
+
+                threading.Thread(target=_delayed_stats_shots, daemon=True).start()
 
         # --- PREPARE: stop recording (back in lobby) ---
         elif det_type == 'prepare' and self._recording:

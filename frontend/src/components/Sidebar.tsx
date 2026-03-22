@@ -64,7 +64,8 @@ const VIEW_TO_MAP: Record<string, string> = {
 }
 
 export default function Sidebar() {
-  const { view, setView, stats, unviewedCount, refreshUnviewed } = useStore()
+  const { view, setView, stats, unviewedCount, refreshUnviewed, captureStatus } = useStore()
+  const isProcessing = (captureStatus?.processing_items || []).some(i => i.status !== 'done')
   const [stagingCounts, setStagingCounts] = useState<Record<string, number>>({})
 
   useEffect(() => {
@@ -148,12 +149,16 @@ export default function Sidebar() {
               <button
                 key={item.view}
                 onClick={() => !item.disabled && setView(item.view)}
-                className={`w-full flex items-center gap-3 px-4 py-2 text-left transition-all border-l-2 ${
+                className={`w-full flex items-center gap-3 px-4 py-2 text-left transition-all ${
                   item.disabled
-                    ? 'border-transparent cursor-not-allowed opacity-40'
-                    : view === item.view
-                      ? 'border-m-green bg-m-green-glow text-m-green'
-                      : 'border-transparent text-m-text-dim hover:text-m-text hover:bg-m-surface'
+                    ? 'border-l-2 border-transparent cursor-not-allowed opacity-40'
+                    : item.view === 'live' && isProcessing && view === item.view
+                      ? 'animate-border-sweep bg-m-green-glow'
+                      : item.view === 'live' && isProcessing
+                        ? 'animate-border-sweep text-m-cyan/80 hover:text-m-cyan hover:bg-m-surface'
+                        : view === item.view
+                          ? 'border-l-2 border-m-green bg-m-green-glow text-m-green'
+                          : 'border-l-2 border-transparent text-m-text-dim hover:text-m-text hover:bg-m-surface'
                 }`}
               >
                 <span className={`label-tag ${

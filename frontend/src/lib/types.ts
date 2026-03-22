@@ -65,7 +65,14 @@ export interface Run {
   recording_path: string | null
   viewed: boolean | null
   is_favorite: boolean | null
+  is_ranked: boolean | null
   created_at: string
+}
+
+export interface PaginatedRuns {
+  items: Run[]
+  total: number
+  maps: string[]
 }
 
 export interface LootItem {

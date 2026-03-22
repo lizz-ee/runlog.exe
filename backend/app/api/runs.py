@@ -3,22 +3,25 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, func
+from sqlalchemy import desc, distinct, func
 
 from ..database import get_db
 from ..models import Run
-from ..schemas import RunCreate, RunUpdate, RunOut
+from ..schemas import RunCreate, RunUpdate, RunOut, PaginatedRunsResponse
 
 router = APIRouter()
 
 
-@router.get("/", response_model=list[RunOut])
+@router.get("/", response_model=PaginatedRunsResponse)
 def list_runs(
-    limit: int = Query(50, ge=1, le=500),
+    limit: int = Query(21, ge=1, le=500),
     offset: int = Query(0, ge=0),
     map_name: Optional[str] = None,
     survived: Optional[bool] = None,
     runner_id: Optional[int] = None,
+    grade: Optional[str] = None,
+    is_favorite: Optional[bool] = None,
+    is_ranked: Optional[bool] = None,
     db: Session = Depends(get_db),
 ):
     q = db.query(Run)
@@ -28,12 +31,38 @@ def list_runs(
         q = q.filter(Run.survived == survived)
     if runner_id:
         q = q.filter(Run.runner_id == runner_id)
-    return q.order_by(desc(Run.date)).offset(offset).limit(limit).all()
+    if grade:
+        q = q.filter(Run.grade == grade)
+    if is_favorite:
+        q = q.filter(Run.is_favorite == True)
+    if is_ranked is not None:
+        q = q.filter(Run.is_ranked == is_ranked)
+
+    total = q.count()
+    items = q.order_by(desc(Run.date)).offset(offset).limit(limit).all()
+
+    # Distinct maps (unfiltered) for filter dropdown
+    map_rows = db.query(distinct(Run.map_name)).filter(Run.map_name.isnot(None)).all()
+    maps = sorted([r[0] for r in map_rows])
+
+    return PaginatedRunsResponse(items=items, total=total, maps=maps)
 
 
 @router.get("/recent", response_model=list[RunOut])
 def recent_runs(limit: int = Query(10, ge=1, le=50), db: Session = Depends(get_db)):
     return db.query(Run).order_by(desc(Run.date)).limit(limit).all()
+
+
+@router.get("/vault-values")
+def vault_values(db: Session = Depends(get_db)):
+    """Lightweight endpoint: just vault_value for the chart, oldest first."""
+    rows = (
+        db.query(Run.vault_value)
+        .filter(Run.vault_value.isnot(None))
+        .order_by(Run.date.asc())
+        .all()
+    )
+    return [{"value": r[0]} for r in rows]
 
 
 @router.get("/{run_id}", response_model=RunOut)

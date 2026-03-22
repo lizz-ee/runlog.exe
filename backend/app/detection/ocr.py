@@ -83,8 +83,20 @@ def detect_game_state(jpeg_bytes: bytes, scan_mode: str = 'lobby') -> dict | Non
             if deploy_text:
                 for map_name in MAP_NAMES:
                     if map_name in deploy_text:
-                        print(f"[ocr] DEPLOY: \"{deploy_text}\" -> {map_name}")
-                        return {'type': 'deploy', 'map_name': map_name, 'text': deploy_text}
+                        is_ranked = 'RANKED' in deploy_text or 'RANK' in deploy_text
+                        print(f"[ocr] DEPLOY: \"{deploy_text}\" -> {map_name}{' (RANKED)' if is_ranked else ''}")
+                        return {'type': 'deploy', 'map_name': map_name, 'is_ranked': is_ranked, 'text': deploy_text}
+            return None
+
+        if scan_mode == 'postgame':
+            deploy_text = _ocr_region(img, DEPLOY_REGION, reader, label="POSTGAME")
+            if deploy_text:
+                if 'EXFILTRAT' in deploy_text:
+                    print(f"[ocr] POSTGAME: \"{deploy_text}\" -> EXFILTRATED")
+                    return {'type': 'exfiltrated', 'map_name': None, 'text': deploy_text}
+                if 'ELIMINATED' in deploy_text or 'ELIMINAT' in deploy_text:
+                    print(f"[ocr] POSTGAME: \"{deploy_text}\" -> ELIMINATED")
+                    return {'type': 'eliminated', 'map_name': None, 'text': deploy_text}
             return None
 
         if scan_mode == 'endgame':

@@ -63,6 +63,9 @@ with engine.connect() as conn:
     if "damage_contributors" not in existing_cols:
         conn.execute(text("ALTER TABLE runs ADD COLUMN damage_contributors JSON"))
         conn.commit()
+    if "is_ranked" not in existing_cols:
+        conn.execute(text("ALTER TABLE runs ADD COLUMN is_ranked BOOLEAN DEFAULT 0"))
+        conn.commit()
 
 # Seed spawn points from reference data if table is empty
 from .database import SessionLocal

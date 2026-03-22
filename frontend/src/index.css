@@ -100,6 +100,21 @@ body {
   50% { opacity: 0.85; }
 }
 
+@keyframes borderSweepGlow {
+  0%, 100% {
+    border-image: linear-gradient(180deg, transparent 0%, rgba(0, 255, 255, 0.3) 50%, transparent 100%) 1;
+    color: rgba(0, 255, 255, 0.5);
+  }
+  50% {
+    border-image: linear-gradient(180deg, transparent 0%, rgba(0, 255, 255, 1) 50%, transparent 100%) 1;
+    color: rgba(0, 255, 255, 1);
+  }
+}
+.animate-border-sweep {
+  border-left: 2px solid transparent;
+  animation: borderSweepGlow 2s ease-in-out infinite;
+}
+
 .animate-glitch { animation: glitch 4s infinite; }
 .animate-rgb-split { animation: rgbSplit 3s infinite; }
 .animate-pill-glow { animation: pillGlow 2s ease-in-out infinite; }

@@ -17,6 +17,9 @@ use windows_capture::settings::{
 };
 use windows_capture::window::Window;
 
+use windows::Win32::Graphics::Direct3D11::*;
+use windows::Win32::Graphics::Dxgi::Common::DXGI_SAMPLE_DESC;
+
 // ---------------------------------------------------------------------------
 // IPC messages
 // ---------------------------------------------------------------------------
@@ -103,6 +106,128 @@ struct SharedState {
 }
 
 // ---------------------------------------------------------------------------
+// Double-buffered staging pool — zero-stall GPU→CPU readback
+// ---------------------------------------------------------------------------
+
+struct StagingPool {
+    staging: [Option<ID3D11Texture2D>; 2],
+    current: usize,
+    ready: [bool; 2],
+    device: Option<ID3D11Device>,
+    context: Option<ID3D11DeviceContext>,
+    width: u32,
+    height: u32,
+}
+
+impl StagingPool {
+    fn new() -> Self {
+        Self {
+            staging: [None, None],
+            current: 0,
+            ready: [false, false],
+            device: None,
+            context: None,
+            width: 0,
+            height: 0,
+        }
+    }
+
+    /// Initialize device/context from the frame texture (first call only),
+    /// and recreate staging textures if resolution changed.
+    fn ensure_staging(&mut self, frame_texture: &ID3D11Texture2D) {
+        if self.device.is_none() {
+            unsafe {
+                let device: ID3D11Device = frame_texture.GetDevice().unwrap();
+                let context: ID3D11DeviceContext = device.GetImmediateContext().unwrap();
+                self.context = Some(context);
+                self.device = Some(device);
+            }
+        }
+
+        let mut desc = D3D11_TEXTURE2D_DESC::default();
+        unsafe { frame_texture.GetDesc(&mut desc) };
+
+        // Recreate staging textures if resolution changed
+        if desc.Width != self.width || desc.Height != self.height {
+            self.width = desc.Width;
+            self.height = desc.Height;
+            let staging_desc = D3D11_TEXTURE2D_DESC {
+                Width: desc.Width,
+                Height: desc.Height,
+                MipLevels: 1,
+                ArraySize: 1,
+                Format: desc.Format,
+                SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+                Usage: D3D11_USAGE_STAGING,
+                BindFlags: 0,
+                CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32,
+                MiscFlags: 0,
+            };
+            for i in 0..2 {
+                let mut tex = None;
+                unsafe {
+                    self.device.as_ref().unwrap()
+                        .CreateTexture2D(&staging_desc, None, Some(&mut tex))
+                        .unwrap();
+                }
+                self.staging[i] = tex;
+                self.ready[i] = false;
+            }
+            eprintln!("[recorder] Staging pool created: {}x{} (2 buffers)", desc.Width, desc.Height);
+        }
+    }
+
+    /// Issue async CopyResource for the current frame, return the previously-copied data.
+    /// Returns None on the first call (no previous data yet).
+    fn copy_and_read(&mut self, frame_texture: &ID3D11Texture2D) -> Option<OcrFrameData> {
+        self.ensure_staging(frame_texture);
+        let ctx = self.context.as_ref().unwrap();
+
+        let read_idx = self.current;       // Read from this (previous copy, already complete)
+        let write_idx = 1 - self.current;  // Write to this (new async copy)
+
+        // 1. Read the OLD staging buffer — copy was issued ~3s ago, Map returns instantly
+        let result = if self.ready[read_idx] {
+            let staging = self.staging[read_idx].as_ref().unwrap();
+            let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
+            let hr = unsafe {
+                ctx.Map(staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))
+            };
+            if hr.is_ok() {
+                let row_pitch = mapped.RowPitch as usize;
+                let total_bytes = row_pitch * self.height as usize;
+                let data = unsafe {
+                    std::slice::from_raw_parts(mapped.pData as *const u8, total_bytes)
+                };
+                let raw = data.to_vec();
+                unsafe { ctx.Unmap(staging, 0) };
+                self.ready[read_idx] = false;
+                Some(OcrFrameData {
+                    raw,
+                    width: self.width as usize,
+                    height: self.height as usize,
+                    row_pitch,
+                })
+            } else {
+                None
+            }
+        } else {
+            None // First call — no previous data yet
+        };
+
+        // 2. Issue ASYNC CopyResource to the other staging buffer (non-blocking)
+        let staging_dst = self.staging[write_idx].as_ref().unwrap();
+        unsafe { ctx.CopyResource(staging_dst, frame_texture) };
+        self.ready[write_idx] = true;
+
+        // 3. Swap buffers for next call
+        self.current = write_idx;
+
+        result
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Capture handler
 // ---------------------------------------------------------------------------
 
@@ -116,6 +241,8 @@ struct Recorder {
     height: u32,
     /// Send OCR frames every N capture frames
     ocr_interval: u64,
+    /// Double-buffered staging for zero-stall OCR during recording
+    staging_pool: StagingPool,
 }
 
 impl GraphicsCaptureApiHandler for Recorder {
@@ -132,6 +259,7 @@ impl GraphicsCaptureApiHandler for Recorder {
             width: 0,
             height: 0,
             ocr_interval: 15, // ~0.25s at 60fps in menus, stretched during recording
+            staging_pool: StagingPool::new(),
         })
     }
 
@@ -243,13 +371,20 @@ impl GraphicsCaptureApiHandler for Recorder {
         }
 
         // OCR frame: fast in menus (~0.25s), slow during recording (~3s)
-        let interval = if self.encoder.is_some() {
+        let is_recording = self.encoder.is_some();
+        let interval = if is_recording {
             self.ocr_interval * 12  // ~3s during recording (just need endgame)
         } else {
             self.ocr_interval       // ~0.25s in menus (responsive detection)
         };
         if self.frame_count % interval == 0 {
-            self.send_ocr_frame(frame);
+            if is_recording {
+                // Zero-stall path: double-buffered staging (data is one interval old)
+                self.send_ocr_frame_staged(frame);
+            } else {
+                // Direct path: frame.buffer() — fast and responsive, GPU not under load
+                self.send_ocr_frame(frame);
+            }
         }
 
         Ok(())
@@ -280,8 +415,9 @@ impl Recorder {
         self.recording_start = None;
     }
 
+    /// Direct OCR frame capture — used in menus when GPU is not under load.
+    /// Calls frame.buffer() which does synchronous CopyResource + Map.
     fn send_ocr_frame(&mut self, frame: &mut Frame<'_>) {
-        // Fast path: just copy raw pixels from GPU, let background thread do the rest
         let mut buffer = match frame.buffer() {
             Ok(b) => b,
             Err(_) => return,
@@ -299,6 +435,22 @@ impl Recorder {
             *pending = Some(OcrFrameData { raw, width: w, height: h, row_pitch });
         }
         self.state.ocr_notify.notify_one();
+    }
+
+    /// Zero-stall OCR frame capture — used during recording to avoid GPU pipeline stalls.
+    /// Uses double-buffered staging: reads the PREVIOUS frame (copy already complete),
+    /// then issues an async CopyResource for the current frame.
+    fn send_ocr_frame_staged(&mut self, frame: &mut Frame<'_>) {
+        let frame_texture = unsafe { frame.as_raw_texture() };
+
+        if let Some(ocr_data) = self.staging_pool.copy_and_read(frame_texture) {
+            let mut pending = self.state.ocr_pending.lock().unwrap();
+            *pending = Some(ocr_data);
+            drop(pending);
+            self.state.ocr_notify.notify_one();
+        }
+        // First call returns None — no previous data yet. That's fine,
+        // the next interval (~3s later) will return the first frame.
     }
 }
 

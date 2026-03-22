@@ -322,7 +322,7 @@ export default function Live() {
             <img
               src={`${getFrameUrl()}?t=${frameKey}`}
               alt=""
-              className="w-full min-h-[400px] max-h-[550px] object-contain relative z-0 text-transparent"
+              className="w-full aspect-video object-contain relative z-0 text-transparent"
             />
           ) : (
             <div className="h-[400px] flex items-center justify-center flex-col gap-4 relative z-0">
