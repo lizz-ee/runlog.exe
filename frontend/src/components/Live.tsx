@@ -367,8 +367,8 @@ export default function Live() {
         {(() => {
           const phases = [
             { label: 'PHASE.00', stages: PIPELINE_STAGES.slice(0, 1) },
-            { label: 'PHASE.01 // STATS', stages: PIPELINE_STAGES.slice(1, 2) },
-            { label: 'PHASE.02 // NARRATIVE', stages: PIPELINE_STAGES.slice(2) },
+            { label: 'PHASE.01 // STATS', stages: PIPELINE_STAGES.slice(1, 3) },
+            { label: 'PHASE.02 // NARRATIVE', stages: PIPELINE_STAGES.slice(3) },
           ]
 
           function pillColor(key: string, hasItems: boolean) {
