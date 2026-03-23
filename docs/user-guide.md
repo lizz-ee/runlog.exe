@@ -84,36 +84,33 @@ runlog.exe is powered by Claude AI — authentication is the first thing you sho
 ### Option A: API Key
 
 1. Get an API key from [console.anthropic.com](https://console.anthropic.com) (starts with `sk-ant-`).
-2. Paste it into the API Key field on the left panel of SYS.CONFIG.
+2. In SYS.CONFIG, paste it into the API Key field on the right panel.
 3. Click **TEST & SAVE** — the app makes a test API call to verify the key works, then saves it only if the test passes.
-4. Status indicator turns green with "ACTIVE" when saved.
-5. To remove a saved key, click **REMOVE**.
+4. Status indicator turns green with "ACTIVE" when saved. The input field disappears — only the masked key and a REMOVE button remain.
 
-Your key is stored locally at `%APPDATA%/runlog/settings.json` and is only ever sent to the Anthropic API. It's displayed masked in the UI (first 7 + last 4 characters).
+Your key is stored locally at `%APPDATA%/runlog/settings.json` and is only ever sent to the Anthropic API.
 
 ### Option B: Claude CLI
 
 This method uses your Claude subscription through the Claude Code CLI — no API tokens or credits needed.
 
-1. Install Claude Code: `npm install -g @anthropic-ai/claude-code`
-2. Authenticate in your terminal: `claude login` (this opens a browser for OAuth — **this step happens outside the app**).
-3. In SYS.CONFIG, check the right panel — click **CHECK** to verify the app detects your CLI installation.
-4. Status shows green "CONNECTED" with the path to the CLI binary if found.
+1. Click the **INSTALL CLAUDE CODE CLI** link in SYS.CONFIG (opens the Claude Code docs) or install manually: `npm install -g @anthropic-ai/claude-code`
+2. Click the **LOGIN** button in SYS.CONFIG — this opens your browser for OAuth. The app polls automatically and updates to "CONNECTED" when login completes.
+3. Alternatively, run `claude login` in your terminal and click **CHECK** in the app.
 
-The app searches for the `claude` binary on your system PATH and common install locations (`~/.local/bin/claude`, `~/AppData/Local/Programs/claude/claude.exe`). There is no login flow inside the app itself — authentication is handled entirely by the CLI.
+The CLI section shows:
+- **Version** — your installed version (e.g., v2.1.81) with a green "LATEST" badge or yellow "UPDATE AVAILABLE" with an **UPDATE** button
+- **LOGOUT** button — disconnect the CLI
+- **Status** — green "CONNECTED", yellow "NOT LOGGED IN", or red "NOT FOUND"
 
-### Using Both
+### AI Provider Toggle
 
-You can have both an API key and CLI configured simultaneously. The app automatically picks the best method depending on the task:
+The **AI.PROVIDER** toggle on the left panel controls which method the app prefers for all AI calls:
 
-| Feature | Prefers | Falls back to |
-|---|---|---|
-| Phase 1 (stats extraction) | API Key | CLI |
-| Phase 2 (narrative + clips) | CLI | API Key |
-| UPLINK chat | API Key | CLI |
-| Screenshot parsing | CLI | API Key |
+- **API KEY** — use your API key as the primary method, CLI as fallback
+- **CLI** — use the Claude CLI as the primary method, API key as fallback
 
-If only one method is configured, the app uses that for everything.
+The toggle automatically disables options that aren't available (e.g., can't select API KEY if no key is saved). If only one method is configured, it auto-selects.
 
 Once at least one auth method is set up, you're ready to go. Launch Marathon and play.
 
@@ -415,12 +412,22 @@ All app configuration in one place.
 
 ### Authentication
 
-Choose your AI provider:
+SYS.CONFIG is split into two columns:
 
-| Method | Description |
+**Left column — Configuration:**
+
+| Setting | Options | Default |
+|---|---|---|
+| AI.PROVIDER | API KEY or CLI | API KEY |
+| CAPTURE.MODEL | Sonnet or Haiku | Sonnet |
+| UPLINK.MODEL | Sonnet or Haiku | Haiku |
+
+**Right column — Credentials:**
+
+| Section | Description |
 |---|---|
-| **API Key** | Paste your Anthropic API key. Click TEST to validate, then SAVE. Key is stored locally and displayed masked. |
-| **Claude CLI** | Uses your Claude Code subscription. No API tokens needed. App auto-detects the CLI installation. |
+| **API KEY** | Paste key, TEST & SAVE validates it. Once saved, shows masked key + REMOVE button. |
+| **CLAUDE.CLI** | Shows connection status, version, LOGIN/LOGOUT buttons, UPDATE button when outdated. |
 
 ### Recording
 
@@ -429,13 +436,6 @@ Choose your AI provider:
 | Encoder | HEVC (better quality) or H.264 (wider compatibility) | HEVC |
 | Bitrate | 1–100 Mbps | 50 Mbps |
 | FPS | 30 or 60 | 60 |
-
-### AI Models
-
-| Setting | Options | Default |
-|---|---|---|
-| Phase 1/2 Model | Sonnet (more capable) or Haiku (faster, cheaper) | Sonnet |
-| UPLINK Model | Haiku (faster) or Sonnet (more detailed) | Haiku |
 
 ### Processing Workers
 
