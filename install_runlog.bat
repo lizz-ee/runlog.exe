@@ -219,7 +219,7 @@ echo.
 cd /d "%FRONTEND%"
 echo  Building frontend + packaging installer...
 call npm run dist 2>&1
-if exist "%ROOT%release\runlog Setup 1.0.0.exe" (
+if exist "%ROOT%release\win-unpacked\runlog.exe" (
     echo.
     echo  Build complete.
 ) else (
@@ -254,8 +254,6 @@ if %ERRORS% gtr 0 (
     echo  INSTALL COMPLETE
     echo.
     echo  Double-click runlog.lnk to launch the app.
-    echo.
-    echo  Or run the installer: release\runlog Setup 1.0.0.exe
     echo.
     echo  Or run directly from source:
     echo    Terminal 1:  cd backend ^& python run.py
