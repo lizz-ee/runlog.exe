@@ -30,13 +30,7 @@ echo.
 :: --- Python 3.12+ ---
 echo  [1/4] Python 3.12+ ...
 set "PYTHON_CMD="
-:: Check PATH first
-python --version >nul 2>&1
-if %errorlevel% equ 0 (
-    set "PYTHON_CMD=python"
-    goto :python_found
-)
-:: Check common install locations (3.12+ only)
+:: Check common install locations first (most reliable)
 for %%V in (314 313 312) do (
     if exist "%LOCALAPPDATA%\Programs\Python\Python%%V\python.exe" (
         set "PYTHON_CMD=%LOCALAPPDATA%\Programs\Python\Python%%V\python.exe"
@@ -52,6 +46,12 @@ for %%V in (314 313 312) do (
         goto :python_found
     )
 )
+:: Check PATH as last resort (but verify it's real Python, not Windows Store alias)
+python -m pip --version >nul 2>&1
+if %errorlevel% equ 0 (
+    set "PYTHON_CMD=python"
+    goto :python_found
+)
 :: Not found anywhere - install
 echo        NOT FOUND - Installing Python...
 echo        Downloading Python 3.12 installer...
@@ -61,8 +61,11 @@ if not exist "%TEMP%\python-installer.exe" (
     set /a ERRORS+=1
     goto :check_node
 )
-echo        Running installer [this may take a minute]...
-start /wait "" "%TEMP%\python-installer.exe" /passive InstallAllUsers=0 PrependPath=1 Include_pip=1
+echo        Launching Python installer...
+echo        IMPORTANT: Check "Add python.exe to PATH" at the bottom of the installer!
+echo        Click "Install Now" and wait for it to finish.
+echo.
+start /wait "" "%TEMP%\python-installer.exe" PrependPath=1 Include_pip=1
 del "%TEMP%\python-installer.exe" 2>nul
 :: Check if it installed
 set "PATH=%LOCALAPPDATA%\Programs\Python\Python312\;%LOCALAPPDATA%\Programs\Python\Python312\Scripts\;%PATH%"
@@ -198,6 +201,14 @@ echo.
 :: --- Python deps ---
 echo  [1/3] Python packages [this may take a few minutes]...
 cd /d "%BACKEND%"
+:: Ensure pip is available (some installs miss it)
+"%PYTHON_CMD%" -m pip --version >nul 2>&1
+if %errorlevel% neq 0 (
+    echo        Bootstrapping pip...
+    powershell -Command "Invoke-WebRequest -Uri 'https://bootstrap.pypa.io/get-pip.py' -OutFile '%TEMP%\get-pip.py'" 2>nul
+    "%PYTHON_CMD%" "%TEMP%\get-pip.py" --quiet >nul 2>&1
+    del "%TEMP%\get-pip.py" 2>nul
+)
 echo        Installing PyTorch [CPU-only]...
 "%PYTHON_CMD%" -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu --quiet >nul 2>&1
 if %errorlevel% neq 0 (
