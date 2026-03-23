@@ -98,8 +98,28 @@ export async function updateConfig(key: string, value: string | number | boolean
   await api.post('/settings/config', { key, value })
 }
 
-export async function getCliStatus(): Promise<{ installed: boolean; authenticated: boolean; path: string | null }> {
+export async function getCliStatus(): Promise<{ installed: boolean; authenticated: boolean; path: string | null; version: string | null }> {
   const { data } = await api.get('/settings/cli-status')
+  return data
+}
+
+export async function cliLogout(): Promise<{ status: string }> {
+  const { data } = await api.post('/settings/cli-logout')
+  return data
+}
+
+export async function cliLogin(): Promise<{ status: string }> {
+  const { data } = await api.post('/settings/cli-login')
+  return data
+}
+
+export async function getCliLatestVersion(): Promise<{ latest: string }> {
+  const { data } = await api.get('/settings/cli-latest-version')
+  return data
+}
+
+export async function cliUpdate(): Promise<{ status: string; version: string | null }> {
+  const { data } = await api.post('/settings/cli-update')
   return data
 }
 

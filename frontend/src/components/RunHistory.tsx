@@ -882,9 +882,14 @@ export default function RunHistory() {
       {/* Run List */}
       {totalCount === 0 ? (
         <div className="border border-1 border-m-border bg-m-card p-10 text-center">
-          <p className="text-xs text-m-text-muted tracking-wider">
-            {favFilter ? 'NO FAVORITED RUNS' : 'NO MATCHING RUNS'}
+          <p className="text-m-text-muted text-sm">
+            {favFilter ? 'NO FAVORITED RUNS' : (outcomeFilter !== 'all' || gradeFilter || mapFilter || rankedFilter) ? 'NO MATCHING RUNS' : 'NO RUNS LOGGED'}
           </p>
+          {outcomeFilter === 'all' && !gradeFilter && !mapFilter && !rankedFilter && !favFilter && (
+            <p className="label-tag text-m-text-muted mt-2">
+              LAUNCH MARATHON TO START AUTO-TRACKING
+            </p>
+          )}
         </div>
       ) : (
         <div className="border border-1 border-m-green/20 divide-y divide-m-border">

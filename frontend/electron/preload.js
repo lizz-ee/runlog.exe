@@ -37,4 +37,7 @@ contextBridge.exposeInMainWorld('runlog', {
 
   // Open a file in system default application
   openFile: (filePath) => ipcRenderer.send('open-file', filePath),
+
+  // Open a URL in the default browser
+  openUrl: (url) => ipcRenderer.send('open-url', url),
 })

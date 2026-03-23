@@ -149,9 +149,13 @@ npm install
 ```
 
 ### Authentication
-Two options — configure in SYS.CONFIG:
+Two options — configure in SYS.CONFIG. Set your preferred provider with the **AI.PROVIDER** toggle:
 1. **API Key** — Paste your Anthropic API key, tested before saving
-2. **Claude CLI** — Install Claude Code (`npm install -g @anthropic-ai/claude-code`), run `claude login`. Uses your Claude subscription, no API tokens needed.
+2. **Claude CLI** — Install Claude Code (`npm install -g @anthropic-ai/claude-code`), log in via the in-app LOGIN button or `claude login` in terminal. Uses your Claude subscription, no API tokens needed. Version detection and one-click updates built in.
+
+If only one method is configured, it auto-selects. If the preferred method fails, the other is used as fallback.
+
+For a complete walkthrough of every feature, see the [User Guide](docs/user-guide.md).
 
 ### Development
 ```bash

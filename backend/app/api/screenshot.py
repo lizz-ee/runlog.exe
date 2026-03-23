@@ -13,6 +13,7 @@ import io
 
 from ..config import settings
 from ..schemas import ParsedScreenshot
+from .. import ai_client
 
 router = APIRouter()
 
@@ -70,19 +71,6 @@ Return ONLY the JSON object, no markdown, no explanation."""
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
-def _find_claude_cli():
-    """Find the claude CLI binary."""
-    # Check common locations
-    candidates = [
-        shutil.which("claude"),
-        os.path.expanduser("~/.local/bin/claude"),
-        os.path.expanduser("~/.local/bin/claude.exe"),
-        os.path.expanduser("~/AppData/Local/Programs/claude/claude.exe"),
-    ]
-    for c in candidates:
-        if c and os.path.isfile(c):
-            return c
-    return None
 
 
 async def _save_upload(file: UploadFile) -> str:
@@ -107,102 +95,42 @@ async def _save_upload(file: UploadFile) -> str:
     return filepath
 
 
-async def _parse_with_cli(image_paths: list[str], prompt: str) -> str:
-    """Call claude CLI with images and a prompt. Uses the user's OAuth session."""
-    claude_bin = _find_claude_cli()
-    if not claude_bin:
-        raise HTTPException(status_code=500, detail="Claude CLI not found. Install Claude Code or set ANTHROPIC_API_KEY.")
-
-    # Convert to absolute paths
+async def _call_claude(image_paths: list[str], prompt: str) -> str:
+    """Call Claude using CLI first, falling back to API key."""
     abs_paths = [os.path.abspath(p) for p in image_paths]
 
-    # Tell Claude to read the image files, then parse them
-    image_instructions = "\n".join(
-        f"- Read the image file at: {p}" for p in abs_paths
-    )
-    full_prompt = f"""First, read these image files:
+    if ai_client.prefer_cli():
+        # Build CLI prompt with image file reading instructions
+        image_instructions = "\n".join(f"- Read the image file at: {p}" for p in abs_paths)
+        full_prompt = f"""First, read these image files:
 {image_instructions}
 
 Then, analyze the images and follow these instructions:
 
 {prompt}"""
+        try:
+            return await ai_client.run_cli_prompt_async(
+                full_prompt,
+                allowed_tools=["Read"],
+                timeout=300,
+            )
+        except RuntimeError as e:
+            if ai_client.prefer_api():
+                print(f"[screenshot] CLI failed ({e}), falling back to API...")
+            else:
+                raise HTTPException(status_code=500, detail=str(e))
 
-    cmd = [claude_bin, "-p", full_prompt, "--allowedTools", "Read"]
-
-    # Use subprocess.run in a thread to avoid Windows asyncio subprocess issues
-    import subprocess
-    import functools
-
-    loop = asyncio.get_event_loop()
-    result = await loop.run_in_executor(
-        None,
-        functools.partial(
-            subprocess.run,
-            cmd,
-            capture_output=True,
-            text=True,
-            cwd=os.path.dirname(abs_paths[0]) if abs_paths else None,
-            timeout=300,
-        ),
-    )
-
-    output = result.stdout.strip() if result.stdout else ""
-    err_output = result.stderr.strip() if result.stderr else ""
-
-    # Claude CLI may return non-zero but still produce valid output
-    if output:
-        return output
-
-    if result.returncode != 0:
-        raise HTTPException(status_code=500, detail=f"Claude CLI error (exit {result.returncode}): {err_output or 'no output'}")
-
-    return output
-
-
-async def _parse_with_api(image_paths: list[str], prompt: str) -> str:
-    """Call Claude API directly with images and a prompt. Requires ANTHROPIC_API_KEY."""
-    import anthropic
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-
-    image_blocks = []
-    for path in image_paths:
-        with open(path, "rb") as f:
-            data = f.read()
-        ext = path.split(".")[-1].lower()
-        media_type = f"image/{ext}" if ext in ("png", "jpeg", "jpg", "gif", "webp") else "image/png"
-        if ext == "jpg":
-            media_type = "image/jpeg"
-        b64 = base64.b64encode(data).decode("utf-8")
-        image_blocks.append({
-            "type": "image",
-            "source": {"type": "base64", "media_type": media_type, "data": b64},
-        })
-
-    content = image_blocks + [{"type": "text", "text": prompt}]
-
-    message = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=1024,
-        messages=[{"role": "user", "content": content}],
-    )
-    return message.content[0].text.strip()
-
-
-async def _call_claude(image_paths: list[str], prompt: str) -> str:
-    """Call Claude using CLI (OAuth) first, falling back to API key if CLI not available."""
-    claude_bin = _find_claude_cli()
-
-    if claude_bin:
-        # Prefer CLI — uses the user's existing OAuth login, no API key needed
-        return await _parse_with_cli(image_paths, prompt)
-    elif settings.anthropic_api_key:
-        # Fallback to API key
-        return await _parse_with_api(image_paths, prompt)
-    else:
-        raise HTTPException(
-            status_code=500,
-            detail="No authentication available. Either install Claude Code (for OAuth) or set ANTHROPIC_API_KEY in .env"
+    if ai_client.prefer_api():
+        return ai_client.run_api_prompt(
+            prompt,
+            images=abs_paths,
+            max_tokens=1024,
         )
+
+    raise HTTPException(
+        status_code=500,
+        detail="No authentication available. Either install Claude Code (for OAuth) or set ANTHROPIC_API_KEY in .env"
+    )
 
 
 def _extract_json(text: str) -> dict:

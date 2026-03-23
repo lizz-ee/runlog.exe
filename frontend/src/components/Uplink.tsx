@@ -386,8 +386,8 @@ function TrendPanel({ title, data, domain, suffix, prefix }: {
             }} />
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="text-center space-y-2">
-                <p className="text-[8px] font-mono text-m-text-muted/20 tracking-[0.3em]">// AWAITING SIGNAL //</p>
-                <p className="text-[7px] font-mono text-m-text-muted/10 tracking-widest">0x4E554C4C // DATA.STREAM.PENDING</p>
+                <p className="text-[8px] font-mono text-m-text-muted tracking-[0.3em]">// AWAITING SIGNAL //</p>
+                <p className="text-[7px] font-mono text-m-text-muted/60 tracking-widest">0x4E554C4C // DATA.STREAM.PENDING</p>
               </div>
             </div>
             <div className="absolute left-3 top-2 text-[7px] font-mono text-m-text-muted/15">100%</div>

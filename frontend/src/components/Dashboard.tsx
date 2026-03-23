@@ -234,8 +234,8 @@ export default function Dashboard() {
               }} />
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="text-center space-y-2">
-                  <p className="text-xs font-mono text-m-text-muted/30 tracking-widest">AWAITING DATA</p>
-                  <p className="text-[9px] font-mono text-m-text-muted/20">Vault value tracked per run</p>
+                  <p className="text-xs font-mono text-m-text-muted tracking-widest">AWAITING DATA</p>
+                  <p className="text-[9px] font-mono text-m-text-muted">Vault value tracked per run</p>
                 </div>
               </div>
             </div>

@@ -23,6 +23,7 @@ import time
 from datetime import datetime
 
 from .config import settings
+from . import ai_client
 
 
 def _check_ffmpeg():
@@ -37,15 +38,7 @@ _check_ffmpeg()
 
 def _get_model_config():
     """Get configured model names for API and CLI."""
-    try:
-        from .api.settings_api import get_config_value
-        model = get_config_value("model") or "sonnet"
-    except Exception as e:
-        print(f"[video_processor] Could not load model config: {e}")
-        model = "sonnet"
-    if model == "haiku":
-        return {"api": "claude-haiku-4-5-20251001", "cli": "haiku"}
-    return {"api": "claude-sonnet-4-6", "cli": "sonnet"}
+    return ai_client.get_model_config("capture")
 
 
 # -- Frame extraction settings (easy to tune) -------------------------------
@@ -236,19 +229,6 @@ Return ONLY valid JSON, no markdown fences, no explanation."""
 
 # -- Helpers ----------------------------------------------------------------
 
-def _find_claude_cli():
-    """Find the claude CLI binary."""
-    candidates = [
-        shutil.which("claude"),
-        os.path.expanduser("~/.local/bin/claude"),
-        os.path.expanduser("~/.local/bin/claude.exe"),
-        os.path.expanduser("~/AppData/Local/Programs/claude/claude.exe"),
-    ]
-    for c in candidates:
-        if c and os.path.isfile(c):
-            return c
-    return None
-
 
 def _extract_json(text: str) -> dict:
     """Extract JSON from Sonnet response, handling extra text robustly.
@@ -376,31 +356,19 @@ def _get_frame_paths(frames_dir: str) -> list[str]:
 
 def _analyze_frames_with_api(frame_paths: list[str], prompt: str) -> dict:
     """Send frame images to Sonnet API as base64 image blocks."""
-    import anthropic
-
-    content = []
-    for path in frame_paths:
-        with open(path, "rb") as f:
-            b64 = base64.b64encode(f.read()).decode("utf-8")
-        content.append({
-            "type": "image",
-            "source": {"type": "base64", "media_type": "image/jpeg", "data": b64},
-        })
-    content.append({"type": "text", "text": prompt})
-
     print(f"[processor] Sending {len(frame_paths)} frames to Sonnet API...")
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-    message = client.messages.create(
+    result = ai_client.run_api_prompt(
+        prompt,
+        images=frame_paths,
         model=_get_model_config()["api"],
         max_tokens=4096,
-        messages=[{"role": "user", "content": content}],
     )
-    return _extract_json(message.content[0].text)
+    return _extract_json(result)
 
 
 def _analyze_frames_with_cli(frame_paths: list[str], prompt: str) -> dict:
     """Send frame images to Claude CLI for analysis (fallback when no API key)."""
-    claude_bin = _find_claude_cli()
+    claude_bin = ai_client.find_cli()
     if not claude_bin:
         raise RuntimeError("Claude CLI not found")
 
@@ -422,7 +390,7 @@ Read ALL of these images, then analyze them and follow these instructions:
     print(f"[processor] Sending {len(frame_paths)} frames to CLI...")
     proc = subprocess.Popen(
         cmd, stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=ai_client.cli_env(),
     )
 
     output_lines = []
@@ -451,7 +419,7 @@ def _analyze_with_screenshots(deploy_jpg: str, readyup_jpg: str, frames_dir: str
     Merges results into one analysis dict.
     """
     from .config import _DATA_DIR
-    claude_bin = _find_claude_cli()
+    claude_bin = ai_client.find_cli()
     if not claude_bin:
         raise RuntimeError("Claude CLI not found")
 
@@ -469,7 +437,7 @@ def _analyze_with_screenshots(deploy_jpg: str, readyup_jpg: str, frames_dir: str
                "--dangerously-skip-permissions", "--add-dir", work_dir]
         try:
             proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL,
-                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=ai_client.cli_env())
             output = []
             for line in iter(proc.stdout.readline, b''):
                 decoded = line.decode("utf-8", errors="replace").rstrip()
@@ -690,7 +658,7 @@ These are from the END of a Marathon run — stats screens, death screen, loadou
 
             print(f"[processor] CLI Call 2 batch {batch_idx + 1}/{len(batches)}: {len(batch)} frames...")
             proc2 = subprocess.Popen(cmd2, stdin=subprocess.DEVNULL,
-                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=ai_client.cli_env())
             output2 = []
             try:
                 for line in iter(proc2.stdout.readline, b''):
@@ -759,7 +727,7 @@ def analyze_frames_phase1(frames_dir: str) -> dict:
             return _analyze_frames_with_api(frame_paths, PHASE1_CALL2_PROMPT)
         except Exception as e:
             print(f"[processor] Phase 1 API failed: {e}")
-            claude_bin = _find_claude_cli()
+            claude_bin = ai_client.find_cli()
             if claude_bin:
                 print("[processor] Falling back to CLI for Phase 1...")
             else:
@@ -779,7 +747,7 @@ def analyze_frames_phase1(frames_dir: str) -> dict:
         frame_paths = start_frames + end_frames
         print(f"[processor] CLI mode: subsampled to {len(frame_paths)} frames ({len(start_frames)} start + {len(end_frames)} end)")
 
-    claude_bin = _find_claude_cli()
+    claude_bin = ai_client.find_cli()
     if claude_bin:
         return _analyze_frames_with_cli(frame_paths, PHASE1_CALL2_PROMPT)
 
@@ -1012,7 +980,7 @@ def _get_phase1_context(run_id: int | None) -> str:
 
 def _analyze_phase2_with_cli(video_path: str, run_id: int | None = None) -> dict:
     """Send video to CLI for Phase 2 narrative analysis."""
-    claude_bin = _find_claude_cli()
+    claude_bin = ai_client.find_cli()
     if not claude_bin:
         raise RuntimeError("Claude CLI not found")
 
@@ -1041,7 +1009,7 @@ ABSOLUTE REQUIREMENT: After you have completed your analysis, your VERY LAST mes
 
     proc = subprocess.Popen(
         cmd, stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=ai_client.cli_env(),
     )
 
     output_lines = []
@@ -1070,42 +1038,24 @@ ABSOLUTE REQUIREMENT: After you have completed your analysis, your VERY LAST mes
 
 def _analyze_phase2_with_api(video_path: str, run_id: int | None = None) -> dict:
     """Send video to API for Phase 2 narrative analysis (fallback)."""
-    import anthropic
-
-    with open(video_path, "rb") as f:
-        video_data = base64.standard_b64encode(f.read()).decode("utf-8")
-
     size_mb = os.path.getsize(video_path) / (1024 * 1024)
     print(f"[processor-p2] Sending {size_mb:.1f}MB video to API for narrative...")
 
     phase1_context = _get_phase1_context(run_id)
     prompt_text = f"{phase1_context}\n\n{PHASE2_PROMPT}" if phase1_context else PHASE2_PROMPT
 
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-    message = client.messages.create(
+    result = ai_client.run_api_prompt(
+        prompt_text,
+        video_path=video_path,
         model=_get_model_config()["api"],
         max_tokens=4096,
-        messages=[{
-            "role": "user",
-            "content": [
-                {
-                    "type": "video",
-                    "source": {
-                        "type": "base64",
-                        "media_type": "video/mp4",
-                        "data": video_data,
-                    },
-                },
-                {"type": "text", "text": prompt_text},
-            ],
-        }],
     )
-    return _extract_json(message.content[0].text)
+    return _extract_json(result)
 
 
 def analyze_video_phase2(video_path: str, run_id: int | None = None) -> dict:
     """Phase 2: analyze video for narrative content. CLI first, API fallback."""
-    claude_bin = _find_claude_cli()
+    claude_bin = ai_client.find_cli()
     if claude_bin:
         try:
             return _analyze_phase2_with_cli(video_path, run_id=run_id)

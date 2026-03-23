@@ -56,6 +56,21 @@ export default function Squad() {
           <p className="label-tag text-m-green"></p>
           <h2 className="text-xl font-display font-black tracking-wider text-m-text mt-1">RUNNERS</h2>
         </div>
+        <div className="grid grid-cols-7 gap-3">
+          {Array.from({ length: 7 }).map((_, i) => (
+            <div key={`empty-${i}`} className="aspect-[3/4] border border-m-border/20 bg-m-card/30 relative overflow-hidden">
+              <div className={`absolute inset-0 opacity-20`}>
+                {RUNNER_IMAGES[i] && (
+                  <img src={RUNNER_IMAGES[i]} alt={`Runner ${i + 1}`} className="w-full h-full object-cover" />
+                )}
+              </div>
+              <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/40 to-black/10" />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-m-text-muted/20 text-[9px] tracking-[0.3em]">VACANT</span>
+              </div>
+            </div>
+          ))}
+        </div>
         <div className="border border-1 border-m-border bg-m-card p-10 text-center">
           <p className="text-xs text-m-text-muted tracking-wider">NO RUNNER DATA — PLAY SOME RUNS WITH CREW</p>
         </div>

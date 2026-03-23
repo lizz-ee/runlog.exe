@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { getSettings, setApiKey, testApiKey, removeApiKey, updateConfig, getCliStatus } from '../lib/api'
+import { getSettings, setApiKey, testApiKey, removeApiKey, updateConfig, getCliStatus, cliLogin, cliLogout, getCliLatestVersion, cliUpdate } from '../lib/api'
 import type { AppSettings } from '../lib/api'
 import type { OverlaySettings } from '../lib/types'
 
@@ -32,28 +32,35 @@ function SettingRow({ label, children }: { label: string; children: React.ReactN
   )
 }
 
-function ToggleButton({ options, value, onChange }: {
+function ToggleButton({ options, value, onChange, disabledValues }: {
   options: { value: string | number; label: string }[]
   value: string | number
   onChange: (v: any) => void
+  disabledValues?: (string | number)[]
 }) {
   return (
     <div className="flex">
-      {options.map((opt, i) => (
-        <button
-          key={opt.value}
-          onClick={() => onChange(opt.value)}
-          className={`px-3 py-1 text-2xs font-mono tracking-widest border transition-all ${
-            i > 0 ? 'border-l-0' : ''
-          } ${
-            value === opt.value
-              ? 'border-m-green/40 text-m-green bg-m-green/10'
-              : 'border-m-border text-m-text-muted bg-m-surface hover:text-m-text'
-          }`}
-        >
-          {opt.label}
-        </button>
-      ))}
+      {options.map((opt, i) => {
+        const isDisabled = disabledValues?.includes(opt.value)
+        return (
+          <button
+            key={opt.value}
+            onClick={() => !isDisabled && onChange(opt.value)}
+            disabled={isDisabled}
+            className={`px-3 py-1 text-2xs font-mono tracking-widest border transition-all ${
+              i > 0 ? '-ml-px' : ''
+            } ${
+              isDisabled
+                ? 'border-m-border text-m-text-muted/30 bg-m-surface cursor-not-allowed'
+                : value === opt.value
+                  ? 'border-m-green/40 text-m-green bg-m-green/10 relative z-10'
+                  : 'border-m-border text-m-text-muted bg-m-surface hover:text-m-text'
+            }`}
+          >
+            {opt.label}
+          </button>
+        )
+      })}
     </div>
   )
 }
@@ -102,7 +109,10 @@ export default function Settings() {
   }, [])
 
   // CLI status
-  const [cliStatus, setCliStatus] = useState<{ installed: boolean; authenticated: boolean; path: string | null } | null>(null)
+  const [cliStatus, setCliStatus] = useState<{ installed: boolean; authenticated: boolean; path: string | null; version: string | null } | null>(null)
+  const [cliLatest, setCliLatest] = useState<string | null>(null)
+  const [cliLoginPending, setCliLoginPending] = useState(false)
+  const [cliUpdating, setCliUpdating] = useState(false)
 
   useEffect(() => {
     getSettings().then(setConfig).catch((e) => console.error('[Settings] fetch settings failed:', e))
@@ -116,12 +126,17 @@ export default function Settings() {
         setOverlayCorner(corner)
         setOverlayOpacity(s.opacity ?? 88)
         setOverlaySize(s.size ?? 'medium')
-        // Set initial preview position from corner
-        const posMap: Record<string, { x: number; y: number }> = {
-          'top-left': { x: 0, y: 0 }, 'top-center': { x: 35, y: 0 }, 'top-right': { x: 70, y: 0 },
-          'bottom-left': { x: 0, y: 88 }, 'bottom-center': { x: 35, y: 88 }, 'bottom-right': { x: 70, y: 88 },
+        // Set initial preview position from saved settings
+        if (s.customX != null && s.customY != null) {
+          // Custom drag position — use exact saved percentages
+          setOverlayPos({ x: s.customX, y: s.customY })
+        } else {
+          const posMap: Record<string, { x: number; y: number }> = {
+            'top-left': { x: 0, y: 0 }, 'top-center': { x: 35, y: 0 }, 'top-right': { x: 70, y: 0 },
+            'bottom-left': { x: 0, y: 88 }, 'bottom-center': { x: 35, y: 88 }, 'bottom-right': { x: 70, y: 88 },
+          }
+          setOverlayPos(posMap[corner] || { x: 0, y: 0 })
         }
-        setOverlayPos(posMap[corner] || { x: s.customX != null ? 50 : 0, y: s.customY != null ? 50 : 0 })
       }).catch((e: unknown) => console.error('[Settings] fetch overlay settings failed:', e))
     }
   }, [])
@@ -167,10 +182,78 @@ export default function Settings() {
     try {
       const status = await getCliStatus()
       setCliStatus(status)
+      // Fetch latest version if CLI is installed
+      if (status.installed) {
+        getCliLatestVersion()
+          .then(({ latest }) => setCliLatest(latest))
+          .catch(() => setCliLatest(null))
+      }
     } catch {
-      setCliStatus({ installed: false, authenticated: false, path: null })
+      setCliStatus({ installed: false, authenticated: false, path: null, version: null })
     }
   }
+
+  async function handleCliLogin() {
+    setCliLoginPending(true)
+    try {
+      await cliLogin()
+      // Poll for auth status — login opens browser, user may take a moment
+      const pollInterval = setInterval(async () => {
+        try {
+          const status = await getCliStatus()
+          setCliStatus(status)
+          if (status.authenticated) {
+            clearInterval(pollInterval)
+            setCliLoginPending(false)
+          }
+        } catch { /* keep polling */ }
+      }, 3000)
+      // Stop polling after 2 minutes
+      setTimeout(() => {
+        clearInterval(pollInterval)
+        setCliLoginPending(false)
+      }, 120000)
+    } catch {
+      setCliLoginPending(false)
+    }
+  }
+
+  async function handleCliLogout() {
+    try {
+      await cliLogout()
+      await checkCli()
+    } catch (err) {
+      console.error('CLI logout failed:', err)
+    }
+  }
+
+  async function handleCliUpdate() {
+    setCliUpdating(true)
+    try {
+      const result = await cliUpdate()
+      // Refresh status to pick up new version
+      await checkCli()
+      if (result.version) {
+        setCliLatest(result.version)
+      }
+    } catch (err) {
+      console.error('CLI update failed:', err)
+    } finally {
+      setCliUpdating(false)
+    }
+  }
+
+  // Auto-select the only available provider
+  const hasApi = config?.has_api_key
+  const hasCli = cliStatus?.installed && cliStatus?.authenticated
+  useEffect(() => {
+    if (!config) return
+    if (hasApi && !hasCli && config.auth_mode !== 'api') {
+      saveConfig('auth_mode', 'api')
+    } else if (hasCli && !hasApi && config.auth_mode !== 'cli') {
+      saveConfig('auth_mode', 'cli')
+    }
+  }, [hasApi, hasCli, config?.auth_mode])
 
   const statusColor =
     status === 'valid' || status === 'saved' ? 'text-m-green' :
@@ -218,7 +301,7 @@ export default function Settings() {
             </SettingRow>
 
             <div className="pt-1 border-t border-m-border/30">
-              <p className="text-[9px] font-mono text-m-text-muted/40 tracking-wider">
+              <p className="text-[9px] font-mono text-m-text-muted tracking-wider">
                 NATIVE WINDOW — NEXT RECORDING
               </p>
             </div>
@@ -240,7 +323,7 @@ export default function Settings() {
             </SettingRow>
 
             <div className="pt-1 border-t border-m-border/30">
-              <p className="text-[9px] font-mono text-m-text-muted/40 tracking-wider">
+              <p className="text-[9px] font-mono text-m-text-muted tracking-wider">
                 P1 = FRAMES + STATS — P2 = NARRATIVE + CLIPS<br/>
                 <span className="text-m-yellow/40">RESTART REQUIRED FOR CHANGES</span>
               </p>
@@ -319,12 +402,12 @@ export default function Settings() {
                           (window as any).runlog?.setOverlayCorner?.(c.value)
                         }}
                         className={`px-2 py-1 text-2xs font-mono tracking-widest border transition-all ${
-                          col > 0 ? 'border-l-0' : ''
+                          col > 0 ? '-ml-px' : ''
                         } ${
-                          row > 0 ? 'border-t-0' : ''
+                          row > 0 ? '-mt-px' : ''
                         } ${
                           overlayCorner === c.value
-                            ? 'border-m-green/40 text-m-green bg-m-green/10'
+                            ? 'border-m-green/40 text-m-green bg-m-green/10 relative z-10'
                             : 'border-m-border text-m-text-muted bg-m-surface hover:text-m-text'
                         }`}
                       >
@@ -426,13 +509,33 @@ export default function Settings() {
       <div className="border border-m-border bg-m-card">
         <SectionHeader tag="AUTH.CONFIG" title="AUTHENTICATION" desc="Connect to Claude for AI-powered analysis." />
         <div className="px-5 py-4 space-y-4">
-          {/* Model selectors — side by side at top */}
           <div className="flex gap-0">
-            <div className="flex-1 pr-5">
+            {/* Left — Config toggles */}
+            <div className="flex-1 pr-5 space-y-4">
+              {/* AI Provider */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="label-tag text-m-cyan">AI.PROVIDER</span>
+                  <p className="text-[7px] font-mono text-m-text-muted tracking-wider mt-0.5">PREFERRED CONNECTION METHOD</p>
+                </div>
+                <ToggleButton
+                  options={[{ value: 'api', label: 'API KEY' }, { value: 'cli', label: 'CLI' }]}
+                  value={config.auth_mode || 'api'}
+                  onChange={v => saveConfig('auth_mode', v)}
+                  disabledValues={[
+                    ...(!config.has_api_key ? ['api'] : []),
+                    ...(!(cliStatus?.installed && cliStatus?.authenticated) ? ['cli'] : []),
+                  ]}
+                />
+              </div>
+
+              <div className="border-t border-m-border/20" />
+
+              {/* Capture Model */}
               <div className="flex items-center justify-between">
                 <div>
                   <span className="label-tag text-m-green">CAPTURE.MODEL</span>
-                  <p className="text-[7px] font-mono text-m-text-muted/30 tracking-wider mt-0.5">RUN ANALYSIS + STATS</p>
+                  <p className="text-[7px] font-mono text-m-text-muted tracking-wider mt-0.5">RUN ANALYSIS + STATS</p>
                 </div>
                 <ToggleButton
                   options={[{ value: 'sonnet', label: 'SONNET' }, { value: 'haiku', label: 'HAIKU' }]}
@@ -440,88 +543,87 @@ export default function Settings() {
                   onChange={v => saveConfig('model', v)}
                 />
               </div>
-            </div>
-            <div className="w-px bg-m-border/30" />
-            <div className="flex-1 pl-5">
+
+              <div className="border-t border-m-border/20" />
+
+              {/* Uplink Model */}
               <div className="flex items-center justify-between">
                 <div>
                   <span className="label-tag text-m-green">UPLINK.MODEL</span>
-                  <p className="text-[7px] font-mono text-m-text-muted/30 tracking-wider mt-0.5">CHAT + BRIEFINGS</p>
+                  <p className="text-[7px] font-mono text-m-text-muted tracking-wider mt-0.5">CHAT + BRIEFINGS</p>
                 </div>
                 <ToggleButton
-                  options={[{ value: 'haiku', label: 'HAIKU' }, { value: 'sonnet', label: 'SONNET' }]}
+                  options={[{ value: 'sonnet', label: 'SONNET' }, { value: 'haiku', label: 'HAIKU' }]}
                   value={config.uplink_model || 'haiku'}
                   onChange={v => saveConfig('uplink_model', v)}
                 />
-              </div>
-            </div>
-          </div>
-
-          {/* Divider */}
-          <div className="border-t border-m-border/20" />
-
-          {/* API Key + Claude CLI side by side */}
-          <div className="flex gap-0">
-            {/* Left — API Key */}
-            <div className="flex-1 pr-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="label-tag text-m-cyan">API KEY</span>
-                {config.has_api_key ? (
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 bg-m-green rounded-full" />
-                    <span className="text-[9px] font-mono text-m-green">ACTIVE</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 bg-m-border rounded-full" />
-                    <span className="text-[9px] font-mono text-m-text-muted">NOT SET</span>
-                  </div>
-                )}
-              </div>
-
-              {config.has_api_key && (
-                <p className="text-[9px] font-mono text-m-text-muted/60 truncate">{config.api_key_masked}</p>
-              )}
-
-              <input
-                type="password"
-                value={keyInput}
-                onChange={(e) => { setKeyInput(e.target.value); setStatus('idle'); setStatusMsg('') }}
-                placeholder="sk-ant-api03-..."
-                className="w-full px-3 py-1.5 text-xs font-mono bg-m-black text-m-text border border-m-border focus:border-m-green focus:outline-none placeholder:text-m-text-muted/30"
-              />
-
-              {statusMsg && (
-                <div className={`text-[9px] font-mono tracking-wider ${statusColor}`}>{statusMsg}</div>
-              )}
-
-              <div className="flex gap-2">
-                <button onClick={handleTestAndSave} disabled={!keyInput.trim() || status === 'testing' || status === 'saving'}
-                  className="px-3 py-1.5 text-[9px] tracking-widest uppercase bg-m-green/10 text-m-green border border-m-green/30 hover:bg-m-green/20 transition-all disabled:opacity-30 disabled:cursor-not-allowed">
-                  {status === 'testing' ? 'TESTING...' : status === 'saving' ? 'SAVING...' : 'TEST & SAVE'}
-                </button>
-                {config.has_api_key && (
-                  <button onClick={handleRemove}
-                    className="px-3 py-1.5 text-[9px] tracking-widest uppercase text-m-red/40 hover:text-m-red transition-colors">
-                    REMOVE
-                  </button>
-                )}
-              </div>
-
-              <div className="pt-1 border-t border-m-border/20">
-                <p className="text-[8px] font-mono text-m-text-muted/30 tracking-wider leading-relaxed">
-                  01 — GO TO CONSOLE.ANTHROPIC.COM<br/>
-                  02 — GENERATE AN API KEY<br/>
-                  03 — PASTE ABOVE AND TEST & SAVE
-                </p>
               </div>
             </div>
 
             {/* Divider */}
             <div className="w-px bg-m-border/30" />
 
-            {/* Right — Claude CLI */}
-            <div className="flex-1 pl-5 space-y-3">
+            {/* Right — Auth credentials */}
+            <div className="flex-1 pl-5 space-y-4">
+              {/* API Key */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="label-tag text-m-cyan">API KEY</span>
+                  {config.has_api_key ? (
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 bg-m-green rounded-full" />
+                      <span className="text-[9px] font-mono text-m-green">ACTIVE</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 bg-m-border rounded-full" />
+                      <span className="text-[9px] font-mono text-m-text-muted">NOT SET</span>
+                    </div>
+                  )}
+                </div>
+
+                {config.has_api_key ? (
+                  <>
+                    <p className="text-[9px] font-mono text-m-text-muted truncate">{config.api_key_masked}</p>
+                    <button onClick={handleRemove}
+                      className="px-3 py-1.5 text-[9px] tracking-widest uppercase text-m-red/40 hover:text-m-red border border-m-red/20 hover:border-m-red/40 transition-all">
+                      REMOVE
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <input
+                      type="password"
+                      value={keyInput}
+                      onChange={(e) => { setKeyInput(e.target.value); setStatus('idle'); setStatusMsg('') }}
+                      placeholder="sk-ant-api03-..."
+                      className="w-full px-3 py-1.5 text-xs font-mono bg-m-black text-m-text border border-m-border focus:border-m-green focus:outline-none placeholder:text-m-text-muted"
+                    />
+
+                    {statusMsg && (
+                      <div className={`text-[9px] font-mono tracking-wider ${statusColor}`}>{statusMsg}</div>
+                    )}
+
+                    <button onClick={handleTestAndSave} disabled={!keyInput.trim() || status === 'testing' || status === 'saving'}
+                      className="px-3 py-1.5 text-[9px] tracking-widest uppercase bg-m-green/10 text-m-green border border-m-green/30 hover:bg-m-green/20 transition-all disabled:opacity-30 disabled:cursor-not-allowed">
+                      {status === 'testing' ? 'TESTING...' : status === 'saving' ? 'SAVING...' : 'TEST & SAVE'}
+                    </button>
+
+                    <div className="pt-1 border-t border-m-border/20">
+                      <p className="text-[8px] font-mono text-m-text-muted tracking-wider leading-relaxed">
+                        01 — GO TO CONSOLE.ANTHROPIC.COM<br/>
+                        02 — GENERATE AN API KEY<br/>
+                        03 — PASTE ABOVE AND TEST & SAVE
+                      </p>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="border-t border-m-border/20" />
+
+              {/* Claude CLI */}
+              <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="label-tag text-m-cyan">CLAUDE.CLI</span>
                   {cliStatus === null ? (
@@ -529,10 +631,27 @@ export default function Settings() {
                       className="px-2 py-0.5 text-[9px] font-mono tracking-widest border border-m-border text-m-text-muted hover:text-m-cyan hover:border-m-cyan/40 transition-all">
                       CHECK
                     </button>
-                  ) : cliStatus.installed ? (
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 bg-m-green rounded-full" />
-                      <span className="text-[9px] font-mono text-m-green">CONNECTED</span>
+                  ) : cliStatus.installed && cliStatus.authenticated ? (
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 bg-m-green rounded-full" />
+                        <span className="text-[9px] font-mono text-m-green">CONNECTED</span>
+                      </div>
+                      <button onClick={handleCliLogout}
+                        className="px-2 py-0.5 text-[9px] font-mono tracking-widest text-m-red/40 hover:text-m-red transition-colors">
+                        LOGOUT
+                      </button>
+                    </div>
+                  ) : cliStatus.installed && !cliStatus.authenticated ? (
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 bg-m-yellow rounded-full" />
+                        <span className="text-[9px] font-mono text-m-yellow">NOT LOGGED IN</span>
+                      </div>
+                      <button onClick={checkCli}
+                        className="px-2 py-0.5 text-[9px] font-mono tracking-widest border border-m-border text-m-text-muted hover:text-m-cyan hover:border-m-cyan/40 transition-all">
+                        CHECK
+                      </button>
                     </div>
                   ) : (
                     <div className="flex items-center gap-1.5">
@@ -542,8 +661,41 @@ export default function Settings() {
                   )}
                 </div>
 
-                {cliStatus && cliStatus.installed && cliStatus.path && (
-                  <p className="text-[9px] font-mono text-m-text-muted/60 truncate">{cliStatus.path}</p>
+                {cliStatus && cliStatus.installed && (
+                  <div className="space-y-1">
+                    <p className="text-[9px] font-mono text-m-text-muted truncate">{cliStatus.path}</p>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] font-mono text-m-text-muted">v{cliStatus.version || '?'}</span>
+                      {cliLatest && cliStatus.version && cliLatest !== cliStatus.version ? (
+                        <div className="flex items-center gap-2">
+                          <span className="text-[8px] font-mono text-m-yellow">UPDATE AVAILABLE: v{cliLatest}</span>
+                          <button onClick={handleCliUpdate} disabled={cliUpdating}
+                            className="px-2 py-0.5 text-[8px] font-mono tracking-widest bg-m-yellow/10 text-m-yellow border border-m-yellow/30 hover:bg-m-yellow/20 transition-all disabled:opacity-30 disabled:cursor-not-allowed">
+                            {cliUpdating ? 'UPDATING...' : 'UPDATE'}
+                          </button>
+                        </div>
+                      ) : cliLatest && cliStatus.version && cliLatest === cliStatus.version ? (
+                        <span className="text-[8px] font-mono text-m-green">LATEST</span>
+                      ) : null}
+                    </div>
+                  </div>
+                )}
+
+                {cliStatus && cliStatus.installed && !cliStatus.authenticated && (
+                  <div className="bg-m-surface border border-m-yellow/20 px-3 py-2 space-y-2">
+                    <p className="text-[9px] font-mono text-m-text-muted tracking-wider">
+                      CLI FOUND BUT NOT LOGGED IN
+                    </p>
+                    <button onClick={handleCliLogin} disabled={cliLoginPending}
+                      className="px-3 py-1.5 text-[9px] tracking-widest uppercase bg-m-cyan/10 text-m-cyan border border-m-cyan/30 hover:bg-m-cyan/20 transition-all disabled:opacity-30 disabled:cursor-not-allowed">
+                      {cliLoginPending ? 'WAITING FOR LOGIN...' : 'LOGIN'}
+                    </button>
+                    {cliLoginPending && (
+                      <p className="text-[8px] font-mono text-m-text-muted tracking-wider">
+                        BROWSER OPENED — COMPLETE LOGIN THEN WAIT
+                      </p>
+                    )}
+                  </div>
                 )}
 
                 {cliStatus && !cliStatus.installed && (
@@ -558,20 +710,21 @@ export default function Settings() {
                 )}
 
                 <div className="pt-1 border-t border-m-border/20">
-                  <p className="text-[8px] font-mono text-m-text-muted/30 tracking-wider leading-relaxed">
-                    01 — INSTALL CLAUDE CODE CLI<br/>
-                    02 — RUN <span className="text-m-cyan/50">claude login</span> IN TERMINAL<br/>
+                  <p className="text-[8px] font-mono text-m-text-muted tracking-wider leading-relaxed">
+                    01 — <span className="text-m-cyan cursor-pointer hover:underline" onClick={() => (window as any).runlog?.openUrl?.('https://docs.anthropic.com/en/docs/claude-code/overview')}>INSTALL CLAUDE CODE CLI</span><br/>
+                    02 — RUN LOGIN ABOVE OR <span className="text-m-cyan">claude login</span> IN TERMINAL<br/>
                     03 — USES YOUR CLAUDE SUBSCRIPTION<br/>
-                    <span className="text-m-text-muted/20">NO API TOKENS REQUIRED</span>
+                    <span className="text-m-text-muted">NO API TOKENS REQUIRED</span>
                   </p>
                 </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
       {/* Version info */}
-      <div className="flex justify-between text-2xs font-mono text-m-text-muted/40">
+      <div className="flex justify-between text-2xs font-mono text-m-text-muted">
         <span>runlog.exe v1.0.0</span>
         <span>LOCAL-FIRST // NO CLOUD // NO TELEMETRY</span>
       </div>

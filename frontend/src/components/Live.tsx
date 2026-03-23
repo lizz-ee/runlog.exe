@@ -322,11 +322,11 @@ export default function Live() {
                 </p>
               </div>
               <div className="text-center space-y-2">
-                <p className="text-m-text-muted/40 text-[10px] font-mono tracking-[0.2em]">
+                <p className="text-m-text-muted text-[10px] font-mono tracking-[0.2em]">
                   {status?.active ? 'ENGINE.ACTIVE' : 'ENGINE.STANDBY'} // {status?.capture_mode?.toUpperCase() || 'NONE'}
                 </p>
                 {!(status?.capture_mode === 'wgc' && status?.window_found) && (
-                  <p className="text-m-text-muted/20 text-[10px] font-mono tracking-wider">
+                  <p className="text-m-text-muted text-[10px] font-mono tracking-wider">
                     Launch Marathon to begin detection
                   </p>
                 )}

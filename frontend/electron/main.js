@@ -684,21 +684,22 @@ ipcMain.on('overlay-set-size', (_event, size) => {
 
 let _overlayPosTimeout = null
 ipcMain.on('overlay-set-position', (_event, xPercent, yPercent) => {
-  if (!overlayWindow) return
-  const { screen } = require('electron')
-  const display = screen.getPrimaryDisplay()
-  const { width, height } = display.size
-  const dims = getOverlayDims()
-  const x = Math.max(0, Math.min(width - dims.width, Math.round(xPercent / 100 * (width - dims.width))))
-  const y = Math.max(0, Math.min(height - dims.height, Math.round(yPercent / 100 * (height - dims.height))))
-  // Force exact size on every move to prevent any drift
-  overlayWindow.setBounds({ x, y, width: dims.width, height: dims.height })
-  // Throttle settings save
+  // Move overlay window if it exists
+  if (overlayWindow) {
+    const { screen } = require('electron')
+    const display = screen.getPrimaryDisplay()
+    const { width, height } = display.size
+    const dims = getOverlayDims()
+    const x = Math.max(0, Math.min(width - dims.width, Math.round(xPercent / 100 * (width - dims.width))))
+    const y = Math.max(0, Math.min(height - dims.height, Math.round(yPercent / 100 * (height - dims.height))))
+    overlayWindow.setBounds({ x, y, width: dims.width, height: dims.height })
+  }
+  // Always save position — even if overlay isn't active
   if (_overlayPosTimeout) clearTimeout(_overlayPosTimeout)
   _overlayPosTimeout = setTimeout(() => {
     const settings = loadOverlaySettings()
-    settings.customX = x
-    settings.customY = y
+    settings.customX = xPercent
+    settings.customY = yPercent
     settings.corner = 'custom'
     saveOverlaySettings(settings)
   }, 500)
@@ -708,5 +709,12 @@ ipcMain.on('open-file', (_event, filePath) => {
   const { shell } = require('electron')
   if (filePath && fs.existsSync(filePath)) {
     shell.openPath(filePath)
+  }
+})
+
+ipcMain.on('open-url', (_event, url) => {
+  const { shell } = require('electron')
+  if (url && (url.startsWith('https://') || url.startsWith('http://'))) {
+    shell.openExternal(url)
   }
 })

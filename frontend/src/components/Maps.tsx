@@ -158,16 +158,14 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
       </div>
 
       {/* Hero Stats */}
-      {currentStats && (
-        <div className="grid grid-cols-4 gap-[1px] bg-m-border">
-          <StatBlock label="RUNS" value={String(currentStats.runs)} accent />
-          <StatBlock label="SURVIVAL RATE" value={`${currentStats.survival_rate}%`}
-            color={currentStats.survival_rate >= 50 ? 'green' : 'red'} />
-          <StatBlock label="K/D" value={String(currentStats.kd)}
-            color={currentStats.kd >= 1 ? 'green' : 'red'} />
-          <StatBlock label="TOTAL TIME" value={formatDuration(currentStats.time)} color="cyan" />
-        </div>
-      )}
+      <div className="grid grid-cols-4 gap-[1px] bg-m-border">
+        <StatBlock label="RUNS" value={String(currentStats?.runs ?? 0)} accent />
+        <StatBlock label="SURVIVAL RATE" value={`${currentStats?.survival_rate ?? 0}%`}
+          color={(currentStats?.survival_rate ?? 0) >= 50 ? 'green' : 'red'} />
+        <StatBlock label="K/D" value={currentStats ? String(currentStats.kd) : '0.00'}
+          color={(currentStats?.kd ?? 0) >= 1 ? 'green' : 'red'} />
+        <StatBlock label="TOTAL TIME" value={formatDuration(currentStats?.time ?? 0)} color="cyan" />
+      </div>
 
       {/* Map + Spawn sidebar — map defines height, sidebar is pinned alongside */}
       <div className="relative" style={{ marginRight: 196 }}>
@@ -478,7 +476,7 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
       </div>
 
       {/* Detail Columns — below map */}
-      {currentStats && (
+      {(
         <div className="grid grid-cols-4 gap-[1px] bg-m-border">
           {/* Favorites */}
           <div className="bg-m-card">
@@ -528,8 +526,8 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
               <p className="label-tag text-m-green">ECONOMY</p>
             </div>
             <div className="divide-y divide-m-border">
-              <ColStat label="TOTAL LOOT" value={`$${currentStats.loot.toLocaleString()}`} color="yellow" />
-              <ColStat label="AVG LOOT/RUN" value={`$${currentStats.avg_loot.toLocaleString()}`} color="yellow" />
+              <ColStat label="TOTAL LOOT" value={`$${(currentStats?.loot ?? 0).toLocaleString()}`} color="yellow" />
+              <ColStat label="AVG LOOT/RUN" value={`$${(currentStats?.avg_loot ?? 0).toLocaleString()}`} color="yellow" />
               <ColStat label="BEST RUN" value={(() => {
                 const mapRuns = runs.filter(r => r.map_name === selectedMap)
                 return mapRuns.length > 0 ? `$${Math.max(...mapRuns.map(r => r.loot_value_total)).toLocaleString()}` : '—'
@@ -547,9 +545,9 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
               <p className="label-tag text-m-green">COMBAT</p>
             </div>
             <div className="divide-y divide-m-border">
-              <ColStat label="PVE KILLS" value={String(currentStats.pve_kills)} color="green" />
-              <ColStat label="RUNNER KILLS" value={String(currentStats.pvp_kills)} color="cyan" />
-              <ColStat label="DEATHS" value={String(currentStats.deaths)} color={currentStats.deaths > 0 ? 'red' : undefined} />
+              <ColStat label="PVE KILLS" value={String(currentStats?.pve_kills ?? 0)} color="green" />
+              <ColStat label="RUNNER KILLS" value={String(currentStats?.pvp_kills ?? 0)} color="cyan" />
+              <ColStat label="DEATHS" value={String(currentStats?.deaths ?? 0)} color={(currentStats?.deaths ?? 0) > 0 ? 'red' : undefined} />
               <ColStat label="REVIVES" value={String(runs.filter(r => r.map_name === selectedMap).reduce((sum, r) => sum + (r.crew_revives || 0), 0))} color="green" />
             </div>
           </div>
@@ -560,8 +558,8 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
               <p className="label-tag text-m-green">TIME</p>
             </div>
             <div className="divide-y divide-m-border">
-              <ColStat label="TOTAL TIME" value={formatDuration(currentStats.time)} color="cyan" />
-              <ColStat label="AVG TIME" value={formatDuration(currentStats.avg_time)} color="cyan" />
+              <ColStat label="TOTAL TIME" value={formatDuration(currentStats?.time ?? 0)} color="cyan" />
+              <ColStat label="AVG TIME" value={formatDuration(currentStats?.avg_time ?? 0)} color="cyan" />
               <ColStat label="LONGEST RUN" value={(() => {
                 const mapRuns = runs.filter(r => r.map_name === selectedMap && r.duration_seconds)
                 return mapRuns.length > 0 ? formatDuration(Math.max(...mapRuns.map(r => r.duration_seconds!))) : '—'

@@ -24,6 +24,7 @@ from sqlalchemy import func
 from ..database import get_db, SessionLocal
 from ..models import Run, Runner, SpawnPoint, Session as SessionModel
 from ..config import settings
+from .. import ai_client
 from ..utils import calc_kd, calc_survival_rate
 
 router = APIRouter()
@@ -522,21 +523,14 @@ Identity: Designation ██████-UPLINK. Clearance [REDACTED]. You proce
 
 def _get_uplink_model():
     """Get configured model for UPLINK."""
-    try:
-        from .settings_api import get_config_value
-        model = get_config_value("uplink_model") or get_config_value("model") or "haiku"
-    except Exception:
-        model = "haiku"
-    if model == "sonnet":
-        return {"api": "claude-sonnet-4-6", "cli": "sonnet"}
-    return {"api": "claude-haiku-4-5-20251001", "cli": "haiku"}
+    return ai_client.get_model_config("uplink")
 
 
 def _run_ai_with_tools(messages: list, db: Session) -> Generator[str, None, None]:
     """Send messages to AI with tool access. Yields text chunks."""
     model_config = _get_uplink_model()
 
-    if settings.anthropic_api_key:
+    if ai_client.prefer_api():
         yield from _run_api_path(messages, db, model_config)
     else:
         yield from _run_cli_path(messages, db, model_config)
@@ -592,9 +586,7 @@ def _run_api_path(messages: list, db: Session, model_config: dict) -> Generator[
 
 def _run_cli_path(messages: list, db: Session, model_config: dict) -> Generator[str, None, None]:
     """CLI path — pre-query data and stuff into context."""
-    from ..video_processor import _find_claude_cli
-    claude_bin = _find_claude_cli()
-    if not claude_bin:
+    if not ai_client.find_cli():
         yield "UPLINK OFFLINE — Claude CLI not found."
         return
 
@@ -616,17 +608,15 @@ Current session: {json.dumps(session)}
 
     full_prompt = "\n".join(prompt_parts)
 
-    cmd = [claude_bin, "-p", full_prompt, "--model", model_config["cli"]]
-
     try:
-        proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        output = []
-        for line in iter(proc.stdout.readline, b''):
-            decoded = line.decode("utf-8", errors="replace").rstrip()
-            if decoded:
-                output.append(decoded)
-        proc.wait(timeout=60)
-        yield "\n".join(output)
+        result = ai_client.run_cli_prompt(
+            full_prompt,
+            model=model_config["cli"],
+            timeout=60,
+        )
+        yield result
+    except RuntimeError as e:
+        yield f"UPLINK OFFLINE — {str(e)}"
     except Exception as e:
         yield f"UPLINK ERROR: {str(e)}"
 

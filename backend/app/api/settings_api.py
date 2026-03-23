@@ -1,11 +1,13 @@
 import json
 import os
+import subprocess
 
 import anthropic
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from ..config import _DATA_DIR, _SETTINGS_FILE, settings
+from .. import ai_client
 
 router = APIRouter()
 
@@ -57,20 +59,9 @@ def get_settings():
     key = saved.get("anthropic_api_key", "") or settings.anthropic_api_key
     masked = ""
     if key:
-        masked = key[:7] + "•" * (len(key) - 11) + key[-4:] if len(key) > 11 else "••••••••"
+        masked = key[:7] + "•••••" + key[-4:] if len(key) > 11 else "••••••••"
 
-    # Check CLI availability
-    import shutil
-    cli_found = bool(shutil.which("claude"))
-    if not cli_found:
-        for candidate in [
-            os.path.expanduser("~/.local/bin/claude"),
-            os.path.expanduser("~/.local/bin/claude.exe"),
-            os.path.expanduser("~/AppData/Local/Programs/claude/claude.exe"),
-        ]:
-            if os.path.isfile(candidate):
-                cli_found = True
-                break
+    cli_found = ai_client.find_cli() is not None
 
     return {
         "has_api_key": bool(key),
@@ -107,20 +98,13 @@ def set_api_key(body: ApiKeyUpdate):
 
 
 @router.post("/api-key/test")
-def test_api_key(body: ApiKeyUpdate):
+def test_api_key_endpoint(body: ApiKeyUpdate):
     """Test an API key by making a minimal API call."""
     key = body.api_key.strip()
-    if not key.startswith("sk-ant-"):
-        raise HTTPException(status_code=400, detail="Invalid API key format. Key should start with 'sk-ant-'")
-
     try:
-        client = anthropic.Anthropic(api_key=key)
-        message = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=10,
-            messages=[{"role": "user", "content": "Say OK"}],
-        )
-        return {"status": "valid", "response": message.content[0].text.strip()}
+        return ai_client.test_api_key(key)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except anthropic.AuthenticationError:
         raise HTTPException(status_code=401, detail="Invalid API key")
     except Exception as e:
@@ -143,10 +127,8 @@ def update_config(body: ConfigUpdate):
     allowed_keys = set(DEFAULTS.keys())
     if body.key not in allowed_keys:
         raise HTTPException(status_code=400, detail=f"Unknown config key: {body.key}")
-    # Validate model names
     if body.key in ("model", "uplink_model") and body.value not in ("sonnet", "haiku"):
         raise HTTPException(status_code=400, detail=f"Invalid model: {body.value}. Must be 'sonnet' or 'haiku'")
-    # Validate encoder
     if body.key == "encoder" and body.value not in ("hevc", "h264"):
         raise HTTPException(status_code=400, detail=f"Invalid encoder: {body.value}. Must be 'hevc' or 'h264'")
     saved = _load_settings()
@@ -157,32 +139,45 @@ def update_config(body: ConfigUpdate):
 
 @router.get("/cli-status")
 def check_cli_status():
-    """Check if Claude CLI is installed and authenticated."""
-    import shutil
-    import subprocess
+    """Check if Claude CLI is installed and actually authenticated."""
+    return ai_client.cli_status()
 
-    cli_path = shutil.which("claude")
-    if not cli_path:
-        for candidate in [
-            os.path.expanduser("~/.local/bin/claude"),
-            os.path.expanduser("~/.local/bin/claude.exe"),
-            os.path.expanduser("~/AppData/Local/Programs/claude/claude.exe"),
-        ]:
-            if os.path.isfile(candidate):
-                cli_path = candidate
-                break
 
-    if not cli_path:
-        return {"installed": False, "authenticated": False, "path": None}
-
-    # Check if authenticated by running a quick version check
+@router.post("/cli-login")
+def cli_login_endpoint():
+    """Launch `claude auth login` to open browser for OAuth."""
     try:
-        result = subprocess.run(
-            [cli_path, "--version"],
-            capture_output=True, text=True, timeout=10,
-        )
-        installed = result.returncode == 0
-    except Exception:
-        installed = True  # binary exists, just couldn't run --version
+        return ai_client.cli_login()
+    except RuntimeError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
-    return {"installed": True, "authenticated": installed, "path": cli_path}
+
+@router.post("/cli-logout")
+def cli_logout_endpoint():
+    """Log out of Claude CLI."""
+    try:
+        return ai_client.cli_logout()
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/cli-update")
+def cli_update_endpoint():
+    """Update Claude CLI to latest version via npm."""
+    try:
+        return ai_client.cli_update()
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="Update timed out")
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Update failed: {str(e)}")
+
+
+@router.get("/cli-latest-version")
+def cli_latest_version_endpoint():
+    """Check the latest published version of Claude CLI from npm."""
+    latest = ai_client.cli_latest_version()
+    if latest:
+        return {"latest": latest}
+    raise HTTPException(status_code=500, detail="Could not fetch latest version")
