@@ -229,6 +229,19 @@ if exist "%ROOT%release\runlog Setup 1.0.0.exe" (
 )
 
 :: ===========================================================
+:: PHASE 4: CREATE SHORTCUT
+:: ===========================================================
+
+:: Create a shortcut to runlog.exe in the repo root for easy access
+if exist "%ROOT%release\win-unpacked\runlog.exe" (
+    echo  Creating shortcut...
+    powershell -Command "$ws = New-Object -ComObject WScript.Shell; $sc = $ws.CreateShortcut('%ROOT%runlog.lnk'); $sc.TargetPath = '%ROOT%release\win-unpacked\runlog.exe'; $sc.WorkingDirectory = '%ROOT%release\win-unpacked'; $sc.Description = 'runlog.exe - Marathon Companion'; $sc.Save()" 2>nul
+    if exist "%ROOT%runlog.lnk" (
+        echo  Shortcut created: runlog.lnk
+    )
+)
+
+:: ===========================================================
 :: DONE
 :: ===========================================================
 
@@ -240,8 +253,9 @@ if %ERRORS% gtr 0 (
 ) else (
     echo  INSTALL COMPLETE
     echo.
-    echo  Installer:  release\runlog Setup 1.0.0.exe
-    echo  Run it to install runlog.exe to your system.
+    echo  Double-click runlog.lnk to launch the app.
+    echo.
+    echo  Or run the installer: release\runlog Setup 1.0.0.exe
     echo.
     echo  Or run directly from source:
     echo    Terminal 1:  cd backend ^& python run.py

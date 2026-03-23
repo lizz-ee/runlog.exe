@@ -52,3 +52,6 @@ Desktop.ini
 
 # Electron
 *.blockmap
+
+# Shortcuts (created by install_runlog.bat)
+*.lnk
