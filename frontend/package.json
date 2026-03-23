@@ -2,7 +2,8 @@
   "name": "runlog",
   "private": true,
   "version": "1.0.0",
-  "description": "Marathon run tracker - screenshot powered stats",
+  "author": "Jamie Ballard",
+  "description": "Local-first desktop companion for Marathon — AI-powered stats, narratives, and highlight clips",
   "scripts": {
     "dev": "RUNLOG_DEV=1 vite",
     "build": "npx tsc && npx vite build",
