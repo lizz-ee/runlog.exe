@@ -197,7 +197,7 @@ export default function Live() {
             <p className={`text-[11px] font-mono font-bold tracking-wider ${
               status?.active ? 'text-m-green animate-rgb-split' : error ? 'text-m-red' : 'text-m-yellow'
             }`}>
-              {status?.active ? 'ENGINE.ACTIVE' : error ? 'ENGINE.OFFLINE' : 'ENGINE.WAITING'}
+              {error ? 'ENGINE.OFFLINE' : status?.capture_mode === 'unavailable' ? 'RECORDER.MISSING' : status?.active ? 'ENGINE.ACTIVE' : 'ENGINE.WAITING'}
             </p>
             <p className="text-[10px] font-mono text-m-text-muted mt-0.5">
               DET: <span className={
@@ -323,11 +323,13 @@ export default function Live() {
               </div>
               <div className="text-center space-y-2">
                 <p className="text-m-text-muted text-[10px] font-mono tracking-[0.2em]">
-                  {status?.active ? 'ENGINE.ACTIVE' : 'ENGINE.STANDBY'} // {status?.capture_mode?.toUpperCase() || 'NONE'}
+                  {status?.capture_mode === 'unavailable' ? 'RECORDER.MISSING' : status?.active ? 'ENGINE.ACTIVE' : 'ENGINE.STANDBY'} // {status?.capture_mode?.toUpperCase() || 'NONE'}
                 </p>
                 {!(status?.capture_mode === 'wgc' && status?.window_found) && (
                   <p className="text-m-text-muted text-[10px] font-mono tracking-wider">
-                    Launch Marathon to begin detection
+                    {status?.capture_mode === 'unavailable'
+                      ? 'Rust recorder binary not found — build with cargo or download from releases'
+                      : 'Launch Marathon to begin detection'}
                   </p>
                 )}
               </div>
