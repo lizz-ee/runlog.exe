@@ -175,14 +175,18 @@ echo.
 echo  [1/3] Python packages [this may take a few minutes]...
 cd /d "%BACKEND%"
 echo        Installing PyTorch [CPU-only]...
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu --quiet 2>&1 | findstr /i "error" && set /a ERRORS+=1
-echo        Installing requirements...
-pip install -r requirements.txt --quiet 2>&1 | findstr /i "error" && set /a ERRORS+=1
-if %ERRORS% equ 0 (
-    echo        Python packages installed.
-) else (
-    echo        WARNING: Some packages may have failed. Check output above.
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu --quiet >nul 2>&1
+if %errorlevel% neq 0 (
+    echo        ERROR: PyTorch install failed.
+    set /a ERRORS+=1
 )
+echo        Installing requirements...
+pip install -r requirements.txt --quiet >nul 2>&1
+if %errorlevel% neq 0 (
+    echo        ERROR: Requirements install failed.
+    set /a ERRORS+=1
+)
+echo        Python packages installed.
 
 :: --- Rust recorder ---
 echo  [2/3] Building Rust recorder...
