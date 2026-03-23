@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import threading
 import time
 
 from fastapi import APIRouter
@@ -11,28 +12,31 @@ router = APIRouter()
 
 # Global event bus — capture system pushes events here, SSE streams them to clients
 _listeners: list[asyncio.Queue] = []
+_listeners_lock = threading.Lock()
 
 
 def broadcast(event_type: str, data: dict):
     """Push an event to all connected SSE clients. Call from any thread."""
     message = {"type": event_type, "data": data, "ts": time.time()}
     stale = []
-    for q in _listeners:
-        try:
-            q.put_nowait(message)
-        except asyncio.QueueFull:
-            stale.append(q)
-    for q in stale:
-        try:
-            _listeners.remove(q)
-        except ValueError:
-            pass
+    with _listeners_lock:
+        for q in _listeners:
+            try:
+                q.put_nowait(message)
+            except asyncio.QueueFull:
+                stale.append(q)
+        for q in stale:
+            try:
+                _listeners.remove(q)
+            except ValueError:
+                pass
 
 
 async def _event_stream():
     """Generator that yields SSE-formatted events."""
     q: asyncio.Queue = asyncio.Queue(maxsize=50)
-    _listeners.append(q)
+    with _listeners_lock:
+        _listeners.append(q)
     try:
         while True:
             try:
@@ -44,10 +48,11 @@ async def _event_stream():
     except asyncio.CancelledError:
         pass
     finally:
-        try:
-            _listeners.remove(q)
-        except ValueError:
-            pass
+        with _listeners_lock:
+            try:
+                _listeners.remove(q)
+            except ValueError:
+                pass
 
 
 @router.get("/events")

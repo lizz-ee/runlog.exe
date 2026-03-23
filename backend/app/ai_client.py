@@ -91,8 +91,10 @@ def cli_status() -> dict:
         if auth_result.returncode == 0 and auth_result.stdout.strip():
             auth_data = json.loads(auth_result.stdout.strip())
             authenticated = auth_data.get("loggedIn", False)
-    except (json.JSONDecodeError, Exception):
-        pass
+    except json.JSONDecodeError:
+        print(f"[ai_client] CLI auth status returned non-JSON: {auth_result.stdout[:100] if auth_result.stdout else 'empty'}")
+    except Exception as e:
+        print(f"[ai_client] CLI auth status check failed: {e}")
 
     return {"installed": True, "authenticated": authenticated, "path": cli_path, "version": version}
 

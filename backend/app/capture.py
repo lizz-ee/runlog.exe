@@ -240,7 +240,7 @@ class AutoCapture:
             "window_found": self._recorder.window_name is not None,
             "last_detection": self._last_detection,
             "detection_count": 0,
-            "last_result": self._last_process_result,
+            "last_result": self._last_process_result,  # protected by _processing_lock at write site
         }
 
     def get_latest_frame_jpeg(self) -> bytes | None:
@@ -961,7 +961,8 @@ class AutoCapture:
 
         try:
             result = process_recording(filepath, self.clips_dir, on_phase=on_phase)
-            self._last_process_result = result
+            with self._processing_lock:
+                self._last_process_result = result
             if result["status"] != "success":
                 self._update_processing_item(filepath, "error")
                 print(f"[p1] Failed: {result}")

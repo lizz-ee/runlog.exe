@@ -36,9 +36,6 @@ def _check_ffmpeg():
 _check_ffmpeg()
 
 
-def _get_model_config():
-    """Get configured model names for API and CLI."""
-    return ai_client.get_model_config("capture")
 
 
 # -- Frame extraction settings (easy to tune) -------------------------------
@@ -360,7 +357,7 @@ def _analyze_frames_with_api(frame_paths: list[str], prompt: str) -> dict:
     result = ai_client.run_api_prompt(
         prompt,
         images=frame_paths,
-        model=_get_model_config()["api"],
+        model=ai_client.get_model_config("capture")["api"],
         max_tokens=4096,
     )
     return _extract_json(result)
@@ -384,7 +381,7 @@ Read ALL of these images, then analyze them and follow these instructions:
 
     # Give CLI access to the frames directory
     frames_dir = os.path.dirname(abs_paths[0]) if abs_paths else "."
-    cmd = [claude_bin, "-p", full_prompt, "--model", _get_model_config()["cli"],
+    cmd = [claude_bin, "-p", full_prompt, "--model", ai_client.get_model_config("capture")["cli"],
            "--dangerously-skip-permissions", "--add-dir", frames_dir]
 
     print(f"[processor] Sending {len(frame_paths)} frames to CLI...")
@@ -425,7 +422,7 @@ def _analyze_with_screenshots(deploy_jpg: str, readyup_jpg: str, frames_dir: str
 
     analysis = {}
     screenshot_dir = os.path.dirname(deploy_jpg)
-    model = _get_model_config()["cli"]
+    model = ai_client.get_model_config("capture")["cli"]
 
     # =========================================================================
     # Phase 1: Three parallel calls (1A, 2A, 3A)
@@ -653,7 +650,7 @@ These are from the END of a Marathon run — stats screens, death screen, loadou
 {PHASE1_CALL2_PROMPT}"""
 
             frames_parent = os.path.dirname(batch[0])
-            cmd2 = [claude_bin, "-p", prompt2, "--model", _get_model_config()["cli"],
+            cmd2 = [claude_bin, "-p", prompt2, "--model", ai_client.get_model_config("capture")["cli"],
                     "--dangerously-skip-permissions", "--add-dir", frames_parent]
 
             print(f"[processor] CLI Call 2 batch {batch_idx + 1}/{len(batches)}: {len(batch)} frames...")
@@ -1003,7 +1000,7 @@ ABSOLUTE REQUIREMENT: After you have completed your analysis, your VERY LAST mes
 {PHASE2_PROMPT}"""
 
     video_dir = os.path.dirname(abs_path)
-    cmd = [claude_bin, "-p", prompt, "--model", _get_model_config()["cli"],
+    cmd = [claude_bin, "-p", prompt, "--model", ai_client.get_model_config("capture")["cli"],
            "--dangerously-skip-permissions", "--add-dir", video_dir]
     print(f"[processor-p2] CLI analyzing video for narrative...")
 
@@ -1047,7 +1044,7 @@ def _analyze_phase2_with_api(video_path: str, run_id: int | None = None) -> dict
     result = ai_client.run_api_prompt(
         prompt_text,
         video_path=video_path,
-        model=_get_model_config()["api"],
+        model=ai_client.get_model_config("capture")["api"],
         max_tokens=4096,
     )
     return _extract_json(result)
