@@ -125,31 +125,21 @@ Where the magic happens. The detection engine watches your game, auto-records ev
 
 ## Getting Started
 
-### Prerequisites
-- Windows 10/11
-- Python 3.12+
-- Node.js 18+
-- FFmpeg on PATH
-- Rust toolchain (for building recorder) or pre-built binary
+### One-Click Install
 
-### Setup
-```bash
-# Backend
-cd backend
-pip install -r requirements.txt
-
-# Build Rust recorder
-cd recorder
-cargo build --release
-cd ..
-
-# Frontend
-cd frontend
-npm install
+```
+1. Clone this repo
+2. Double-click install.bat
+3. Wait for it to finish (~5-10 minutes on first install)
+4. Double-click the runlog.exe shortcut to launch
 ```
 
+The install script automatically checks for and installs all prerequisites (Python 3.12+, Node.js, FFmpeg, Rust), downloads all dependencies, builds the Rust recorder, and packages the app. No manual setup required.
+
 ### Authentication
-Two options — configure in SYS.CONFIG. Set your preferred provider with the **AI.PROVIDER** toggle:
+
+Once the app is running, go to **SYS.CONFIG** and set up Claude AI access. Two options — set your preferred provider with the **AI.PROVIDER** toggle:
+
 1. **API Key** — Paste your Anthropic API key, tested before saving
 2. **Claude CLI** — Install Claude Code (`npm install -g @anthropic-ai/claude-code`), log in via the in-app LOGIN button or `claude login` in terminal. Uses your Claude subscription, no API tokens needed. Version detection and one-click updates built in.
 
@@ -157,19 +147,37 @@ If only one method is configured, it auto-selects. If the preferred method fails
 
 For a complete walkthrough of every feature, see the [User Guide](docs/user-guide.md).
 
-### Development
+### Development (Manual Setup)
+
+If you prefer to set things up manually or want to run in dev mode:
+
 ```bash
-# Terminal 1
+# Backend
+cd backend
+pip install -r requirements.txt
+
+# Build Rust recorder
+cd backend/recorder
+cargo build --release
+
+# Frontend
+cd frontend
+npm install
+```
+
+```bash
+# Terminal 1 — Backend
 cd backend && RUNLOG_DEV=1 python run.py
 
-# Terminal 2
+# Terminal 2 — Frontend
 cd frontend && npm run electron:dev
 ```
 
 ### Build
+
 ```bash
 cd frontend && npm run dist
-# Output in ../release/
+# Output in release/win-unpacked/
 ```
 
 ---
