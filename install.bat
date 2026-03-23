@@ -93,11 +93,12 @@ if %errorlevel% neq 0 (
         set /a ERRORS+=1
         goto :check_ffmpeg
     )
-    echo        Running installer...
-    msiexec /i "%TEMP%\node-installer.msi" /quiet /norestart
+    echo        Launching Node.js installer...
+    echo        Click through the installer and wait for it to finish.
+    start /wait "" msiexec /i "%TEMP%\node-installer.msi" /norestart
     del "%TEMP%\node-installer.msi" 2>nul
-    :: Refresh PATH
-    set "PATH=C:\Program Files\nodejs\;%PATH%"
+    :: Refresh PATH for both common install locations
+    set "PATH=C:\Program Files\nodejs\;%LOCALAPPDATA%\Programs\nodejs\;%PATH%"
 )
 node --version >nul 2>&1
 if %errorlevel% neq 0 (
