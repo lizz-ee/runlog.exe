@@ -29,29 +29,53 @@ echo.
 
 :: --- Python 3.12+ ---
 echo  [1/4] Python 3.12+ ...
+set "PYTHON_CMD="
+:: Check PATH first
 python --version >nul 2>&1
-if %errorlevel% neq 0 (
-    echo        NOT FOUND - Installing Python...
-    echo        Downloading Python 3.12 installer...
-    powershell -Command "Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe' -OutFile '%TEMP%\python-installer.exe'" 2>nul
-    if not exist "%TEMP%\python-installer.exe" (
-        echo        ERROR: Failed to download Python. Please install manually from python.org
-        set /a ERRORS+=1
-        goto :check_node
+if %errorlevel% equ 0 (
+    set "PYTHON_CMD=python"
+    goto :python_found
+)
+:: Check common install locations (3.12+ only)
+for %%V in (314 313 312) do (
+    if exist "%LOCALAPPDATA%\Programs\Python\Python%%V\python.exe" (
+        set "PYTHON_CMD=%LOCALAPPDATA%\Programs\Python\Python%%V\python.exe"
+        set "PATH=%LOCALAPPDATA%\Programs\Python\Python%%V\;%LOCALAPPDATA%\Programs\Python\Python%%V\Scripts\;%PATH%"
+        goto :python_found
     )
-    echo        Running installer [this may take a minute]...
-    "%TEMP%\python-installer.exe" /quiet InstallAllUsers=0 PrependPath=1 Include_pip=1
-    del "%TEMP%\python-installer.exe" 2>nul
-    :: Refresh PATH
-    set "PATH=%LOCALAPPDATA%\Programs\Python\Python312\;%LOCALAPPDATA%\Programs\Python\Python312\Scripts\;%PATH%"
 )
-python --version >nul 2>&1
-if %errorlevel% neq 0 (
-    echo        ERROR: Python still not found after install. Restart terminal and try again.
+:: Check system-wide installs
+for %%V in (314 313 312) do (
+    if exist "C:\Python%%V\python.exe" (
+        set "PYTHON_CMD=C:\Python%%V\python.exe"
+        set "PATH=C:\Python%%V\;C:\Python%%V\Scripts\;%PATH%"
+        goto :python_found
+    )
+)
+:: Not found anywhere - install
+echo        NOT FOUND - Installing Python...
+echo        Downloading Python 3.12 installer...
+powershell -Command "Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe' -OutFile '%TEMP%\python-installer.exe'" 2>nul
+if not exist "%TEMP%\python-installer.exe" (
+    echo        ERROR: Failed to download Python. Please install manually from python.org
     set /a ERRORS+=1
-) else (
-    for /f "tokens=2" %%v in ('python --version 2^>^&1') do echo        FOUND: Python %%v
+    goto :check_node
 )
+echo        Running installer [this may take a minute]...
+start /wait "" "%TEMP%\python-installer.exe" /passive InstallAllUsers=0 PrependPath=1 Include_pip=1
+del "%TEMP%\python-installer.exe" 2>nul
+:: Check if it installed
+set "PATH=%LOCALAPPDATA%\Programs\Python\Python312\;%LOCALAPPDATA%\Programs\Python\Python312\Scripts\;%PATH%"
+if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" (
+    set "PYTHON_CMD=%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+    goto :python_found
+)
+echo        ERROR: Python install failed. Please install manually from python.org
+set /a ERRORS+=1
+goto :check_node
+
+:python_found
+for /f "tokens=2" %%v in ('"%PYTHON_CMD%" --version 2^>^&1') do echo        FOUND: Python %%v
 
 :check_node
 :: --- Node.js 18+ ---
@@ -155,7 +179,7 @@ if %errorlevel% neq 0 (
 :phase2
 echo.
 if %ERRORS% gtr 0 (
-    echo  [!] %ERRORS% prerequisite[s] failed. Fix the errors above and run install_runlog.bat again.
+    echo  [!] %ERRORS% prerequisite[s] failed. Fix the errors above and run install.bat again.
     echo.
     pause
     exit /b 1
@@ -175,13 +199,13 @@ echo.
 echo  [1/3] Python packages [this may take a few minutes]...
 cd /d "%BACKEND%"
 echo        Installing PyTorch [CPU-only]...
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu --quiet >nul 2>&1
+"%PYTHON_CMD%" -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu --quiet >nul 2>&1
 if %errorlevel% neq 0 (
     echo        ERROR: PyTorch install failed.
     set /a ERRORS+=1
 )
 echo        Installing requirements...
-pip install -r requirements.txt --quiet >nul 2>&1
+"%PYTHON_CMD%" -m pip install -r requirements.txt --quiet >nul 2>&1
 if %errorlevel% neq 0 (
     echo        ERROR: Requirements install failed.
     set /a ERRORS+=1
