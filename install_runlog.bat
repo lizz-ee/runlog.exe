@@ -1,15 +1,15 @@
 @echo off
 setlocal enabledelayedexpansion
-title runlog.exe — Installer
+title runlog.exe - Installer
 color 0A
 
 echo.
-echo  ╔══════════════════════════════════════════════════════╗
-echo  ║              runlog.exe — INSTALLER                  ║
-echo  ║                                                      ║
-echo  ║   Local-first Marathon companion                     ║
-echo  ║   AI-powered stats, narratives, highlight clips      ║
-echo  ╚══════════════════════════════════════════════════════╝
+echo  ========================================================
+echo                  runlog.exe - INSTALLER
+echo.
+echo    Local-first Marathon companion
+echo    AI-powered stats, narratives, highlight clips
+echo  ========================================================
 echo.
 
 set "ROOT=%~dp0"
@@ -19,19 +19,19 @@ set "RECORDER=%BACKEND%\recorder"
 set "TOOLS=%BACKEND%\tools"
 set ERRORS=0
 
-:: ═══════════════════════════════════════════════════════════
+:: ===========================================================
 :: PHASE 1: CHECK PREREQUISITES
-:: ═══════════════════════════════════════════════════════════
+:: ===========================================================
 
 echo  [PHASE 1] Checking prerequisites...
-echo  ─────────────────────────────────────────────────────
+echo  --------------------------------------------------------
 echo.
 
 :: --- Python 3.12+ ---
 echo  [1/4] Python 3.12+ ...
 python --version >nul 2>&1
 if %errorlevel% neq 0 (
-    echo        NOT FOUND — Installing Python...
+    echo        NOT FOUND - Installing Python...
     echo        Downloading Python 3.12 installer...
     powershell -Command "Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe' -OutFile '%TEMP%\python-installer.exe'" 2>nul
     if not exist "%TEMP%\python-installer.exe" (
@@ -39,7 +39,7 @@ if %errorlevel% neq 0 (
         set /a ERRORS+=1
         goto :check_node
     )
-    echo        Running installer (this may take a minute)...
+    echo        Running installer [this may take a minute]...
     "%TEMP%\python-installer.exe" /quiet InstallAllUsers=0 PrependPath=1 Include_pip=1
     del "%TEMP%\python-installer.exe" 2>nul
     :: Refresh PATH
@@ -58,7 +58,7 @@ if %errorlevel% neq 0 (
 echo  [2/4] Node.js 18+ ...
 node --version >nul 2>&1
 if %errorlevel% neq 0 (
-    echo        NOT FOUND — Installing Node.js...
+    echo        NOT FOUND - Installing Node.js...
     echo        Downloading Node.js LTS installer...
     powershell -Command "Invoke-WebRequest -Uri 'https://nodejs.org/dist/v22.14.0/node-v22.14.0-x64.msi' -OutFile '%TEMP%\node-installer.msi'" 2>nul
     if not exist "%TEMP%\node-installer.msi" (
@@ -90,7 +90,7 @@ if %errorlevel% neq 0 (
         set "PATH=%TOOLS%\ffmpeg\bin;%PATH%"
         echo        FOUND: Local FFmpeg
     ) else (
-        echo        NOT FOUND — Downloading FFmpeg...
+        echo        NOT FOUND - Downloading FFmpeg...
         if not exist "%TOOLS%" mkdir "%TOOLS%"
         powershell -Command "Invoke-WebRequest -Uri 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' -OutFile '%TEMP%\ffmpeg.zip'" 2>nul
         if not exist "%TEMP%\ffmpeg.zip" (
@@ -130,7 +130,7 @@ if %errorlevel% neq 0 (
     if exist "%USERPROFILE%\.cargo\bin\cargo.exe" (
         set "PATH=%USERPROFILE%\.cargo\bin;%PATH%"
     ) else (
-        echo        NOT FOUND — Installing Rust...
+        echo        NOT FOUND - Installing Rust...
         echo        Downloading rustup...
         powershell -Command "Invoke-WebRequest -Uri 'https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe' -OutFile '%TEMP%\rustup-init.exe'" 2>nul
         if not exist "%TEMP%\rustup-init.exe" (
@@ -155,7 +155,7 @@ if %errorlevel% neq 0 (
 :phase2
 echo.
 if %ERRORS% gtr 0 (
-    echo  [!] %ERRORS% prerequisite(s) failed. Fix the errors above and run install.bat again.
+    echo  [!] %ERRORS% prerequisite[s] failed. Fix the errors above and run install_runlog.bat again.
     echo.
     pause
     exit /b 1
@@ -163,18 +163,18 @@ if %ERRORS% gtr 0 (
 echo  All prerequisites found.
 echo.
 
-:: ═══════════════════════════════════════════════════════════
+:: ===========================================================
 :: PHASE 2: INSTALL DEPENDENCIES
-:: ═══════════════════════════════════════════════════════════
+:: ===========================================================
 
 echo  [PHASE 2] Installing dependencies...
-echo  ─────────────────────────────────────────────────────
+echo  --------------------------------------------------------
 echo.
 
 :: --- Python deps ---
-echo  [1/3] Python packages (this may take a few minutes)...
+echo  [1/3] Python packages [this may take a few minutes]...
 cd /d "%BACKEND%"
-echo        Installing PyTorch (CPU-only)...
+echo        Installing PyTorch [CPU-only]...
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu --quiet 2>&1 | findstr /i "error" && set /a ERRORS+=1
 echo        Installing requirements...
 pip install -r requirements.txt --quiet 2>&1 | findstr /i "error" && set /a ERRORS+=1
@@ -208,12 +208,12 @@ if %errorlevel% equ 0 (
 
 echo.
 
-:: ═══════════════════════════════════════════════════════════
+:: ===========================================================
 :: PHASE 3: BUILD
-:: ═══════════════════════════════════════════════════════════
+:: ===========================================================
 
 echo  [PHASE 3] Building application...
-echo  ─────────────────────────────────────────────────────
+echo  --------------------------------------------------------
 echo.
 
 cd /d "%FRONTEND%"
@@ -228,14 +228,14 @@ if exist "%ROOT%release\runlog Setup 1.0.0.exe" (
     set /a ERRORS+=1
 )
 
-:: ═══════════════════════════════════════════════════════════
+:: ===========================================================
 :: DONE
-:: ═══════════════════════════════════════════════════════════
+:: ===========================================================
 
 echo.
-echo  ═══════════════════════════════════════════════════════
+echo  ========================================================
 if %ERRORS% gtr 0 (
-    echo  INSTALL COMPLETED WITH %ERRORS% ERROR(S)
+    echo  INSTALL COMPLETED WITH %ERRORS% ERROR[S]
     echo  Check the output above for details.
 ) else (
     echo  INSTALL COMPLETE
@@ -247,6 +247,6 @@ if %ERRORS% gtr 0 (
     echo    Terminal 1:  cd backend ^& python run.py
     echo    Terminal 2:  cd frontend ^& npm run electron:dev
 )
-echo  ═══════════════════════════════════════════════════════
+echo  ========================================================
 echo.
 pause

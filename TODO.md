@@ -55,7 +55,7 @@ Phase 1 (Quick Wins) and Phase 2 (Chain-of-Thought) are complete.
 
 ---
 
-## Ollama / Local Model Support (ALPHA)
+## Ollama / Local Model Support (PRE-ALPHA)
 
 > **Status:** Planning — not yet implemented.
 > This is an alpha feature. Local models have significantly lower accuracy than Claude for stats extraction. Results may be incorrect. Ship alongside develop branch as experimental.
