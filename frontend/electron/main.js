@@ -631,7 +631,7 @@ ipcMain.on('overlay-set-corner', (_event, corner) => {
   if (overlayWindow) {
     const pos = getOverlayPosition(corner)
     const dims = getOverlayDims()
-    overlayWindow.setBounds({ x: pos.x, y: pos.y, width: dims.width, height: dims.height })
+    overlayWindow.setBounds({ x: pos.x, y: pos.y, width: 500, height: dims.height + 28 })
   }
 })
 ipcMain.on('overlay-nudge', (_event, direction) => {
