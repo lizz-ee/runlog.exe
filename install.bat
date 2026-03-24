@@ -283,11 +283,14 @@ if exist "%ROOT%release\win-unpacked\runlog.exe" (
     )
     if exist "%TOOLS%\rcedit-x64.exe" (
         echo  Setting icon on exe...
-        "%TOOLS%\rcedit-x64.exe" "%ROOT%release\win-unpacked\runlog.exe" --set-icon "%FRONTEND%\electron\icon.ico"
+        echo  rcedit: "%TOOLS%\rcedit-x64.exe"
+        echo  target: "%ROOT%release\win-unpacked\runlog.exe"
+        echo  icon:   "%FRONTEND%\electron\icon.ico"
+        "%TOOLS%\rcedit-x64.exe" "%ROOT%release\win-unpacked\runlog.exe" --set-icon "%FRONTEND%\electron\icon.ico" 2>&1
         if %errorlevel% equ 0 (
             echo  Icon embedded.
         ) else (
-            echo  WARNING: rcedit failed [errorlevel=%errorlevel%]. Icon may not show in explorer.
+            echo  WARNING: rcedit failed. Icon may not show in explorer.
         )
     )
 ) else (
