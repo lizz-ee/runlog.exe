@@ -192,13 +192,13 @@ window.updateOverlay = function(s, d) {
     sym.innerHTML = '&#x25A0;';
     var parts = (d||'').split('|');
     main.textContent = 'REC ' + parts[0];
-    aux.textContent = parts[1] ? parts[1] + ' — 4K.WGC' : '4K.WGC';
+    aux.textContent = parts[1] ? parts[1] + ' — WGC' : 'WGC';
   } else {
     bar.className = '';
     sym.innerHTML = '&#x25C8;';
     if (d && d !== 'WATCHING') {
       main.textContent = 'DET: ' + d;
-      aux.textContent = '4K.WGC';
+      aux.textContent = 'WGC';
     } else {
       main.textContent = 'RUNLOG.EXE';
       aux.textContent = 'SCAN.ACTIVE';

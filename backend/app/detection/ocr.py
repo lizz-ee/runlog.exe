@@ -48,12 +48,20 @@ MAP_NAMES = ['PERIMETER', 'OUTPOST', 'DIRE MARSH', 'CRYO ARCHIVE']
 
 _debug_count = 0
 
+# Minimum crop width (px) for reliable EasyOCR. Below this, upscale.
+_MIN_OCR_WIDTH = 1000
+
 def _ocr_region(img, region, reader, contrast=2.0, label=""):
     """OCR a region of the image. Returns uppercase joined text."""
     global _debug_count
     w, h = img.size
     x1, y1, x2, y2 = region
     crop = img.crop((int(w * x1), int(h * y1), int(w * x2), int(h * y2)))
+    # Upscale small crops (e.g. 1080p) so text is large enough for EasyOCR
+    cw, ch = crop.size
+    if cw < _MIN_OCR_WIDTH:
+        scale = _MIN_OCR_WIDTH / cw
+        crop = crop.resize((int(cw * scale), int(ch * scale)), Image.LANCZOS)
     if contrast != 1.0:
         crop = ImageEnhance.Contrast(crop).enhance(contrast)
     arr = np.array(crop)

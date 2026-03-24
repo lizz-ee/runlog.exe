@@ -216,6 +216,7 @@ export interface CaptureStatus {
   status_counts: Record<string, number>
   resumed_count: number
   capture_mode: string | null
+  capture_resolution: string | null
   has_frame: boolean
   window_found: boolean
   last_detection: string | null

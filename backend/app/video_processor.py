@@ -39,10 +39,35 @@ _check_ffmpeg()
 
 
 # -- Frame extraction settings (easy to tune) -------------------------------
-FRAME_RESOLUTION = 3840       # long edge px — native 4K for legible stats/text in screenshots
+FRAME_RESOLUTION_MAX = 3840   # never upscale beyond source resolution
 FRAME_DURATION_START = 90     # seconds from start (loading screen can be 0-90s depending on session spawn wait)
 FRAME_FPS_START = 0.5         # deployment loading screen — static, 0.5fps is plenty (~45 frames)
 FRAME_FPS_END = 5             # post-match tabs — flip fast, need higher fps
+
+
+def _get_video_resolution(video_path: str) -> int | None:
+    """Get video width in pixels using ffprobe."""
+    try:
+        probe = subprocess.run(
+            ['ffprobe', '-v', 'quiet', '-select_streams', 'v:0',
+             '-show_entries', 'stream=width',
+             '-of', 'csv=p=0', video_path],
+            capture_output=True, text=True, timeout=10,
+        )
+        return int(probe.stdout.strip())
+    except Exception as e:
+        print(f"[video_processor] Failed to get video resolution: {e}")
+        return None
+
+
+def _frame_resolution(video_path: str) -> int:
+    """Determine frame extraction resolution: use native, never upscale."""
+    native = _get_video_resolution(video_path)
+    if native and native <= FRAME_RESOLUTION_MAX:
+        print(f"[processor] Video is {native}px wide — extracting at native resolution")
+        return native
+    print(f"[processor] Video is {native or '?'}px wide — capping at {FRAME_RESOLUTION_MAX}px")
+    return FRAME_RESOLUTION_MAX
 
 
 # -- Phase 1 Call 2 prompt (end-of-run frames — stats, death, loot) -----------
@@ -297,9 +322,10 @@ def extract_key_frames(video_path: str, frames_dir: str, video_duration: float) 
 
     Start window: first FRAME_DURATION_START seconds at FRAME_FPS_START -- deployment loading screen
     End window: last 30s at FRAME_FPS_END -- STATS, PROGRESS, LOADOUT tabs
-    Resolution: FRAME_RESOLUTION px long edge (2K for legible UI text)
+    Resolution: native (never upscale)
     """
     os.makedirs(frames_dir, exist_ok=True)
+    res = _frame_resolution(video_path)
 
     # Start frames: first 60s at 0.5fps (~30 frames, just need the loading screen)
     # -ss BEFORE -i = fast input seeking (doesn't decode everything before the seek point)
@@ -308,7 +334,7 @@ def extract_key_frames(video_path: str, frames_dir: str, video_duration: float) 
         '-ss', '0',
         '-i', video_path,
         '-t', str(FRAME_DURATION_START),
-        '-vf', f'scale={FRAME_RESOLUTION}:-2,fps={FRAME_FPS_START}',
+        '-vf', f'scale={res}:-2,fps={FRAME_FPS_START}',
         '-q:v', '3',
         os.path.join(frames_dir, 'start_%04d.jpg'),
     ]
@@ -317,14 +343,14 @@ def extract_key_frames(video_path: str, frames_dir: str, video_duration: float) 
         raise RuntimeError(f"Start frame extraction failed: {result.stderr[:200]}")
 
     # End frames: last 30s (higher fps — tabs flip fast)
-    # -ss BEFORE -i for fast seeking into the 4K file
+    # -ss BEFORE -i for fast seeking
     end_start = max(0, video_duration - 30)
     end_cmd = [
         'ffmpeg', '-y', '-hide_banner', '-loglevel', 'warning',
         '-ss', str(end_start),
         '-i', video_path,
         '-t', '30',
-        '-vf', f'scale={FRAME_RESOLUTION}:-2,fps={FRAME_FPS_END}',
+        '-vf', f'scale={res}:-2,fps={FRAME_FPS_END}',
         '-q:v', '3',
         os.path.join(frames_dir, 'end_%04d.jpg'),
     ]
@@ -765,13 +791,14 @@ def _merge_analysis(base: dict, retry: dict) -> None:
 
 def _extract_end_frames(video_path: str, frames_dir: str, start_sec: float, duration: float, fps: float) -> bool:
     """Extract end frames from a specific window. Returns True on success."""
+    res = _frame_resolution(video_path)
     for f in glob_mod.glob(os.path.join(frames_dir, 'end_*.jpg')):
         os.remove(f)
     cmd = [
         'ffmpeg', '-y', '-hide_banner', '-loglevel', 'warning',
         '-ss', str(start_sec), '-t', str(duration),
         '-i', video_path,
-        '-vf', f'scale={FRAME_RESOLUTION}:-2,fps={fps}',
+        '-vf', f'scale={res}:-2,fps={fps}',
         '-q:v', '3',
         os.path.join(frames_dir, 'end_%04d.jpg'),
     ]
@@ -884,11 +911,12 @@ def _maybe_expand_and_retry(
 
         for f in glob_mod.glob(os.path.join(frames_dir, 'start_*.jpg')):
             os.remove(f)
+        res = _frame_resolution(video_path)
         cmd = [
             'ffmpeg', '-y', '-hide_banner', '-loglevel', 'warning',
             '-ss', str(search_offset), '-t', str(chunk_duration),
             '-i', video_path,
-            '-vf', f'scale={FRAME_RESOLUTION}:-2,fps={FRAME_FPS_START}',
+            '-vf', f'scale={res}:-2,fps={FRAME_FPS_START}',
             '-q:v', '3',
             os.path.join(frames_dir, 'start_%04d.jpg'),
         ]

@@ -254,7 +254,7 @@ export default function Live() {
                 IRT 7962 // TGSSPASK 7211
               </p>
               <p className="text-[9px] font-mono text-m-green/30 tracking-wider">
-                {status?.capture_mode === 'wgc' ? 'WGC // 4K' : status?.capture_mode?.toUpperCase() || ''}
+                {status?.capture_mode === 'wgc' ? `WGC // ${status?.capture_resolution || '...'}` : status?.capture_mode?.toUpperCase() || ''}
               </p>
             </div>
           </div>

@@ -236,6 +236,7 @@ class AutoCapture:
             "status_counts": status_counts,
             "resumed_count": self.resumed_count,
             "capture_mode": self._capture_mode,
+            "capture_resolution": f"{self._recorder.width}x{self._recorder.height}" if self._recorder.width else None,
             "has_frame": self._latest_frame is not None,
             "window_found": self._recorder.window_name is not None,
             "last_detection": self._last_detection,
