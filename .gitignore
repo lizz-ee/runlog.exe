@@ -27,6 +27,7 @@ backend/runlog.db.backup
 
 # Runtime data — never commit
 data/
+!backend/app/data/spawn_points.json
 media_uploads/
 backend/recordings/
 backend/clips/
