@@ -64,60 +64,43 @@ function getOverlayDims() {
 function getOverlayPosition(corner) {
   const { screen } = require('electron')
   const display = screen.getPrimaryDisplay()
-  const { width, height } = display.size
+  const wa = display.workArea  // Accounts for taskbar + DPI scaling
   const dims = getOverlayDims()
-  const w = 500  // Must match BrowserWindow width in createOverlay()
+  const w = dims.width
   const h = dims.height + 28
-  const bottomY = height - h
   switch (corner) {
-    case 'top-right': return { x: width - w, y: 0 }
-    case 'top-center': return { x: Math.round((width - w) / 2), y: 0 }
-    case 'bottom-left': return { x: 0, y: bottomY }
-    case 'bottom-center': return { x: Math.round((width - w) / 2), y: bottomY }
-    case 'bottom-right': return { x: width - w, y: bottomY }
-    default: return { x: 0, y: 0 } // top-left
+    case 'top-right': return { x: wa.x + wa.width - w, y: wa.y }
+    case 'top-center': return { x: wa.x + Math.round((wa.width - w) / 2), y: wa.y }
+    case 'bottom-left': return { x: wa.x, y: wa.y + wa.height - h }
+    case 'bottom-center': return { x: wa.x + Math.round((wa.width - w) / 2), y: wa.y + wa.height - h }
+    case 'bottom-right': return { x: wa.x + wa.width - w, y: wa.y + wa.height - h }
+    default: return { x: wa.x, y: wa.y } // top-left
   }
-}
-
-function getAlignForCorner(corner) {
-  if (corner && corner.includes('right')) return 'right'
-  if (corner && corner.includes('center')) return 'center'
-  return 'left'
-}
-
-function setOverlayAlign(corner) {
-  if (!overlayWindow) return
-  const align = getAlignForCorner(corner)
-  overlayWindow.webContents.executeJavaScript(
-    `window.setAlign && window.setAlign('${align}')`,
-  ).catch(() => {})
 }
 
 function createOverlay() {
   const settings = loadOverlaySettings()
   if (!settings.enabled) return
   if (overlayWindow) return
+  const dims = getOverlayDims()
+  const overlayWidth = dims.width
+  const overlayHeight = dims.height + 28
   let pos
   if (settings.customX != null && settings.customY != null && settings.corner === 'custom') {
     const { screen } = require('electron')
-    const display = screen.getPrimaryDisplay()
-    const { width, height } = display.size
-    const dims = getOverlayDims()
-    const w = 500, h = dims.height + 28
+    const wa = screen.getPrimaryDisplay().workArea
     pos = {
-      x: Math.round(settings.customX / 100 * (width - w)),
-      y: Math.round(settings.customY / 100 * (height - h)),
+      x: wa.x + Math.round(settings.customX / 100 * (wa.width - overlayWidth)),
+      y: wa.y + Math.round(settings.customY / 100 * (wa.height - overlayHeight)),
     }
   } else {
     pos = getOverlayPosition(settings.corner || 'top-left')
   }
-  const dims = getOverlayDims()
-  const overlayHeight = dims.height + 28  // Extra space for notification above bar
   overlayWindow = new BrowserWindow({
-    width: 500,
+    width: overlayWidth,
     height: overlayHeight,
-    minWidth: 100,
-    maxWidth: 600,
+    minWidth: overlayWidth,
+    maxWidth: overlayWidth,
     minHeight: overlayHeight,
     maxHeight: overlayHeight,
     x: pos.x,
@@ -208,12 +191,6 @@ window.showNotification = function(msg, duration) {
     _notifTimer = null;
   }, duration || 4000);
 };
-window.setAlign = function(align) {
-  var body = document.body;
-  var wrap = document.getElementById('wrap');
-  body.style.alignItems = align === 'right' ? 'flex-end' : align === 'center' ? 'center' : 'flex-start';
-  wrap.style.alignItems = align === 'right' ? 'flex-end' : align === 'center' ? 'center' : 'flex-start';
-};
 window.updateOverlay = function(s, d) {
   var bar = document.getElementById('bar');
   var sym = document.getElementById('sym');
@@ -240,10 +217,6 @@ window.updateOverlay = function(s, d) {
 </script></body></html>`
 
   overlayWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(overlayHTML))
-  overlayWindow.webContents.on('did-finish-load', () => {
-    const corner = loadOverlaySettings().corner || 'top-left'
-    setOverlayAlign(corner)
-  })
 }
 
 function updateOverlay(state, detail) {
@@ -666,22 +639,21 @@ ipcMain.on('overlay-set-corner', (_event, corner) => {
   if (overlayWindow) {
     const pos = getOverlayPosition(corner)
     const dims = getOverlayDims()
-    overlayWindow.setBounds({ x: pos.x, y: pos.y, width: 500, height: dims.height + 28 })
-    setOverlayAlign(corner)
+    overlayWindow.setBounds({ x: pos.x, y: pos.y, width: dims.width, height: dims.height + 28 })
   }
 })
 ipcMain.on('overlay-nudge', (_event, direction) => {
   if (!overlayWindow) return
   const { screen } = require('electron')
   const display = screen.getPrimaryDisplay()
-  const { width, height } = display.size
+  const wa = display.workArea
   const bounds = overlayWindow.getBounds()
   const step = 10
   let { x, y } = bounds
-  if (direction === 'up') y = Math.max(0, y - step)
-  if (direction === 'down') y = Math.min(height - bounds.height, y + step)
-  if (direction === 'left') x = Math.max(0, x - step)
-  if (direction === 'right') x = Math.min(width - bounds.width, x + step)
+  if (direction === 'up') y = Math.max(wa.y, y - step)
+  if (direction === 'down') y = Math.min(wa.y + wa.height - bounds.height, y + step)
+  if (direction === 'left') x = Math.max(wa.x, x - step)
+  if (direction === 'right') x = Math.min(wa.x + wa.width - bounds.width, x + step)
   overlayWindow.setBounds({ x, y, width: bounds.width, height: bounds.height })
   // Save custom position
   const settings = loadOverlaySettings()
@@ -708,10 +680,9 @@ ipcMain.on('overlay-set-size', (_event, size) => {
     const dims = OVERLAY_SIZES[size] || OVERLAY_SIZES.medium
     const bounds = overlayWindow.getBounds()
     const oh = dims.height + 28
-    // Update constraints then resize — allow flexible width
-    overlayWindow.setMinimumSize(100, oh)
-    overlayWindow.setMaximumSize(600, oh)
-    overlayWindow.setBounds({ x: bounds.x, y: bounds.y, width: 500, height: oh })
+    overlayWindow.setMinimumSize(dims.width, oh)
+    overlayWindow.setMaximumSize(dims.width, oh)
+    overlayWindow.setBounds({ x: bounds.x, y: bounds.y, width: dims.width, height: oh })
     overlayWindow.webContents.executeJavaScript(
       `document.getElementById('bar').style.font = '700 ${dims.fontSize}px "JetBrains Mono", monospace';
        document.getElementById('bar').style.height = '${dims.height}px';`
@@ -725,12 +696,12 @@ ipcMain.on('overlay-set-position', (_event, xPercent, yPercent) => {
   if (overlayWindow) {
     const { screen } = require('electron')
     const display = screen.getPrimaryDisplay()
-    const { width, height } = display.size
+    const wa = display.workArea
     const dims = getOverlayDims()
-    const w = 500
+    const w = dims.width
     const h = dims.height + 28
-    const x = Math.max(0, Math.min(width - w, Math.round(xPercent / 100 * (width - w))))
-    const y = Math.max(0, Math.min(height - h, Math.round(yPercent / 100 * (height - h))))
+    const x = wa.x + Math.max(0, Math.min(wa.width - w, Math.round(xPercent / 100 * (wa.width - w))))
+    const y = wa.y + Math.max(0, Math.min(wa.height - h, Math.round(yPercent / 100 * (wa.height - h))))
     overlayWindow.setBounds({ x, y, width: w, height: h })
   }
   // Always save position — even if overlay isn't active
