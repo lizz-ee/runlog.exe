@@ -465,7 +465,7 @@ export default function Settings() {
                     setDraggingOverlay(false)
                     ;(window as any).runlog?.setOverlayPosition?.(overlayPos.x, overlayPos.y)
                   }
-                }
+                }}
               >
                 {/* Grid lines for reference */}
                 <div className="absolute inset-0 pointer-events-none"
