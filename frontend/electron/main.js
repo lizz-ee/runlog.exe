@@ -83,13 +83,14 @@ function setOverlayAlign(corner) {
   if (!overlayWindow) return
   const isRight = corner && corner.includes('right')
   const isCenter = corner && corner.includes('center')
-  const isBottom = corner && corner.includes('bottom')
+  const isTop = corner && corner.includes('top')
   const hAlign = isRight ? 'flex-end' : isCenter ? 'center' : 'flex-start'
-  const vAlign = isBottom ? 'flex-end' : 'flex-start'
   overlayWindow.webContents.executeJavaScript(
     `document.body.style.alignItems = '${hAlign}';
-     document.body.style.justifyContent = '${vAlign}';
-     document.getElementById('wrap').style.alignItems = '${hAlign}';`
+     document.body.style.justifyContent = '${isTop ? 'flex-start' : 'flex-end'}';
+     var w = document.getElementById('wrap');
+     w.style.alignItems = '${hAlign}';
+     w.style.flexDirection = '${isTop ? 'column-reverse' : 'column'}';`
   ).catch(() => {})
 }
 

@@ -440,8 +440,9 @@ export default function Settings() {
                 aria-label="Drag to reposition overlay"
                 aria-valuetext={`X: ${Math.round(overlayPos.x)}%, Y: ${Math.round(overlayPos.y)}%`}
                 className="relative border border-m-border/50 bg-m-black/80 aspect-video overflow-hidden cursor-crosshair select-none"
-                onMouseDown={(e) => {
+                onPointerDown={(e) => {
                   e.preventDefault()
+                  e.currentTarget.setPointerCapture(e.pointerId)
                   setDraggingOverlay(true)
                   const rect = posRef.current?.getBoundingClientRect()
                   if (!rect) return
@@ -451,7 +452,7 @@ export default function Settings() {
                   setOverlayCorner('custom')
                   sendOverlayPos(xPct, yPct)
                 }}
-                onMouseMove={(e) => {
+                onPointerMove={(e) => {
                   if (!draggingOverlay || !posRef.current) return
                   const rect = posRef.current.getBoundingClientRect()
                   const xPct = Math.max(0, Math.min(100, (e.clientX - rect.left) / rect.width * 100))
@@ -459,14 +460,12 @@ export default function Settings() {
                   setOverlayPos({ x: xPct, y: yPct })
                   sendOverlayPos(xPct, yPct)
                 }}
-                onMouseUp={() => {
+                onPointerUp={() => {
                   if (draggingOverlay) {
                     setDraggingOverlay(false)
-                    // Final send on release
                     ;(window as any).runlog?.setOverlayPosition?.(overlayPos.x, overlayPos.y)
                   }
-                }}
-                onMouseLeave={() => setDraggingOverlay(false)}
+                }
               >
                 {/* Grid lines for reference */}
                 <div className="absolute inset-0 pointer-events-none"
