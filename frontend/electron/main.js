@@ -684,6 +684,11 @@ ipcMain.on('overlay-nudge', (_event, direction) => {
   if (direction === 'left') x = Math.max(wa.x, x - step)
   if (direction === 'right') x = Math.min(wa.x + wa.width - bounds.width, x + step)
   overlayWindow.setBounds({ x, y, width: bounds.width, height: bounds.height })
+  // Auto-align based on position
+  const xPct = (x - wa.x) / (wa.width - bounds.width) * 100
+  const yPct = (y - wa.y) / (wa.height - bounds.height) * 100
+  const autoCorner = (yPct < 50 ? 'top' : 'bottom') + '-' + (xPct > 66 ? 'right' : xPct > 33 ? 'center' : 'left')
+  setOverlayAlign(autoCorner)
   // Save custom position
   const settings = loadOverlaySettings()
   settings.customX = x
@@ -732,6 +737,9 @@ ipcMain.on('overlay-set-position', (_event, xPercent, yPercent) => {
     const x = wa.x + Math.max(0, Math.min(wa.width - w, Math.round(xPercent / 100 * (wa.width - w))))
     const y = wa.y + Math.max(0, Math.min(wa.height - h, Math.round(yPercent / 100 * (wa.height - h))))
     overlayWindow.setBounds({ x, y, width: w, height: h })
+    // Auto-align content based on position
+    const autoCorner = (yPercent < 50 ? 'top' : 'bottom') + '-' + (xPercent > 66 ? 'right' : xPercent > 33 ? 'center' : 'left')
+    setOverlayAlign(autoCorner)
   }
   // Always save position — even if overlay isn't active
   if (_overlayPosTimeout) clearTimeout(_overlayPosTimeout)
