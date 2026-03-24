@@ -61,13 +61,14 @@ function getOverlayDims() {
   return OVERLAY_SIZES[settings.size] || OVERLAY_SIZES.medium
 }
 
+const OVERLAY_WIN_WIDTH = 500
+
 function getOverlayPosition(corner) {
   const { screen } = require('electron')
   const display = screen.getPrimaryDisplay()
-  const wa = display.workArea  // Accounts for taskbar + DPI scaling
-  const dims = getOverlayDims()
-  const w = dims.width
-  const h = dims.height + 28
+  const wa = display.workArea
+  const h = getOverlayDims().height + 28
+  const w = OVERLAY_WIN_WIDTH
   switch (corner) {
     case 'top-right': return { x: wa.x + wa.width - w, y: wa.y }
     case 'top-center': return { x: wa.x + Math.round((wa.width - w) / 2), y: wa.y }
@@ -78,29 +79,44 @@ function getOverlayPosition(corner) {
   }
 }
 
+function getAlignForCorner(corner) {
+  if (corner && corner.includes('right')) return 'flex-end'
+  if (corner && corner.includes('center')) return 'center'
+  return 'flex-start'
+}
+
+function setOverlayAlign(corner) {
+  if (!overlayWindow) return
+  const align = getAlignForCorner(corner)
+  overlayWindow.webContents.executeJavaScript(
+    `document.body.style.alignItems = '${align}';
+     document.getElementById('wrap').style.alignItems = '${align}';`
+  ).catch(() => {})
+}
+
 function createOverlay() {
   const settings = loadOverlaySettings()
   if (!settings.enabled) return
   if (overlayWindow) return
   const dims = getOverlayDims()
-  const overlayWidth = dims.width
   const overlayHeight = dims.height + 28
+  const corner = settings.corner || 'top-left'
   let pos
   if (settings.customX != null && settings.customY != null && settings.corner === 'custom') {
     const { screen } = require('electron')
     const wa = screen.getPrimaryDisplay().workArea
     pos = {
-      x: wa.x + Math.round(settings.customX / 100 * (wa.width - overlayWidth)),
+      x: wa.x + Math.round(settings.customX / 100 * (wa.width - OVERLAY_WIN_WIDTH)),
       y: wa.y + Math.round(settings.customY / 100 * (wa.height - overlayHeight)),
     }
   } else {
-    pos = getOverlayPosition(settings.corner || 'top-left')
+    pos = getOverlayPosition(corner)
   }
   overlayWindow = new BrowserWindow({
-    width: overlayWidth,
+    width: OVERLAY_WIN_WIDTH,
     height: overlayHeight,
-    minWidth: overlayWidth,
-    maxWidth: overlayWidth,
+    minWidth: 100,
+    maxWidth: 600,
     minHeight: overlayHeight,
     maxHeight: overlayHeight,
     x: pos.x,
@@ -139,7 +155,7 @@ function createOverlay() {
 <html><head><meta charset="utf-8"><style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { height: 100%; }
+html, body { width: 100%; height: 100%; }
 body { background: transparent; overflow: hidden; user-select: none; -webkit-app-region: no-drag;
        display: flex; flex-direction: column; justify-content: flex-end; }
 #bar { background: rgba(5,5,8,0.88); border-bottom: 1px solid rgba(200,255,0,0.15);
@@ -217,6 +233,9 @@ window.updateOverlay = function(s, d) {
 </script></body></html>`
 
   overlayWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(overlayHTML))
+  overlayWindow.webContents.on('did-finish-load', () => {
+    setOverlayAlign(corner)
+  })
 }
 
 function updateOverlay(state, detail) {
@@ -631,22 +650,13 @@ ipcMain.on('overlay-toggle', (_event, enabled) => {
   }
 })
 ipcMain.on('overlay-preview', () => {
-  createOverlay()
-  updateOverlay('active', 'PREVIEW')
-  // Auto-hide after 5 seconds
-  setTimeout(() => {
-    if (overlayWindow) {
-      // Only close if still in preview (not recording/detecting)
-      overlayWindow.webContents.executeJavaScript(
-        `document.getElementById('aux')?.textContent || ''`
-      ).then(text => {
-        if (text === 'PREVIEW' && overlayWindow) {
-          overlayWindow.close()
-          overlayWindow = null
-        }
-      }).catch(() => {})
-    }
-  }, 5000)
+  if (overlayWindow) {
+    overlayWindow.close()
+    overlayWindow = null
+  } else {
+    createOverlay()
+    updateOverlay('active', 'PREVIEW')
+  }
 })
 ipcMain.on('overlay-set-corner', (_event, corner) => {
   const settings = loadOverlaySettings()
@@ -657,7 +667,8 @@ ipcMain.on('overlay-set-corner', (_event, corner) => {
   if (overlayWindow) {
     const pos = getOverlayPosition(corner)
     const dims = getOverlayDims()
-    overlayWindow.setBounds({ x: pos.x, y: pos.y, width: dims.width, height: dims.height + 28 })
+    overlayWindow.setBounds({ x: pos.x, y: pos.y, width: OVERLAY_WIN_WIDTH, height: dims.height + 28 })
+    setOverlayAlign(corner)
   }
 })
 ipcMain.on('overlay-nudge', (_event, direction) => {
@@ -698,9 +709,9 @@ ipcMain.on('overlay-set-size', (_event, size) => {
     const dims = OVERLAY_SIZES[size] || OVERLAY_SIZES.medium
     const bounds = overlayWindow.getBounds()
     const oh = dims.height + 28
-    overlayWindow.setMinimumSize(dims.width, oh)
-    overlayWindow.setMaximumSize(dims.width, oh)
-    overlayWindow.setBounds({ x: bounds.x, y: bounds.y, width: dims.width, height: oh })
+    overlayWindow.setMinimumSize(100, oh)
+    overlayWindow.setMaximumSize(600, oh)
+    overlayWindow.setBounds({ x: bounds.x, y: bounds.y, width: OVERLAY_WIN_WIDTH, height: oh })
     overlayWindow.webContents.executeJavaScript(
       `document.getElementById('bar').style.font = '700 ${dims.fontSize}px "JetBrains Mono", monospace';
        document.getElementById('bar').style.height = '${dims.height}px';`
@@ -716,7 +727,7 @@ ipcMain.on('overlay-set-position', (_event, xPercent, yPercent) => {
     const display = screen.getPrimaryDisplay()
     const wa = display.workArea
     const dims = getOverlayDims()
-    const w = dims.width
+    const w = OVERLAY_WIN_WIDTH
     const h = dims.height + 28
     const x = wa.x + Math.max(0, Math.min(wa.width - w, Math.round(xPercent / 100 * (wa.width - w))))
     const y = wa.y + Math.max(0, Math.min(wa.height - h, Math.round(yPercent / 100 * (wa.height - h))))
