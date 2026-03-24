@@ -276,8 +276,13 @@ if exist "%ROOT%release\win-unpacked\runlog.exe" (
         powershell -Command "Invoke-WebRequest -Uri 'https://github.com/electron/rcedit/releases/download/v2.0.0/rcedit-x64.exe' -OutFile '%TOOLS%\rcedit-x64.exe'" 2>nul
     )
     if exist "%TOOLS%\rcedit-x64.exe" (
-        "%TOOLS%\rcedit-x64.exe" "%ROOT%release\win-unpacked\runlog.exe" --set-icon "%FRONTEND%\electron\icon.ico" 2>nul
-        echo  Icon embedded.
+        echo  Setting icon on exe...
+        "%TOOLS%\rcedit-x64.exe" "%ROOT%release\win-unpacked\runlog.exe" --set-icon "%FRONTEND%\electron\icon.ico"
+        if %errorlevel% equ 0 (
+            echo  Icon embedded.
+        ) else (
+            echo  WARNING: rcedit failed [errorlevel=%errorlevel%]. Icon may not show in explorer.
+        )
     )
 ) else (
     echo.
@@ -303,7 +308,7 @@ echo  Python path saved: %PYTHON_CMD%
 :: Create a shortcut to runlog.exe in the repo root for easy access
 if exist "%ROOT%release\win-unpacked\runlog.exe" (
     echo  Creating shortcut...
-    powershell -Command "$ws = New-Object -ComObject WScript.Shell; $sc = $ws.CreateShortcut('%ROOT%runlog.exe.lnk'); $sc.TargetPath = '%ROOT%release\win-unpacked\runlog.exe'; $sc.WorkingDirectory = '%ROOT%release\win-unpacked'; $sc.Description = 'runlog.exe - Marathon Companion'; $sc.Save()" 2>nul
+    powershell -Command "$ws = New-Object -ComObject WScript.Shell; $sc = $ws.CreateShortcut('%ROOT%runlog.exe.lnk'); $sc.TargetPath = '%ROOT%release\win-unpacked\runlog.exe'; $sc.WorkingDirectory = '%ROOT%release\win-unpacked'; $sc.IconLocation = '%FRONTEND%\electron\icon.ico,0'; $sc.Description = 'runlog.exe - Marathon Companion'; $sc.Save()" 2>nul
     if exist "%ROOT%runlog.exe.lnk" (
         echo  Shortcut created: runlog.exe
     )
