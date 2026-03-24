@@ -226,6 +226,8 @@ if %errorlevel% neq 0 (
     echo        ERROR: Requirements install failed.
     set /a ERRORS+=1
 )
+echo        Downloading OCR models [first-time only]...
+"%PYTHON_CMD%" -c "import easyocr; easyocr.Reader(['en'], gpu=False)" >nul 2>&1
 echo        Python packages installed.
 
 :: --- Rust recorder ---
