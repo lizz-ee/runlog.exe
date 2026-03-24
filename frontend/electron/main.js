@@ -79,18 +79,17 @@ function getOverlayPosition(corner) {
   }
 }
 
-function getAlignForCorner(corner) {
-  if (corner && corner.includes('right')) return 'flex-end'
-  if (corner && corner.includes('center')) return 'center'
-  return 'flex-start'
-}
-
 function setOverlayAlign(corner) {
   if (!overlayWindow) return
-  const align = getAlignForCorner(corner)
+  const isRight = corner && corner.includes('right')
+  const isCenter = corner && corner.includes('center')
+  const isBottom = corner && corner.includes('bottom')
+  const hAlign = isRight ? 'flex-end' : isCenter ? 'center' : 'flex-start'
+  const vAlign = isBottom ? 'flex-end' : 'flex-start'
   overlayWindow.webContents.executeJavaScript(
-    `document.body.style.alignItems = '${align}';
-     document.getElementById('wrap').style.alignItems = '${align}';`
+    `document.body.style.alignItems = '${hAlign}';
+     document.body.style.justifyContent = '${vAlign}';
+     document.getElementById('wrap').style.alignItems = '${hAlign}';`
   ).catch(() => {})
 }
 
