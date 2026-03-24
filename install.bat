@@ -277,21 +277,14 @@ if exist "%ROOT%release\win-unpacked\runlog.exe" (
     echo.
     echo  Build complete.
     :: Embed icon into exe (electron-builder's rcedit often fails on non-admin Windows)
-    if not exist "%TOOLS%\rcedit-x64.exe" (
-        echo  Downloading rcedit...
-        powershell -Command "Invoke-WebRequest -Uri 'https://github.com/electron/rcedit/releases/download/v2.0.0/rcedit-x64.exe' -OutFile '%TOOLS%\rcedit-x64.exe'" 2>nul
-    )
-    if exist "%TOOLS%\rcedit-x64.exe" (
-        echo  Setting icon on exe...
-        echo  rcedit: "%TOOLS%\rcedit-x64.exe"
-        echo  target: "%ROOT%release\win-unpacked\runlog.exe"
-        echo  icon:   "%FRONTEND%\electron\icon.ico"
-        "%TOOLS%\rcedit-x64.exe" "%ROOT%release\win-unpacked\runlog.exe" --set-icon "%FRONTEND%\electron\icon.ico" 2>&1
-        if %errorlevel% equ 0 (
-            echo  Icon embedded.
-        ) else (
-            echo  WARNING: rcedit failed. Icon may not show in explorer.
-        )
+    :: Set icon on exe using npm rcedit (avoids SmartScreen blocking downloaded exes)
+    echo  Setting icon on exe...
+    cd /d "%FRONTEND%"
+    call npx --yes @electron/rcedit "%ROOT%release\win-unpacked\runlog.exe" --set-icon "%FRONTEND%\electron\icon.ico" 2>&1
+    if %errorlevel% equ 0 (
+        echo  Icon embedded.
+    ) else (
+        echo  WARNING: rcedit failed. Icon may not show in explorer.
     )
 ) else (
     echo.
