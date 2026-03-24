@@ -228,6 +228,7 @@ if %errorlevel% neq 0 (
 )
 echo        Downloading OCR models [first-time only]...
 echo import easyocr; easyocr.Reader(['en'], gpu=False); print('OCR models ready')> "%TEMP%\_ocr_init.py"
+set PYTHONIOENCODING=utf-8
 "%PYTHON_CMD%" "%TEMP%\_ocr_init.py"
 if %errorlevel% neq 0 (
     echo        WARNING: OCR model download may have failed. App will retry on first launch.
