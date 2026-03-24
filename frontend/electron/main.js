@@ -630,6 +630,24 @@ ipcMain.on('overlay-toggle', (_event, enabled) => {
     overlayWindow = null
   }
 })
+ipcMain.on('overlay-preview', () => {
+  createOverlay()
+  updateOverlay('active', 'PREVIEW')
+  // Auto-hide after 5 seconds
+  setTimeout(() => {
+    if (overlayWindow) {
+      // Only close if still in preview (not recording/detecting)
+      overlayWindow.webContents.executeJavaScript(
+        `document.getElementById('aux')?.textContent || ''`
+      ).then(text => {
+        if (text === 'PREVIEW' && overlayWindow) {
+          overlayWindow.close()
+          overlayWindow = null
+        }
+      }).catch(() => {})
+    }
+  }, 5000)
+})
 ipcMain.on('overlay-set-corner', (_event, corner) => {
   const settings = loadOverlaySettings()
   settings.corner = corner

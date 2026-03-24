@@ -356,6 +356,13 @@ export default function Settings() {
                 >
                   {overlayEnabled ? 'ENABLED' : 'DISABLED'}
                 </button>
+                <button
+                  aria-label="Preview overlay position"
+                  onClick={() => (window as any).runlog?.previewOverlay?.()}
+                  className="px-3 py-1 text-2xs font-mono tracking-widest border border-m-border text-m-text-muted bg-m-surface hover:text-m-text transition-all"
+                >
+                  PREVIEW
+                </button>
               </SettingRow>
 
               <SettingRow label="SIZE">

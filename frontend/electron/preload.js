@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld('runlog', {
   setOverlayOpacity: (opacity) => ipcRenderer.send('overlay-set-opacity', opacity),
   setOverlaySize: (size) => ipcRenderer.send('overlay-set-size', size),
   setOverlayPosition: (xPct, yPct) => ipcRenderer.send('overlay-set-position', xPct, yPct),
+  previewOverlay: () => ipcRenderer.send('overlay-preview'),
 
   // Open a file in system default application
   openFile: (filePath) => ipcRenderer.send('open-file', filePath),
