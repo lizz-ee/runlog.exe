@@ -227,7 +227,12 @@ if %errorlevel% neq 0 (
     set /a ERRORS+=1
 )
 echo        Downloading OCR models [first-time only]...
-"%PYTHON_CMD%" -c "import easyocr; easyocr.Reader(['en'], gpu=False)" >nul 2>&1
+echo import easyocr; easyocr.Reader(['en'], gpu=False); print('OCR models ready')> "%TEMP%\_ocr_init.py"
+"%PYTHON_CMD%" "%TEMP%\_ocr_init.py"
+if %errorlevel% neq 0 (
+    echo        WARNING: OCR model download may have failed. App will retry on first launch.
+)
+del "%TEMP%\_ocr_init.py" 2>nul
 echo        Python packages installed.
 
 :: --- Rust recorder ---

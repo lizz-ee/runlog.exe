@@ -64,9 +64,10 @@ function getOverlayDims() {
 function getOverlayPosition(corner) {
   const { screen } = require('electron')
   const display = screen.getPrimaryDisplay()
-  const { width, height } = display.size  // Always use full screen size
+  const { width, height } = display.size
   const dims = getOverlayDims()
-  const w = dims.width, h = dims.height
+  const w = 500  // Must match BrowserWindow width in createOverlay()
+  const h = dims.height + 28
   const bottomY = height - h
   switch (corner) {
     case 'top-right': return { x: width - w, y: 0 }
