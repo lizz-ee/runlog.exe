@@ -73,8 +73,7 @@
     ],
     "win": {
       "target": ["dir"],
-      "icon": "electron/icon.ico",
-      "sign": false
+      "icon": "electron/icon.ico"
     },
     "publish": {
       "provider": "github",

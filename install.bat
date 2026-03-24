@@ -263,6 +263,8 @@ echo  --------------------------------------------------------
 echo.
 
 cd /d "%FRONTEND%"
+:: Skip code signing (no certificate) — avoids winCodeSign download/symlink errors
+set CSC_IDENTITY_AUTO_DISCOVERY=false
 echo  Building frontend + packaging installer...
 call npm run dist 2>&1
 if exist "%ROOT%release\win-unpacked\runlog.exe" (
