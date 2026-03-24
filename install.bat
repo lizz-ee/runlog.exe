@@ -276,11 +276,10 @@ call npm run dist 2>&1
 if exist "%ROOT%release\win-unpacked\runlog.exe" (
     echo.
     echo  Build complete.
-    :: Embed icon into exe (electron-builder's rcedit often fails on non-admin Windows)
-    :: Set icon on exe using npm rcedit (avoids SmartScreen blocking downloaded exes)
+    :: Set icon on exe using npm rcedit
     echo  Setting icon on exe...
     cd /d "%FRONTEND%"
-    call npx --yes @electron/rcedit "%ROOT%release\win-unpacked\runlog.exe" --set-icon "%FRONTEND%\electron\icon.ico" 2>&1
+    call npx --yes rcedit "%ROOT%release\win-unpacked\runlog.exe" --set-icon "%FRONTEND%\electron\icon.ico" 2>&1
     if %errorlevel% equ 0 (
         echo  Icon embedded.
     ) else (
