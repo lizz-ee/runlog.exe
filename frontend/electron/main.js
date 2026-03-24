@@ -97,9 +97,20 @@ function createOverlay() {
   const settings = loadOverlaySettings()
   if (!settings.enabled) return
   if (overlayWindow) return
-  const pos = (settings.customX != null && settings.customY != null)
-    ? { x: settings.customX, y: settings.customY }
-    : getOverlayPosition(settings.corner || 'top-left')
+  let pos
+  if (settings.customX != null && settings.customY != null && settings.corner === 'custom') {
+    const { screen } = require('electron')
+    const display = screen.getPrimaryDisplay()
+    const { width, height } = display.size
+    const dims = getOverlayDims()
+    const w = 500, h = dims.height + 28
+    pos = {
+      x: Math.round(settings.customX / 100 * (width - w)),
+      y: Math.round(settings.customY / 100 * (height - h)),
+    }
+  } else {
+    pos = getOverlayPosition(settings.corner || 'top-left')
+  }
   const dims = getOverlayDims()
   const overlayHeight = dims.height + 28  // Extra space for notification above bar
   overlayWindow = new BrowserWindow({
@@ -716,9 +727,11 @@ ipcMain.on('overlay-set-position', (_event, xPercent, yPercent) => {
     const display = screen.getPrimaryDisplay()
     const { width, height } = display.size
     const dims = getOverlayDims()
-    const x = Math.max(0, Math.min(width - dims.width, Math.round(xPercent / 100 * (width - dims.width))))
-    const y = Math.max(0, Math.min(height - dims.height, Math.round(yPercent / 100 * (height - dims.height))))
-    overlayWindow.setBounds({ x, y, width: dims.width, height: dims.height })
+    const w = 500
+    const h = dims.height + 28
+    const x = Math.max(0, Math.min(width - w, Math.round(xPercent / 100 * (width - w))))
+    const y = Math.max(0, Math.min(height - h, Math.round(yPercent / 100 * (height - h))))
+    overlayWindow.setBounds({ x, y, width: w, height: h })
   }
   // Always save position — even if overlay isn't active
   if (_overlayPosTimeout) clearTimeout(_overlayPosTimeout)
