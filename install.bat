@@ -276,13 +276,16 @@ call npm run dist 2>&1
 if exist "%ROOT%release\win-unpacked\runlog.exe" (
     echo.
     echo  Build complete.
-    :: Set icon on exe using rcedit via Node.js
+    :: Set icon on exe using rcedit
     echo  Setting icon on exe...
-    cd /d "%FRONTEND%"
-    call npm install --save-dev rcedit --loglevel=error 2>&1
-    echo const rcedit = require('rcedit'); rcedit(process.argv[1], {icon: process.argv[2]}).then(function(){console.log('  Icon embedded.')}).catch(function(e){console.log('  WARNING: ' + e.message)})> "%TEMP%\_seticon.js"
-    node "%TEMP%\_seticon.js" "%ROOT%release\win-unpacked\runlog.exe" "%FRONTEND%\electron\icon.ico"
-    del "%TEMP%\_seticon.js" 2>nul
+    if not exist "%TOOLS%\rcedit-x64.exe" (
+        powershell -Command "Invoke-WebRequest -Uri 'https://github.com/electron/rcedit/releases/download/v2.0.0/rcedit-x64.exe' -OutFile '%TOOLS%\rcedit-x64.exe'; Unblock-File -Path '%TOOLS%\rcedit-x64.exe'" 2>nul
+    )
+    if exist "%TOOLS%\rcedit-x64.exe" (
+        powershell -Command "Unblock-File -Path '%TOOLS%\rcedit-x64.exe'" 2>nul
+        "%TOOLS%\rcedit-x64.exe" "%ROOT%release\win-unpacked\runlog.exe" --set-icon "%FRONTEND%\electron\icon.ico" 2>&1
+        if not errorlevel 1 echo  Icon embedded.
+    )
 ) else (
     echo.
     echo  ERROR: Build failed. Check output above.
