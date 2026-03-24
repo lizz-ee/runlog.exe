@@ -79,6 +79,20 @@ function getOverlayPosition(corner) {
   }
 }
 
+function getAlignForCorner(corner) {
+  if (corner && corner.includes('right')) return 'right'
+  if (corner && corner.includes('center')) return 'center'
+  return 'left'
+}
+
+function setOverlayAlign(corner) {
+  if (!overlayWindow) return
+  const align = getAlignForCorner(corner)
+  overlayWindow.webContents.executeJavaScript(
+    `window.setAlign && window.setAlign('${align}')`,
+  ).catch(() => {})
+}
+
 function createOverlay() {
   const settings = loadOverlaySettings()
   if (!settings.enabled) return
@@ -183,6 +197,12 @@ window.showNotification = function(msg, duration) {
     _notifTimer = null;
   }, duration || 4000);
 };
+window.setAlign = function(align) {
+  var body = document.body;
+  var wrap = document.getElementById('wrap');
+  body.style.alignItems = align === 'right' ? 'flex-end' : align === 'center' ? 'center' : 'flex-start';
+  wrap.style.alignItems = align === 'right' ? 'flex-end' : align === 'center' ? 'center' : 'flex-start';
+};
 window.updateOverlay = function(s, d) {
   var bar = document.getElementById('bar');
   var sym = document.getElementById('sym');
@@ -209,6 +229,10 @@ window.updateOverlay = function(s, d) {
 </script></body></html>`
 
   overlayWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(overlayHTML))
+  overlayWindow.webContents.on('did-finish-load', () => {
+    const corner = loadOverlaySettings().corner || 'top-left'
+    setOverlayAlign(corner)
+  })
 }
 
 function updateOverlay(state, detail) {
@@ -632,6 +656,7 @@ ipcMain.on('overlay-set-corner', (_event, corner) => {
     const pos = getOverlayPosition(corner)
     const dims = getOverlayDims()
     overlayWindow.setBounds({ x: pos.x, y: pos.y, width: 500, height: dims.height + 28 })
+    setOverlayAlign(corner)
   }
 })
 ipcMain.on('overlay-nudge', (_event, direction) => {
