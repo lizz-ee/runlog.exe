@@ -79,7 +79,9 @@ goto :check_node
 
 :python_found
 :: Resolve to full absolute path so the app can find it later
-for /f "delims=" %%P in ('"%PYTHON_CMD%" -c "import sys; print(sys.executable)"') do set "PYTHON_CMD=%%P"
+echo import sys; print(sys.executable)> "%TEMP%\_pypath.py"
+for /f "delims=" %%P in ('"%PYTHON_CMD%" "%TEMP%\_pypath.py"') do set "PYTHON_CMD=%%P"
+del "%TEMP%\_pypath.py" 2>nul
 for /f "tokens=2" %%v in ('"%PYTHON_CMD%" --version 2^>^&1') do echo        FOUND: Python %%v
 
 :check_node
