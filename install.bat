@@ -263,13 +263,22 @@ echo  --------------------------------------------------------
 echo.
 
 cd /d "%FRONTEND%"
-:: Skip code signing (no certificate) — avoids winCodeSign download/symlink errors
+:: Skip code signing (no certificate)
 set CSC_IDENTITY_AUTO_DISCOVERY=false
 echo  Building frontend + packaging installer...
 call npm run dist 2>&1
 if exist "%ROOT%release\win-unpacked\runlog.exe" (
     echo.
     echo  Build complete.
+    :: Embed icon into exe (electron-builder's rcedit often fails on non-admin Windows)
+    if not exist "%TOOLS%\rcedit-x64.exe" (
+        echo  Downloading rcedit...
+        powershell -Command "Invoke-WebRequest -Uri 'https://github.com/electron/rcedit/releases/download/v2.0.0/rcedit-x64.exe' -OutFile '%TOOLS%\rcedit-x64.exe'" 2>nul
+    )
+    if exist "%TOOLS%\rcedit-x64.exe" (
+        "%TOOLS%\rcedit-x64.exe" "%ROOT%release\win-unpacked\runlog.exe" --set-icon "%FRONTEND%\electron\icon.ico" 2>nul
+        echo  Icon embedded.
+    )
 ) else (
     echo.
     echo  ERROR: Build failed. Check output above.
