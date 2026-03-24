@@ -276,15 +276,13 @@ call npm run dist 2>&1
 if exist "%ROOT%release\win-unpacked\runlog.exe" (
     echo.
     echo  Build complete.
-    :: Set icon on exe using npm rcedit
+    :: Set icon on exe using rcedit via Node.js
     echo  Setting icon on exe...
     cd /d "%FRONTEND%"
-    call npx --yes rcedit "%ROOT%release\win-unpacked\runlog.exe" --set-icon "%FRONTEND%\electron\icon.ico" 2>&1
-    if %errorlevel% equ 0 (
-        echo  Icon embedded.
-    ) else (
-        echo  WARNING: rcedit failed. Icon may not show in explorer.
-    )
+    call npm install --save-dev rcedit --loglevel=error 2>&1
+    echo const rcedit = require('rcedit'); rcedit(process.argv[1], {icon: process.argv[2]}).then(function(){console.log('  Icon embedded.')}).catch(function(e){console.log('  WARNING: ' + e.message)})> "%TEMP%\_seticon.js"
+    node "%TEMP%\_seticon.js" "%ROOT%release\win-unpacked\runlog.exe" "%FRONTEND%\electron\icon.ico"
+    del "%TEMP%\_seticon.js" 2>nul
 ) else (
     echo.
     echo  ERROR: Build failed. Check output above.
