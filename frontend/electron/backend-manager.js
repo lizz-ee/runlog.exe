@@ -178,13 +178,47 @@ class BackendManager {
    * Find a working Python installation.
    */
   _findPython() {
-    const candidates = ['python', 'python3']
+    const candidates = []
+
+    // 1. Check installer-saved path (most reliable — installer already verified it)
+    const savedPath = path.join(process.env.APPDATA || '', 'runlog', 'python-path')
+    try {
+      const saved = fs.readFileSync(savedPath, 'utf8').trim()
+      if (saved && fs.existsSync(saved)) {
+        logToFile(`[backend] Using installer-saved Python: ${saved}`)
+        candidates.push(saved)
+      }
+    } catch {}
+
+    // 2. PATH-based candidates
+    candidates.push('python', 'python3')
+
     if (process.platform === 'win32') {
+      // 3. Common install locations
+      const userHome = process.env.USERPROFILE || process.env.HOME || ''
+      for (const ver of ['313', '312', '311']) {
+        candidates.push(
+          `C:\\Python${ver}\\python.exe`,
+          path.join(userHome, `AppData\\Local\\Programs\\Python\\Python${ver}\\python.exe`),
+        )
+      }
+      // 4. Microsoft Store Python
       candidates.push(
-        'C:\\Python312\\python.exe',
-        'C:\\Python311\\python.exe',
-        'C:\\Python313\\python.exe',
+        path.join(userHome, 'AppData\\Local\\Microsoft\\WindowsApps\\python3.exe'),
+        path.join(userHome, 'AppData\\Local\\Microsoft\\WindowsApps\\python.exe'),
       )
+
+      // 5. py launcher — resolves all install types, returns the real path
+      try {
+        const real = execSync('py -3 -c "import sys; print(sys.executable)"', {
+          timeout: 5000,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        }).toString().trim()
+        if (real && fs.existsSync(real)) {
+          logToFile(`[backend] py launcher resolved: ${real}`)
+          candidates.push(real)
+        }
+      } catch {}
     }
 
     for (const cmd of candidates) {

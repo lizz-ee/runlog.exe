@@ -78,6 +78,8 @@ set /a ERRORS+=1
 goto :check_node
 
 :python_found
+:: Resolve to full absolute path so the app can find it later
+for /f "delims=" %%P in ('"%PYTHON_CMD%" -c "import sys; print(sys.executable)"') do set "PYTHON_CMD=%%P"
 for /f "tokens=2" %%v in ('"%PYTHON_CMD%" --version 2^>^&1') do echo        FOUND: Python %%v
 
 :check_node
@@ -269,7 +271,18 @@ if exist "%ROOT%release\win-unpacked\runlog.exe" (
 )
 
 :: ===========================================================
-:: PHASE 4: CREATE SHORTCUT
+:: PHASE 4: SAVE PYTHON PATH
+:: ===========================================================
+
+:: Save the resolved Python path so the app can find it at runtime
+:: (Electron packaged apps often don't inherit the user's full PATH)
+set "RUNLOG_CFG=%APPDATA%\runlog"
+if not exist "%RUNLOG_CFG%" mkdir "%RUNLOG_CFG%"
+echo %PYTHON_CMD%> "%RUNLOG_CFG%\python-path"
+echo  Python path saved: %PYTHON_CMD%
+
+:: ===========================================================
+:: PHASE 5: CREATE SHORTCUT
 :: ===========================================================
 
 :: Create a shortcut to runlog.exe in the repo root for easy access
