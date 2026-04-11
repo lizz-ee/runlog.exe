@@ -109,13 +109,14 @@ class AutoCapture:
         self._running = True
         print("[capture] Starting AutoCapture...")
 
-        # Set Python process to above normal priority to prevent background throttling
+        # Set Python process to below normal priority — detection is fast (winocr ~16ms),
+        # so we don't need to compete with the game for CPU scheduling.
         try:
             import ctypes
             kernel32 = ctypes.windll.kernel32
             handle = kernel32.GetCurrentProcess()
-            kernel32.SetPriorityClass(handle, 0x00008000)  # ABOVE_NORMAL_PRIORITY_CLASS
-            print("[capture] Python process priority: ABOVE_NORMAL")
+            kernel32.SetPriorityClass(handle, 0x00004000)  # BELOW_NORMAL_PRIORITY_CLASS
+            print("[capture] Python process priority: BELOW_NORMAL")
         except Exception as e:
             print(f"[capture] Could not set process priority: {e}")
 

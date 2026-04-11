@@ -24,8 +24,9 @@ use windows::Win32::Graphics::Dxgi::Common::DXGI_SAMPLE_DESC;
 // Constants
 // ---------------------------------------------------------------------------
 
-/// OCR frame interval in capture frames (~0.25s at 60fps in menus)
-const OCR_FRAME_INTERVAL: u64 = 15;
+/// OCR frame interval in capture frames (~0.5s at 60fps in menus)
+/// winocr is ~16ms so 2fps is more than enough for state transitions
+const OCR_FRAME_INTERVAL: u64 = 30;
 /// Multiplier for OCR interval during recording (~3s)
 const OCR_RECORD_INTERVAL_MULTIPLIER: u64 = 12;
 /// Initial JPEG buffer capacity
@@ -566,7 +567,9 @@ fn set_high_priority() {
         fn SetProcessInformation(hProcess: *mut c_void, class: u32, info: *const c_void, size: u32) -> i32;
     }
 
-    const ABOVE_NORMAL_PRIORITY_CLASS: u32 = 0x00008000;
+    // NORMAL priority — encoding is handled on GPU, no need to compete with the game for CPU.
+    // Power throttle opt-out stays: prevents Windows 11 efficiency mode from degrading frame timing.
+    const NORMAL_PRIORITY_CLASS: u32 = 0x00000020;
     const PROCESS_POWER_THROTTLING: u32 = 4;
 
     #[repr(C)]
@@ -579,9 +582,9 @@ fn set_high_priority() {
     unsafe {
         let process = GetCurrentProcess();
 
-        // Set process priority to Above Normal
-        if SetPriorityClass(process, ABOVE_NORMAL_PRIORITY_CLASS) != 0 {
-            eprintln!("[recorder] Process priority: ABOVE_NORMAL");
+        // Normal priority — GPU handles encoding, no need to compete with the game.
+        if SetPriorityClass(process, NORMAL_PRIORITY_CLASS) != 0 {
+            eprintln!("[recorder] Process priority: NORMAL");
         }
 
         // Opt out of Windows 11 power throttling (both timer resolution and execution speed)
