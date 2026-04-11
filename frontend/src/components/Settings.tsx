@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { getSettings, setApiKey, testApiKey, removeApiKey, updateConfig, getCliStatus, cliLogin, cliLogout, getCliLatestVersion, cliUpdate } from '../lib/api'
+import { getSettings, setApiKey, testApiKey, removeApiKey, updateConfig, migrateStorage, browseFolder, getCliStatus, cliLogin, cliLogout, getCliLatestVersion, cliUpdate, setAutoPhase } from '../lib/api'
 import type { AppSettings } from '../lib/api'
 import type { OverlaySettings } from '../lib/types'
 
@@ -113,6 +113,8 @@ export default function Settings() {
   const [cliLatest, setCliLatest] = useState<string | null>(null)
   const [cliLoginPending, setCliLoginPending] = useState(false)
   const [cliUpdating, setCliUpdating] = useState(false)
+  const [migrating, setMigrating] = useState(false)
+  const [migrateResult, setMigrateResult] = useState<string | null>(null)
 
   useEffect(() => {
     getSettings().then(setConfig).catch((e) => console.error('[Settings] fetch settings failed:', e))
@@ -322,14 +324,123 @@ export default function Settings() {
                 onChange={v => saveConfig('p2_workers', v)} />
             </SettingRow>
 
+            <div className="pt-2 border-t border-m-border/30 space-y-3">
+              <SettingRow label="AUTO-RUN P1">
+                <ToggleButton
+                  options={[{ value: 'on', label: 'ON' }, { value: 'off', label: 'OFF' }]}
+                  value={config.auto_p1 ? 'on' : 'off'}
+                  onChange={v => {
+                    const enabled = v === 'on'
+                    saveConfig('auto_p1', enabled)
+                    setAutoPhase(1, enabled).catch(console.error)
+                  }}
+                />
+              </SettingRow>
+              <SettingRow label="AUTO-RUN P2">
+                <ToggleButton
+                  options={[{ value: 'on', label: 'ON' }, { value: 'off', label: 'OFF' }]}
+                  value={config.auto_p2 ? 'on' : 'off'}
+                  onChange={v => {
+                    const enabled = v === 'on'
+                    saveConfig('auto_p2', enabled)
+                    setAutoPhase(2, enabled).catch(console.error)
+                  }}
+                />
+              </SettingRow>
+            </div>
+
             <div className="pt-1 border-t border-m-border/30">
               <p className="text-[9px] font-mono text-m-text-muted tracking-wider">
                 P1 = FRAMES + STATS — P2 = NARRATIVE + CLIPS<br/>
+                <span className="text-m-yellow/40">WORKERS RESTART REQUIRED — AUTO-RUN TAKES EFFECT IMMEDIATELY</span>
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ═══ STORAGE + (empty right half) ═══ */}
+      <div className="flex gap-5">
+        <div className="flex-1 border border-m-border bg-m-card">
+          <SectionHeader tag="STOR.CONFIG" title="STORAGE" desc="Where recordings, clips, and screenshots are saved." />
+          <div className="px-5 py-4 space-y-4">
+            <SettingRow label="MEDIA PATH">
+              <button
+                className="px-3 py-1 text-2xs font-mono border border-m-border hover:border-m-green hover:text-m-green text-m-text-muted transition-colors"
+                onClick={async () => {
+                  const path = await browseFolder()
+                  if (path) {
+                    setConfig(prev => prev ? { ...prev, storage_path: path } : prev)
+                    saveConfig('storage_path', path)
+                  }
+                }}
+              >
+                BROWSE
+              </button>
+            </SettingRow>
+
+            {config.storage_path && (
+              <div className="flex items-center gap-2">
+                <p className="flex-1 text-[9px] font-mono text-m-green tracking-wider truncate">
+                  {config.storage_path}
+                </p>
+                <button
+                  className="px-2 py-0.5 text-[9px] font-mono border border-m-border/50 hover:border-m-red hover:text-m-red text-m-text-muted/40 transition-colors"
+                  onClick={() => {
+                    setConfig(prev => prev ? { ...prev, storage_path: '' } : prev)
+                    saveConfig('storage_path', '')
+                    setMigrateResult(null)
+                  }}
+                >
+                  CLEAR
+                </button>
+              </div>
+            )}
+
+            {config.storage_path && (
+              <SettingRow label="MIGRATE DATA">
+                <button
+                  className="px-3 py-1 text-2xs font-mono border border-m-border hover:border-m-green hover:text-m-green text-m-text-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  disabled={migrating}
+                  onClick={async () => {
+                    if (!config.storage_path) return
+                    setMigrating(true)
+                    setMigrateResult(null)
+                    try {
+                      const res = await migrateStorage(config.storage_path)
+                      const parts = [`${res.moved_runs} runs, ${res.moved_recordings} recordings moved`]
+                      if (res.db_paths_updated > 0) parts.push(`${res.db_paths_updated} DB paths updated`)
+                      if (res.errors?.length) parts.push(`${res.errors.length} errors`)
+                      setMigrateResult(parts.join(' · '))
+                    } catch (e: any) {
+                      setMigrateResult(`ERROR: ${e?.response?.data?.detail || e.message}`)
+                    } finally {
+                      setMigrating(false)
+                    }
+                  }}
+                >
+                  {migrating ? 'MIGRATING...' : 'MOVE EXISTING DATA'}
+                </button>
+              </SettingRow>
+            )}
+
+            {migrateResult && (
+              <p className={`text-[9px] font-mono tracking-wider ${migrateResult.startsWith('ERROR') ? 'text-m-red' : 'text-m-green'}`}>
+                {migrateResult}
+              </p>
+            )}
+
+            <div className="pt-1 border-t border-m-border/30">
+              <p className="text-[9px] font-mono text-m-text-muted tracking-wider">
+                ACTIVE: <span className="text-m-green">{config.storage_path_active || config.storage_path_default || '...'}</span><br/>
                 <span className="text-m-yellow/40">RESTART REQUIRED FOR CHANGES</span>
               </p>
             </div>
           </div>
         </div>
+
+        {/* Empty right half — reserved */}
+        <div className="flex-1" />
       </div>
 
       {/* ═══ OVERLAY ═══ */}

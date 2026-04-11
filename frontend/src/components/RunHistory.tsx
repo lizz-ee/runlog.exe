@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { format } from 'date-fns'
 import axios from 'axios'
-import { getRuns, updateRun, getClips, getClipUrl, apiBase, toggleFavorite, cutClip, deleteClip, deleteKeptRecording } from '../lib/api'
+import { getRuns, updateRun, createRunner, getClips, getClipUrl, apiBase, toggleFavorite, cutClip, deleteClip, deleteKeptRecording } from '../lib/api'
 import { useStore } from '../lib/store'
 import { formatTime } from '../lib/utils'
 import type { Run, Clip } from '../lib/types'
@@ -46,9 +46,13 @@ function ShellPicker({ run, onUpdate }: { run: Run; onUpdate: () => void }) {
 
   const handleSelect = async (name: string) => {
     setEditing(false)
-    const runner = runners.find(r => r.name.toLowerCase() === name.toLowerCase())
     try {
-      await updateRun(run.id, { runner_id: runner?.id ?? null } as any)
+      let runner = runners.find(r => r.name.toLowerCase() === name.toLowerCase())
+      if (!runner) {
+        runner = await createRunner({ name })
+        useStore.getState().setRunners([...runners, runner])
+      }
+      await updateRun(run.id, { runner_id: runner.id } as any)
       onUpdate()
     } catch (e) {
       console.error('Failed to update shell:', e)

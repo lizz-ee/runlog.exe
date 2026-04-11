@@ -1003,15 +1003,264 @@ def _get_phase1_context(run_id: int | None) -> str:
         return ""
 
 
+def _verify_hud_events(raw_analysis: str, video_path: str, phase1_context: str) -> str:
+    """Call 1.5 — HUD crop verification for kill/death/health events.
+
+    Crops the bottom-left HUD region (squad list, health bar, kill feed)
+    from frames at COMBAT timestamps identified by Call 1. Sends these
+    focused crops to haiku to read the HUD text accurately.
+
+    Returns a text summary of verified HUD events, or empty string on failure.
+    """
+    import re
+    from PIL import Image
+
+    claude_bin = ai_client.find_cli()
+    if not claude_bin:
+        return ""
+
+    # Parse combat timestamps from analyst output
+    # Matches patterns like [0:30 - 1:05], [00:00:30 - 00:01:05], [30 - 65]
+    combat_timestamps = []
+    for line in raw_analysis.split("\n"):
+        line_upper = line.upper()
+        if any(cat in line_upper for cat in ["COMBAT", "DEATH", "EXTRACTION", "CLOSE"]):
+            # Extract start timestamp
+            ts_match = re.search(r'\[(\d+:?\d*:?\d*)', line)
+            if ts_match:
+                ts_str = ts_match.group(1)
+                parts = ts_str.split(":")
+                if len(parts) == 3:
+                    secs = int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+                elif len(parts) == 2:
+                    secs = int(parts[0]) * 60 + int(parts[1])
+                else:
+                    secs = int(parts[0])
+                combat_timestamps.append(secs)
+
+    if not combat_timestamps:
+        print(f"[processor-p2] HUD verify: no combat timestamps found in analysis")
+        return ""
+
+    # Limit to max 20 timestamps to keep costs down
+    if len(combat_timestamps) > 20:
+        step = len(combat_timestamps) / 20
+        combat_timestamps = [combat_timestamps[int(i * step)] for i in range(20)]
+
+    # Extract frames at combat timestamps directly from video, then crop HUD region.
+    # Uses ffmpeg to seek to each timestamp — fast since it's just single frames.
+    abs_video = os.path.abspath(video_path)
+    rec_name = os.path.basename(video_path).replace(".mp4", "")
+    rec_dir = os.path.dirname(abs_video)
+    hud_crops_dir = os.path.join(rec_dir, f"hud_crops_{rec_name.replace('run_', '')}")
+    os.makedirs(hud_crops_dir, exist_ok=True)
+
+    crop_paths = []
+    for ts in combat_timestamps:
+        frame_path = os.path.join(hud_crops_dir, f"full_{ts}s.jpg")
+        crop_path = os.path.join(hud_crops_dir, f"hud_{ts}s.jpg")
+        # Extract single frame at this timestamp
+        cmd = [
+            'ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
+            '-ss', str(ts), '-i', abs_video,
+            '-vframes', '1', '-q:v', '3', frame_path,
+        ]
+        try:
+            subprocess.run(cmd, capture_output=True, timeout=15)
+        except Exception as e:
+            print(f"[processor-p2] HUD frame extract failed at {ts}s: {e}")
+            continue
+        if not os.path.exists(frame_path):
+            continue
+        # Crop bottom-left HUD region: 0-57% width, 58-100% height
+        try:
+            img = Image.open(frame_path)
+            w, h = img.size
+            crop = img.crop((0, int(h * 0.58), int(w * 0.57), h))
+            crop.save(crop_path, quality=90)
+            crop_paths.append((ts, crop_path))
+            os.remove(frame_path)  # Clean up full frame, keep only crop
+        except Exception as e:
+            print(f"[processor-p2] HUD crop failed at {ts}s: {e}")
+
+    if not crop_paths:
+        print(f"[processor-p2] HUD verify: no crops generated")
+        return ""
+
+    print(f"[processor-p2] HUD verify: {len(crop_paths)} crops from combat segments")
+
+    # Build verification prompt with image paths
+    crop_list = "\n".join([f"- {os.path.abspath(p).replace(chr(92), '/')} (timestamp: {ts}s)" for ts, p in crop_paths])
+
+    verify_prompt = f"""Read the HUD elements from these Marathon gameplay screenshots. Each image is a crop of the bottom-left HUD showing: squad list (left), health bar (bottom), and kill feed text (center).
+
+{phase1_context}
+
+For EACH image, report what you see:
+1. KILL FEED (center text): "RUNNER ELIM" (PvP kill), "COMBATANT ELIM" (PvE kill), "FINISHER" (you got the kill), or nothing
+2. HEALTH: Is the player's health bar critical (mostly red/pink)? Normal? Full?
+3. SQUAD: Any teammate showing "ELIMINATED" (dead) or "REVIVING" status?
+4. TOP LINE: Any "[Name] ☠ [Name]" kill notification? If so, who killed who?
+
+Images to read:
+{crop_list}
+
+Read each image file using the Read tool, then output a simple list:
+[timestamp]s: KILL_FEED: ... | HEALTH: ... | SQUAD: ... | KILLFEED_TOP: ...
+
+Be precise — "RUNNER ELIM" means a runner (human player with #tag) was killed. "COMBATANT ELIM" means a PvE enemy (UESC) was killed. These are DIFFERENT. Note consecutive PvE kills as a streak."""
+
+    cmd = [claude_bin, "-p", verify_prompt, "--model", "haiku",
+           "--dangerously-skip-permissions", "--add-dir", hud_crops_dir]
+
+    proc = subprocess.Popen(
+        cmd, stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=ai_client.cli_env(),
+    )
+
+    output_lines = []
+    try:
+        for line in iter(proc.stdout.readline, b''):
+            decoded = line.decode("utf-8", errors="replace").rstrip()
+            if decoded:
+                output_lines.append(decoded)
+        proc.wait(timeout=300)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        print(f"[processor-p2] HUD verify timed out")
+        return ""
+
+    result = "\n".join(output_lines).strip()
+    print(f"[processor-p2] HUD verify complete — {len(result)} chars")
+
+    # Clean up crops
+    try:
+        import shutil
+        shutil.rmtree(hud_crops_dir, ignore_errors=True)
+    except Exception:
+        pass
+
+    return result
+
+
+def _phase2_format_to_json(raw_analysis: str, phase1_context: str, max_retries: int = 2,
+                           hud_verification: str = "") -> dict:
+    """Call 2 — cheap text-only call to convert raw narrative into JSON.
+
+    Takes the raw timeline + events text from Call 1 and formats it into
+    the required JSON schema. Uses haiku for speed/cost since no images.
+    Retries are nearly free (~$0.001 per attempt).
+    """
+    claude_bin = ai_client.find_cli()
+    if not claude_bin:
+        raise RuntimeError("Claude CLI not found")
+
+    hud_section = ""
+    if hud_verification:
+        hud_section = f"""
+=== HUD VERIFICATION (ground truth — use this to correct the analyst's event labels) ===
+{hud_verification}
+=== END HUD VERIFICATION ===
+
+IMPORTANT: The HUD verification above was read directly from game screenshots. Use it to:
+- Confirm pvp_kill events: frames showing "RUNNER ELIM" or "[Name] ☠ [RunnerName#tag]" = confirmed pvp_kill
+- Confirm PvE kills: "COMBATANT ELIM" = PvE, NOT pvp_kill. But 3+ rapid PvE kills = clip-worthy "combat" highlight
+- Confirm close_call: frames showing critical/red health bar during combat
+- Confirm revive: frames showing "REVIVING..." in squad list
+- If the analyst missed a pvp_kill but HUD shows "RUNNER ELIM", ADD it as a highlight
+- If the analyst labeled something as pvp_kill but HUD shows "COMBATANT ELIM", CHANGE it to "combat"
+"""
+
+    format_prompt = f"""Convert this gameplay analysis into a JSON object. Do NOT add or change any information — just reformat what's already there.
+
+{phase1_context}
+
+=== RAW ANALYSIS ===
+{raw_analysis}
+=== END RAW ANALYSIS ===
+{hud_section}
+Using the timeline segments, events,{' and HUD verification' if hud_section else ''} above, produce this exact JSON structure:
+{{
+  "grade": "S, A, B, C, D, or F",
+  "summary": "Narrative story in second person (you). Scale: F/D or <3min = 1-2 sentences; C or 3-5min = 1 short paragraph; B or 5-10min = 1-2 paragraphs; A/S or 10+min = 2-4 paragraphs. Sports commentator recap style.",
+  "highlights": [
+    {{
+      "timestamp_seconds": number,
+      "duration_seconds": number,
+      "type": "pvp_kill" or "combat" or "death" or "revive" or "close_call" or "extraction" or "loot" or "funny",
+      "description": "What happens at this timestamp"
+    }}
+  ]
+}}
+
+GRADING CRITERIA — Marathon is an EXTRACTION shooter. Survival and loot matter MORE than kills.
+Weight: Survival (35%) > Runner Kills (25%) > Loot (15%) > Revives (10%) > PvE Kills (5%) > Base (10%)
+- S: Extracted with high loot ($3k+), runner kills, long run (10+ min). OR exceptional loot ($5k+).
+- A: Extracted with good loot ($1k+), some kills. OR survived a long dangerous run (10+ min).
+- B: Extracted with modest loot, or died mid-run but put up a real fight.
+- C: Extracted quickly with minimal loot and no kills. OR died in an average firefight.
+- D: Died relatively quickly with little to show (<3 min).
+- F: Died almost immediately (<1 min), no kills, no loot.
+
+Convert timestamps like "0:05:30" or "5:30" to seconds (e.g. 330). Output ONLY the JSON — no commentary, no markdown fences."""
+
+    for attempt in range(max_retries + 1):
+        cmd = [claude_bin, "-p", format_prompt, "--model", "haiku",
+               "--dangerously-skip-permissions"]
+        print(f"[processor-p2] Formatter call {attempt + 1}/{max_retries + 1}...")
+
+        proc = subprocess.Popen(
+            cmd, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=ai_client.cli_env(),
+        )
+
+        output_lines = []
+        try:
+            for line in iter(proc.stdout.readline, b''):
+                decoded = line.decode("utf-8", errors="replace").rstrip()
+                if decoded:
+                    output_lines.append(decoded)
+            proc.wait(timeout=120)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            print(f"[processor-p2] Formatter timed out on attempt {attempt + 1}")
+            continue
+
+        output = "\n".join(output_lines).strip()
+        if not output:
+            print(f"[processor-p2] Formatter returned empty on attempt {attempt + 1}")
+            continue
+
+        try:
+            return _extract_json(output)
+        except ValueError as e:
+            print(f"[processor-p2] Formatter JSON parse failed attempt {attempt + 1}: {e}")
+            if attempt == max_retries:
+                raise
+
+    raise RuntimeError("Phase 2 formatter failed after all retries")
+
+
 def _analyze_phase2_with_cli(video_path: str, run_id: int | None = None) -> dict:
-    """Send video to CLI for Phase 2 narrative analysis."""
+    """Phase 2 narrative analysis via two CLI calls.
+
+    Call 1 (Analyst): Watches video, extracts frames, produces raw timeline + events.
+        - Expensive (video + images), but no JSON requirement — just write naturally.
+        - This is what Claude already does well; it fails at JSON formatting, not analysis.
+
+    Call 2 (Formatter): Takes raw text, converts to JSON schema.
+        - Cheap (text only, haiku), retryable (~$0.001 per attempt).
+        - If Call 1 produced good analysis, Call 2 almost never fails.
+    """
     claude_bin = ai_client.find_cli()
     if not claude_bin:
         raise RuntimeError("Claude CLI not found")
 
     abs_path = os.path.abspath(video_path).replace("\\", "/")
     phase1_context = _get_phase1_context(run_id)
-    prompt = f"""There is a gameplay video file at: {abs_path}
+
+    # ── Call 1: Analyst (expensive, video + frames) ──
+    analyst_prompt = f"""There is a gameplay video file at: {abs_path}
 
 Use ffmpeg to extract frames from the video, then read them to analyze the gameplay. Steps:
 1. Use ffprobe to get the video duration
@@ -1019,18 +1268,45 @@ Use ffmpeg to extract frames from the video, then read them to analyze the gamep
    ffmpeg -i VIDEO -vf "fps=1,drawtext=text='%{{pts\\:hms}}':x=10:y=10:fontsize=36:fontcolor=white:box=1:boxcolor=black@0.5:boxborderw=5" -q:v 3 OUTPUT_DIR/frame_%04d.jpg
    This overlays MM:SS timestamps on each frame so you can read exact times directly from the images.
 3. Read the extracted frames — the timestamp is BURNED INTO each frame in the top-left corner. Use THESE visible timestamps for your highlight timestamps, not frame index math.
-4. After analyzing ALL frames, output the JSON result
+4. After analyzing ALL frames, output your full analysis.
 
-ABSOLUTE REQUIREMENT: After you have completed your analysis, your VERY LAST message must contain the JSON object. Do NOT say "the JSON was output above" or "see my previous response" — you MUST output the complete JSON again as your final output. Even if you already output it earlier, REPEAT IT as your last message. The JSON must start with {{ and end with }}.
+You do NOT need to output JSON. Just output plain text analysis.
 
 {phase1_context}
 
-{PHASE2_PROMPT}"""
+You are analyzing a recorded Marathon (Bungie 2026 extraction shooter) gameplay run.
+The run's stats have ALREADY been extracted by Phase 1. Do NOT extract stats. This is ONLY for narrative analysis.
+
+Complete these steps IN ORDER:
+
+=== STEP 1: SCENE INVENTORY ===
+Go through every frame and classify the video into segments:
+  [TIMESTAMP_START - TIMESTAMP_END] CATEGORY — brief note
+Categories: IDLE, COMBAT, MENU, DEATH, EXTRACTION, POSTGAME, LOADING
+
+=== STEP 2: EVENT IDENTIFICATION ===
+Review ONLY COMBAT, DEATH, or EXTRACTION segments. For each one identify:
+- Is this a pvp_kill, death, revive, close_call, extraction, combat, loot, or funny?
+- Who was involved? What happened?
+- Use the BURNED-IN timestamps from the frames.
+
+MARATHON HUD GUIDE:
+- TIMER: Top-left, red pill countdown
+- KILL FEED: Top-left area, "[PlayerName] eliminated [TargetName]". Runner names have #numbers.
+- CROSSHAIR: White flash = hit markers. Red X = headshot.
+- DEATH SCREEN: "NEURAL LINK SEVERED", killer info on right.
+- EXTRACTION: "MATTER TRANSFER IN" countdown.
+
+=== STEP 3: SUMMARY ===
+Write a brief narrative summary of the run in second person ("you"). Sports commentator recap style.
+Assign a grade (S/A/B/C/D/F) based on: Survival (35%), Runner Kills (25%), Loot (15%), Revives (10%), PvE (5%), Base (10%).
+
+Output all three steps as plain text. Do NOT output JSON."""
 
     video_dir = os.path.dirname(abs_path)
-    cmd = [claude_bin, "-p", prompt, "--model", ai_client.get_model_config("capture")["cli"],
+    cmd = [claude_bin, "-p", analyst_prompt, "--model", ai_client.get_model_config("capture")["cli"],
            "--dangerously-skip-permissions", "--add-dir", video_dir]
-    print(f"[processor-p2] CLI analyzing video for narrative...")
+    print(f"[processor-p2] Call 1: Analyst — watching video...")
 
     proc = subprocess.Popen(
         cmd, stdin=subprocess.DEVNULL,
@@ -1048,17 +1324,36 @@ ABSOLUTE REQUIREMENT: After you have completed your analysis, your VERY LAST mes
         proc.wait(timeout=1800)
     except subprocess.TimeoutExpired:
         proc.kill()
-        raise RuntimeError("Phase 2 CLI timed out after 30 minutes")
+        raise RuntimeError("Phase 2 analyst timed out after 30 minutes")
 
     stderr_out = proc.stderr.read().decode("utf-8", errors="replace").strip() if proc.stderr else ""
     if stderr_out:
         print(f"[cli-p2 stderr] {stderr_out[:500]}")
 
-    output = "\n".join(output_lines).strip()
-    if not output:
-        raise RuntimeError(f"Phase 2 CLI returned no output. exit={proc.returncode}")
+    raw_analysis = "\n".join(output_lines).strip()
+    if not raw_analysis:
+        raise RuntimeError(f"Phase 2 analyst returned no output. exit={proc.returncode}")
 
-    return _extract_json(output)
+    print(f"[processor-p2] Call 1 complete — {len(raw_analysis)} chars of analysis")
+
+    # Try extracting JSON from Call 1 output first (sometimes Claude includes it anyway)
+    try:
+        result = _extract_json(raw_analysis)
+        print(f"[processor-p2] JSON found in analyst output — skipping formatter")
+        return result
+    except ValueError:
+        pass
+
+    # ── Call 1.5: HUD Verification (cheap, cropped images, haiku) ──
+    hud_verification = ""
+    try:
+        hud_verification = _verify_hud_events(raw_analysis, video_path, phase1_context)
+    except Exception as e:
+        print(f"[processor-p2] HUD verification failed (non-fatal): {e}")
+
+    # ── Call 2: Formatter (cheap, text only, haiku) ──
+    print(f"[processor-p2] Call 2: Formatter — converting to JSON...")
+    return _phase2_format_to_json(raw_analysis, phase1_context, hud_verification=hud_verification)
 
 
 def _analyze_phase2_with_api(video_path: str, run_id: int | None = None) -> dict:
@@ -1514,8 +1809,7 @@ def process_recording(recording_path: str, clips_dir: str, on_phase=None) -> dic
 
     # -- Check for OCR screenshots -----------------------------------------
     rec_name = os.path.basename(recording_path).replace(".mp4", "")
-    from .config import _DATA_DIR
-    run_screenshots = os.path.join(_DATA_DIR, "clips", rec_name, "screenshots")
+    run_screenshots = os.path.join(clips_dir, rec_name, "screenshots")
     deploy_jpg = os.path.join(run_screenshots, "deploy.jpg")
     readyup_jpg = os.path.join(run_screenshots, "readyup.jpg")
     endgame_marker = recording_path + ".endgame"

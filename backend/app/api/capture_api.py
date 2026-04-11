@@ -13,7 +13,7 @@ from fastapi.responses import Response, JSONResponse
 from pydantic import BaseModel
 
 from ..capture import AutoCapture
-from ..config import _DATA_DIR
+from ..config import _STORAGE_DIR
 
 router = APIRouter()
 
@@ -21,9 +21,11 @@ router = APIRouter()
 
 _engine: AutoCapture | None = None
 
-# All data lives under AppData/runlog/marathon/data/ — same as the DB
-RECORDINGS_DIR = os.path.join(_DATA_DIR, "recordings")
-CLIPS_DIR = os.path.join(_DATA_DIR, "clips")
+# Large media files (recordings, clips) use the configurable storage path.
+# This defaults to AppData but can be set to any directory (e.g. D:\RunLog)
+# via the "storage_path" setting in settings.json.
+RECORDINGS_DIR = os.path.join(_STORAGE_DIR, "recordings")
+CLIPS_DIR = os.path.join(_STORAGE_DIR, "clips")
 
 
 def _get_engine() -> AutoCapture:
@@ -70,6 +72,7 @@ def capture_stop():
 def capture_status():
     """Return current capture engine state."""
     if _engine is None:
+        from ..api.settings_api import get_config_value
         return JSONResponse(content={
             "active": False,
             "recording": False,
@@ -82,6 +85,8 @@ def capture_status():
             "resumed_count": 0,
             "capture_mode": "none",
             "last_result": None,
+            "auto_p1": get_config_value("auto_p1") if get_config_value("auto_p1") is not None else True,
+            "auto_p2": get_config_value("auto_p2") if get_config_value("auto_p2") is not None else True,
         })
     return JSONResponse(content=_engine.get_status())
 
@@ -105,14 +110,13 @@ def serve_thumbnail(filename: str):
     if os.path.exists(filepath):
         return FileResponse(filepath, media_type="image/jpeg")
     # Check clips dir (thumbnail moves with auto-save into run subfolder)
-    clips_dir = os.path.join(os.path.dirname(RECORDINGS_DIR), "clips")
     # Direct path
-    clips_path = os.path.join(clips_dir, filename)
+    clips_path = os.path.join(CLIPS_DIR, filename)
     if os.path.exists(clips_path):
         return FileResponse(clips_path, media_type="image/jpeg")
     # Inside run subfolder (e.g. clips/run_xxx/run_xxx_thumb.jpg)
     run_tag = filename.replace("_thumb.jpg", "")
-    subfolder_path = os.path.join(clips_dir, run_tag, filename)
+    subfolder_path = os.path.join(CLIPS_DIR, run_tag, filename)
     if os.path.exists(subfolder_path):
         return FileResponse(subfolder_path, media_type="image/jpeg")
     raise HTTPException(status_code=404, detail="Thumbnail not found")
@@ -398,6 +402,40 @@ def retry_recording(body: RecordingAction):
         if success:
             return JSONResponse(content={"status": "retrying"})
     raise HTTPException(status_code=400, detail="Could not retry")
+
+
+@router.post("/recording/dismiss")
+def dismiss_recording(body: RecordingAction):
+    """Remove an item from the processing queue without running any processing."""
+    filename = body.filename
+    if not filename:
+        raise HTTPException(status_code=400, detail="filename required")
+    if _engine:
+        _engine.dismiss_item(filename)
+    return JSONResponse(content={"status": "dismissed"})
+
+
+@router.post("/recording/dismiss-failed")
+def dismiss_all_failed():
+    """Remove all failed/error items from the processing queue."""
+    if _engine:
+        _engine.dismiss_all_failed()
+    return JSONResponse(content={"status": "dismissed"})
+
+
+class AutoPhaseUpdate(BaseModel):
+    phase: int   # 1 or 2
+    enabled: bool
+
+
+@router.post("/auto-phase")
+def set_auto_phase(body: AutoPhaseUpdate):
+    """Enable or disable auto-run for Phase 1 or Phase 2."""
+    if body.phase not in (1, 2):
+        raise HTTPException(status_code=400, detail="phase must be 1 or 2")
+    if _engine:
+        _engine.set_auto_phase(body.phase, body.enabled)
+    return JSONResponse(content={"status": "ok", "phase": body.phase, "enabled": body.enabled})
 
 
 @router.post("/open-folder")

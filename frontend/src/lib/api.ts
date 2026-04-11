@@ -71,9 +71,14 @@ export interface AppSettings {
   fps: number
   p1_workers: number
   p2_workers: number
+  auto_p1: boolean
+  auto_p2: boolean
   auth_mode: string
   model: string
   uplink_model?: string
+  storage_path: string
+  storage_path_active: string
+  storage_path_default: string
 }
 
 export async function getSettings(): Promise<AppSettings> {
@@ -96,6 +101,25 @@ export async function removeApiKey(): Promise<void> {
 
 export async function updateConfig(key: string, value: string | number | boolean): Promise<void> {
   await api.post('/settings/config', { key, value })
+}
+
+export interface MigrateResult {
+  status: string
+  moved_runs: number
+  moved_recordings: number
+  db_paths_updated: number
+  errors: string[] | null
+  note: string
+}
+
+export async function migrateStorage(newPath: string): Promise<MigrateResult> {
+  const { data } = await api.post('/settings/migrate-storage', { new_path: newPath })
+  return data
+}
+
+export async function browseFolder(): Promise<string | null> {
+  const { data } = await api.get('/settings/browse-folder', { timeout: 120000 })
+  return data.path
 }
 
 export async function getCliStatus(): Promise<{ installed: boolean; authenticated: boolean; path: string | null; version: string | null }> {
@@ -212,6 +236,18 @@ export async function deleteClip(filename: string): Promise<void> {
 
 export async function deleteKeptRecording(runId: number): Promise<void> {
   await api.post('/capture/recording/delete-kept', { run_id: runId })
+}
+
+export async function dismissRecording(filename: string): Promise<void> {
+  await api.post('/capture/recording/dismiss', { filename })
+}
+
+export async function dismissAllFailed(): Promise<void> {
+  await api.post('/capture/recording/dismiss-failed', {})
+}
+
+export async function setAutoPhase(phase: 1 | 2, enabled: boolean): Promise<void> {
+  await api.post('/capture/auto-phase', { phase, enabled })
 }
 
 export function getClipUrl(filename: string): string {

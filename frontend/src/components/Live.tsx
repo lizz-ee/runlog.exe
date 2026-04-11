@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import axios from 'axios'
-import { getFrameUrl, getThumbnailUrl, apiBase } from '../lib/api'
+import { getFrameUrl, getThumbnailUrl, apiBase, dismissRecording, dismissAllFailed } from '../lib/api'
 import { useStore } from '../lib/store'
 import { formatTime } from '../lib/utils'
 
@@ -342,10 +342,24 @@ export default function Live() {
       <div>
         <div className="flex items-center justify-between mb-3">
           <p className="label-tag text-m-text-muted">PIPELINE.STATUS</p>
-          <div className="flex items-center gap-4 text-[10px] font-mono text-m-text-muted">
+          <div className="flex items-center gap-3 text-[10px] font-mono text-m-text-muted">
             <span>{processingItems.length} TOTAL</span>
             {(counts.done || 0) > 0 && <span className="text-m-green">{counts.done} DONE</span>}
-            {(counts.error || 0) > 0 && <span className="text-m-red">{counts.error} FAILED</span>}
+            {(counts.error || 0) > 0 && (
+              <>
+                <span className="text-m-red">{counts.error} FAILED</span>
+                <button
+                  onClick={() => {
+                    dismissAllFailed()
+                      .then(() => addToast({ type: 'info', title: 'CLEARED', body: `${counts.error} failed item(s) removed` }))
+                      .catch(() => addToast({ type: 'error', title: 'CLEAR FAILED', body: 'Could not clear failed items' }))
+                  }}
+                  className="label-tag px-2 py-0.5 border border-m-red/40 text-m-red hover:bg-m-red/10 transition-all"
+                >
+                  CLEAR FAILED
+                </button>
+              </>
+            )}
           </div>
         </div>
       <div className="bg-m-card border border-m-border px-6 pt-4 pb-5 relative overflow-hidden">
@@ -463,9 +477,9 @@ export default function Live() {
                   </div>
 
                   {/* Status + actions — fixed width for alignment */}
-                  <div className="flex items-center gap-3 flex-shrink-0 w-[200px] justify-end">
+                  <div className="flex items-center gap-3 flex-shrink-0 w-[240px] justify-end">
                     {item.status === 'error' ? (
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2">
                         <button
                           onClick={() => {
                             axios.post(`${apiBase}/api/capture/recording/retry`, { filename: item.file })
@@ -476,12 +490,22 @@ export default function Live() {
                         >
                           RETRY
                         </button>
+                        <button
+                          onClick={() => {
+                            dismissRecording(item.file)
+                              .then(() => addToast({ type: 'info', title: 'CLEARED', body: item.file }))
+                              .catch(() => addToast({ type: 'error', title: 'CLEAR FAILED', body: item.file }))
+                          }}
+                          className="label-tag px-2 py-1 border border-m-red/40 text-m-red hover:bg-m-red/10 transition-all"
+                        >
+                          CLEAR
+                        </button>
                         <div className="flex flex-col items-end">
                           <span className="text-xs font-mono font-bold tracking-wider text-m-red">
                             FAILED
                           </span>
                           {item.detail && (
-                            <span className="text-[8px] font-mono text-m-red/50 tracking-wider truncate max-w-[150px]" title={item.detail}>
+                            <span className="text-[8px] font-mono text-m-red/50 tracking-wider truncate max-w-[120px]" title={item.detail}>
                               {item.detail}
                             </span>
                           )}

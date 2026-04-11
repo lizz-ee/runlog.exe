@@ -6,7 +6,7 @@ import anthropic
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from ..config import _DATA_DIR, _SETTINGS_FILE, settings
+from ..config import _DATA_DIR, _STORAGE_DIR, _SETTINGS_FILE, settings
 from .. import ai_client
 
 router = APIRouter()
@@ -40,6 +40,8 @@ DEFAULTS = {
     "fps": 60,
     "p1_workers": 4,
     "p2_workers": 2,
+    "auto_p1": True,       # Auto-run Phase 1 (stats extraction) when recording finishes
+    "auto_p2": True,       # Auto-run Phase 2 (narrative + clips) when Phase 1 finishes
     "auth_mode": "api",    # "api" or "cli"
     "model": "sonnet",     # "sonnet" or "haiku"
     "uplink_model": "haiku",  # "haiku" or "sonnet" for UPLINK chat/briefing
@@ -74,9 +76,15 @@ def get_settings():
         "fps": saved.get("fps", DEFAULTS["fps"]),
         "p1_workers": saved.get("p1_workers", DEFAULTS["p1_workers"]),
         "p2_workers": saved.get("p2_workers", DEFAULTS["p2_workers"]),
+        "auto_p1": saved.get("auto_p1", DEFAULTS["auto_p1"]),
+        "auto_p2": saved.get("auto_p2", DEFAULTS["auto_p2"]),
         "auth_mode": saved.get("auth_mode", DEFAULTS["auth_mode"]),
         "model": saved.get("model", DEFAULTS["model"]),
         "uplink_model": saved.get("uplink_model", DEFAULTS["uplink_model"]),
+        # Storage
+        "storage_path": saved.get("storage_path", ""),
+        "storage_path_active": _STORAGE_DIR,
+        "storage_path_default": _DATA_DIR,
     }
 
 
@@ -124,17 +132,174 @@ def remove_api_key():
 @router.post("/config")
 def update_config(body: ConfigUpdate):
     """Update a single config value."""
-    allowed_keys = set(DEFAULTS.keys())
+    allowed_keys = set(DEFAULTS.keys()) | {"storage_path"}
     if body.key not in allowed_keys:
         raise HTTPException(status_code=400, detail=f"Unknown config key: {body.key}")
     if body.key in ("model", "uplink_model") and body.value not in ("sonnet", "haiku"):
         raise HTTPException(status_code=400, detail=f"Invalid model: {body.value}. Must be 'sonnet' or 'haiku'")
     if body.key == "encoder" and body.value not in ("hevc", "h264"):
         raise HTTPException(status_code=400, detail=f"Invalid encoder: {body.value}. Must be 'hevc' or 'h264'")
+
+    # Special handling for storage_path — validate directory exists
+    if body.key == "storage_path":
+        path = str(body.value).strip()
+        if path:
+            os.makedirs(path, exist_ok=True)
+            if not os.path.isdir(path):
+                raise HTTPException(status_code=400, detail=f"Cannot create directory: {path}")
+            # Create subdirectories
+            os.makedirs(os.path.join(path, "recordings"), exist_ok=True)
+            os.makedirs(os.path.join(path, "clips"), exist_ok=True)
+
     saved = _load_settings()
     saved[body.key] = body.value
     _save_settings(saved)
-    return {"status": "saved", "key": body.key, "value": body.value}
+    return {"status": "saved", "key": body.key, "value": body.value,
+            "note": "Restart the app for storage_path changes to take effect." if body.key == "storage_path" else None}
+
+
+@router.get("/browse-folder")
+def browse_folder():
+    """Open a native Windows folder picker dialog and return the selected path."""
+    import threading
+
+    result = {"path": None}
+
+    def _pick():
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        path = filedialog.askdirectory(title="Select storage folder")
+        root.destroy()
+        if path:
+            result["path"] = os.path.normpath(path)
+
+    # tkinter must run on its own thread to avoid blocking the event loop
+    t = threading.Thread(target=_pick)
+    t.start()
+    t.join(timeout=120)
+
+    if result["path"]:
+        return {"path": result["path"]}
+    return {"path": None}
+
+
+class MigrateStorageRequest(BaseModel):
+    new_path: str
+
+
+@router.post("/migrate-storage")
+def migrate_storage(body: MigrateStorageRequest):
+    """
+    Migrate clips and recordings from current storage to a new directory.
+
+    1. Creates directory structure at new path
+    2. Moves all run_* folders from current clips/ to new clips/
+    3. Moves recordings from current recordings/ to new recordings/
+    4. Updates recording_path in DB for all moved runs
+    5. Saves new storage_path to settings
+    """
+    import shutil
+    import sqlite3
+
+    new_path = body.new_path.strip()
+    if not new_path:
+        raise HTTPException(status_code=400, detail="new_path is required")
+
+    # Create target directories
+    new_clips = os.path.join(new_path, "clips")
+    new_recordings = os.path.join(new_path, "recordings")
+    try:
+        os.makedirs(new_clips, exist_ok=True)
+        os.makedirs(new_recordings, exist_ok=True)
+    except OSError as e:
+        raise HTTPException(status_code=400, detail=f"Cannot create directory: {e}")
+
+    # Collect all source directories to check — AppData first, then current
+    # storage dir (in case of re-migration between custom paths).
+    source_dirs = [_DATA_DIR]
+    if os.path.normpath(_STORAGE_DIR) != os.path.normpath(_DATA_DIR) \
+       and os.path.normpath(_STORAGE_DIR) != os.path.normpath(new_path):
+        source_dirs.append(_STORAGE_DIR)
+
+    moved_runs = 0
+    moved_recordings = 0
+    errors = []
+
+    for source in source_dirs:
+        old_clips = os.path.join(source, "clips")
+        old_recordings = os.path.join(source, "recordings")
+
+        # Move clip run folders
+        if os.path.isdir(old_clips):
+            for item in os.listdir(old_clips):
+                src = os.path.join(old_clips, item)
+                dst = os.path.join(new_clips, item)
+                if os.path.isdir(src) and not os.path.exists(dst):
+                    try:
+                        shutil.move(src, dst)
+                        moved_runs += 1
+                    except Exception as e:
+                        errors.append(f"clips/{item}: {e}")
+
+        # Move loose recordings
+        if os.path.isdir(old_recordings):
+            for item in os.listdir(old_recordings):
+                src = os.path.join(old_recordings, item)
+                dst = os.path.join(new_recordings, item)
+                if os.path.isfile(src) and not os.path.exists(dst):
+                    try:
+                        shutil.move(src, dst)
+                        moved_recordings += 1
+                    except Exception as e:
+                        errors.append(f"recordings/{item}: {e}")
+
+    # Update recording_path in DB — replace all known source paths
+    db_path = os.path.join(_DATA_DIR, "runlog.db")
+    updated_rows = 0
+    if os.path.exists(db_path):
+        try:
+            conn = sqlite3.connect(db_path)
+            new_clips_abs = os.path.abspath(new_clips)
+            for source in source_dirs:
+                old_clips_abs = os.path.abspath(os.path.join(source, "clips"))
+                if old_clips_abs == new_clips_abs:
+                    continue
+                # Backslash variant (Windows native)
+                old_bs = old_clips_abs.replace("/", "\\")
+                new_bs = new_clips_abs.replace("/", "\\")
+                conn.execute(
+                    "UPDATE runs SET recording_path = REPLACE(recording_path, ?, ?) WHERE recording_path LIKE ?",
+                    (old_bs, new_bs, f"%{old_bs}%")
+                )
+                # Forward-slash variant
+                old_fs = old_bs.replace("\\", "/")
+                new_fs = new_bs.replace("\\", "/")
+                conn.execute(
+                    "UPDATE runs SET recording_path = REPLACE(recording_path, ?, ?) WHERE recording_path LIKE ?",
+                    (old_fs, new_fs, f"%{old_fs}%")
+                )
+            conn.commit()
+            updated_rows = conn.total_changes
+            conn.close()
+        except Exception as e:
+            errors.append(f"DB update: {e}")
+
+    # Save new storage_path to settings
+    saved = _load_settings()
+    saved["storage_path"] = new_path
+    _save_settings(saved)
+
+    return {
+        "status": "migrated",
+        "moved_runs": moved_runs,
+        "moved_recordings": moved_recordings,
+        "db_paths_updated": updated_rows,
+        "errors": errors if errors else None,
+        "note": "Restart the app for changes to take full effect.",
+    }
 
 
 @router.get("/cli-status")

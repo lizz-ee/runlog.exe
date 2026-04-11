@@ -222,6 +222,8 @@ export interface CaptureStatus {
   last_detection: string | null
   detection_count: number
   last_result: ProcessResult | null
+  auto_p1: boolean
+  auto_p2: boolean
 }
 
 export interface ProcessingItem {

@@ -93,6 +93,12 @@ class AutoCapture:
         self._p2_waiting: list[tuple[str, int]] = []  # [(filepath, run_id), ...]
         self._p2_max_workers: int = MAX_P2_WORKERS
 
+        # Auto-run flags — can be paused via SYS.CONFIG
+        self._auto_p1: bool = True   # submit to P1 pool automatically
+        self._auto_p2: bool = True   # submit to P2 pool automatically after P1
+        self._p2_held: list[tuple[str, int]] = []  # items held when auto_p2 is off
+        self._dismissed_files: set[str] = set()    # filenames dismissed from queue
+
     # -- Public API ----------------------------------------------------
 
     def start(self) -> dict:
@@ -142,7 +148,10 @@ class AutoCapture:
         p1_workers = get_config_value("p1_workers") or MAX_P1_WORKERS
         p2_workers = get_config_value("p2_workers") or MAX_P2_WORKERS
         self._p2_max_workers = p2_workers
+        self._auto_p1 = get_config_value("auto_p1") if get_config_value("auto_p1") is not None else True
+        self._auto_p2 = get_config_value("auto_p2") if get_config_value("auto_p2") is not None else True
         print(f"[capture] Processing pools: P1={p1_workers} workers, P2={p2_workers} workers")
+        print(f"[capture] Auto-run: P1={self._auto_p1}, P2={self._auto_p2}")
         self._p1_executor = ThreadPoolExecutor(
             max_workers=p1_workers, thread_name_prefix="p1-processor"
         )
@@ -242,6 +251,8 @@ class AutoCapture:
             "last_detection": self._last_detection,
             "detection_count": 0,
             "last_result": self._last_process_result,  # protected by _processing_lock at write site
+            "auto_p1": self._auto_p1,
+            "auto_p2": self._auto_p2,
         }
 
     def get_latest_frame_jpeg(self) -> bytes | None:
@@ -805,6 +816,48 @@ class AutoCapture:
             ]
         self._broadcast_status()
 
+    def set_auto_phase(self, phase: int, enabled: bool):
+        """Enable or disable auto-run for Phase 1 or Phase 2. Saves to config."""
+        from .api.settings_api import _load_settings, _save_settings
+        if phase == 1:
+            self._auto_p1 = enabled
+            key = "auto_p1"
+        else:
+            self._auto_p2 = enabled
+            key = "auto_p2"
+        saved = _load_settings()
+        saved[key] = enabled
+        _save_settings(saved)
+        print(f"[capture] Auto P{phase} set to {enabled}")
+        # When re-enabling P2, drain held items
+        if phase == 2 and enabled:
+            with self._p2_active_lock:
+                held = self._p2_held[:]
+                self._p2_held.clear()
+            for filepath, run_id in held:
+                self._submit_phase2(filepath, run_id)
+                print(f"[capture] Released held P2 run #{run_id}")
+
+    def dismiss_item(self, filename: str):
+        """Remove an item from the processing queue entirely without processing it."""
+        # Mark for dispatcher to skip if still in _process_queue
+        self._dismissed_files.add(filename)
+        # Remove from P2 waiting and held lists
+        with self._p2_active_lock:
+            self._p2_waiting = [(f, r) for f, r in self._p2_waiting if os.path.basename(f) != filename]
+            self._p2_held = [(f, r) for f, r in self._p2_held if os.path.basename(f) != filename]
+        # Remove from UI
+        self.remove_processing_item(filename)
+        print(f"[capture] Dismissed: {filename}")
+
+    def dismiss_all_failed(self):
+        """Remove all error-status items from the processing queue."""
+        with self._processing_lock:
+            failed = [i["file"] for i in self._processing_items if i["status"] == "error"]
+        for filename in failed:
+            self.dismiss_item(filename)
+        print(f"[capture] Dismissed {len(failed)} failed item(s)")
+
     def _auto_save_recording(self, filepath: str, run_id: int | None):
         """Auto-save recording after processing completes. Moves to clips folder,
         links to run, generates thumbnail + sprite sheet, sets status to 'complete'."""
@@ -935,6 +988,18 @@ class AutoCapture:
                 filepath = self._process_queue.get(timeout=1.0)
             except queue.Empty:
                 continue
+            filename = os.path.basename(filepath)
+            # Skip dismissed items
+            if filename in self._dismissed_files:
+                self._dismissed_files.discard(filename)
+                self._process_queue.task_done()
+                continue
+            # Hold if auto_p1 is disabled — put back and wait
+            if not self._auto_p1:
+                self._process_queue.put(filepath)
+                self._process_queue.task_done()
+                time.sleep(1.0)
+                continue
             self._p1_executor.submit(self._process_phase1, filepath)
             self._process_queue.task_done()
         print("[dispatcher] Stopped.")
@@ -998,6 +1063,12 @@ class AutoCapture:
 
     def _submit_phase2(self, filepath: str, run_id: int):
         """Submit a Phase 2 job if a slot is available, otherwise hold in waiting list."""
+        # Hold at phase1_done if auto_p2 is disabled
+        if not self._auto_p2:
+            with self._p2_active_lock:
+                self._p2_held.append((filepath, run_id))
+            print(f"[p2] Auto P2 disabled — holding run #{run_id}")
+            return
         with self._p2_active_lock:
             if self._p2_active < self._p2_max_workers:
                 self._p2_active += 1
