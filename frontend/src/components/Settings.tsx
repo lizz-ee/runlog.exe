@@ -439,8 +439,32 @@ export default function Settings() {
           </div>
         </div>
 
-        {/* Empty right half — reserved */}
-        <div className="flex-1" />
+        {/* Processor Mode */}
+        <div className="flex-1 border border-m-border bg-m-card">
+          <SectionHeader tag="PROC.MODE" title="PROCESSOR" desc="Analysis engine for stat extraction and highlights." />
+          <div className="px-5 py-4 space-y-4">
+            <SettingRow label="ENGINE">
+              <ToggleButton
+                options={[
+                  { value: 'alpha', label: 'ALPHA' },
+                  { value: 'hybrid', label: 'HYBRID' },
+                  { value: 'claude', label: 'CLAUDE' },
+                ]}
+                value={config.processor_mode || 'alpha'}
+                onChange={v => saveConfig('processor_mode', v)}
+              />
+            </SettingRow>
+
+            <div className="pt-1 border-t border-m-border/30">
+              <p className="text-[9px] font-mono text-m-text-muted tracking-wider">
+                ALPHA = LOCAL OCR + ML (FREE, OFFLINE, &lt;2s)<br/>
+                HYBRID = LOCAL FIRST, CLAUDE FALLBACK (~$0.01/RUN)<br/>
+                CLAUDE = API/CLI ONLY (PAID, MOST ACCURATE)<br/>
+                <span className="text-m-green">ALPHA RECOMMENDED FOR MOST USERS</span>
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* ═══ OVERLAY ═══ */}

@@ -1,0 +1,19 @@
+{
+  "run_id": 51,
+  "folder": "run_20260322_155028",
+  "map_name": "Dire Marsh",
+  "survived": true,
+  "kills": 9,
+  "combatant_eliminations": 9,
+  "runner_eliminations": 0,
+  "crew_revives": 0,
+  "duration_seconds": 1113,
+  "loot_value_total": 5493.0,
+  "primary_weapon": "Overrun AR",
+  "secondary_weapon": "Mstr Combat Shotgun",
+  "killed_by": null,
+  "player_gamertag": "kale",
+  "player_level": 35,
+  "vault_value": 73061.0,
+  "grade": "S"
+}

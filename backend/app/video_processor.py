@@ -1879,20 +1879,75 @@ def process_recording(recording_path: str, clips_dir: str, on_phase=None) -> dic
             phase("analyzing_stats")
             t0 = time.time()
 
-            if has_screenshots:
-                # NEW: Two-call analysis with screenshots
-                analysis = _analyze_with_screenshots(
-                    deploy_jpg, readyup_jpg, frames_dir
-                )
-            else:
-                # FALLBACK: old frame-based analysis
-                analysis = analyze_frames_phase1(frames_dir)
+            # Determine processor mode (alpha / hybrid / claude)
+            _processor_mode = "alpha"
+            try:
+                from .api.settings_api import get_config_value
+                _processor_mode = get_config_value("processor_mode") or "alpha"
+            except Exception:
+                pass
 
-            # Retry with expanded windows if key screens not found (fallback only)
-            if not has_screenshots:
-                analysis = _maybe_expand_and_retry(
-                    analysis, recording_path, frames_dir, video_duration
-                )
+            analysis = None
+
+            if _processor_mode in ("alpha", "hybrid") and has_screenshots:
+                _mode_label = "ALPHA" if _processor_mode == "alpha" else "HYBRID"
+                print(f"[processor] {_mode_label} MODE — using local processor")
+                try:
+                    from .alpha.hybrid_router import HybridRouter
+                    _router = HybridRouter(mode=_processor_mode)
+                    analysis = _router.alpha.process_phase1(
+                        os.path.dirname(deploy_jpg)
+                    )
+                    # Hybrid: call Claude for low-confidence critical fields
+                    if _processor_mode == "hybrid":
+                        low_fields = [
+                            f for f in analysis.get("_low_confidence_fields", [])
+                            if f in {"survived", "kills", "combatant_eliminations",
+                                     "runner_eliminations", "crew_revives",
+                                     "loot_value_total", "duration_seconds"}
+                        ]
+                        if low_fields:
+                            print(f"[processor] Hybrid: {len(low_fields)} low-confidence fields, calling Claude")
+                            from pathlib import Path
+                            claude_fix = _router._targeted_claude_call(
+                                Path(os.path.dirname(deploy_jpg)), low_fields
+                            )
+                            if claude_fix:
+                                for k, v in claude_fix.items():
+                                    if not k.startswith("_") and v is not None:
+                                        print(f"[processor] Hybrid override: {k}: {analysis.get(k)} → {v}")
+                                        analysis[k] = v
+                                        analysis.setdefault("_confidence", {})[k] = 0.95
+                                ce = analysis.get("combatant_eliminations") or 0
+                                re_ = analysis.get("runner_eliminations") or 0
+                                analysis["kills"] = ce + re_
+                                analysis["_routing"] = "hybrid"
+                        else:
+                            print("[processor] Hybrid: all critical fields high confidence — no Claude call")
+                            analysis["_routing"] = "alpha_only"
+                    analysis.setdefault("loading_screen_found", has_deploy)
+                    analysis.setdefault("stats_tab_found", analysis.get("stats_tab_found", False))
+                    analysis.setdefault("loadout_tab_found", analysis.get("loadout_tab_found", False))
+                except Exception as e:
+                    print(f"[processor] Local Phase 1 failed ({e}), falling back to Claude")
+                    _processor_mode = "claude"
+                    analysis = None
+
+            if _processor_mode == "claude" or analysis is None:
+                if has_screenshots:
+                    # Claude: two-call analysis with screenshots
+                    analysis = _analyze_with_screenshots(
+                        deploy_jpg, readyup_jpg, frames_dir
+                    )
+                else:
+                    # Fallback: old frame-based analysis
+                    analysis = analyze_frames_phase1(frames_dir)
+
+                # Retry with expanded windows if key screens not found (fallback only)
+                if not has_screenshots:
+                    analysis = _maybe_expand_and_retry(
+                        analysis, recording_path, frames_dir, video_duration
+                    )
 
             metrics["phase1_analysis_seconds"] = round(time.time() - t0, 1)
 
@@ -1994,26 +2049,72 @@ def process_recording_phase2(
     # Analyze video for narrative
     phase("analyzing_gameplay")
     t0 = time.time()
+    phase2_data = None
+
+    # Determine processor mode
+    _processor_mode = "alpha"
     try:
-        phase2_data = analyze_video_phase2(recording_path, run_id=run_id)
-        print(f"[processor-p2] Phase 2 analysis took {time.time() - t0:.0f}s, "
-              f"grade={phase2_data.get('grade')}")
-    except Exception as e:
-        import traceback
-        print(f"[processor-p2] Phase 2 analysis failed: {e}")
-        print(f"[processor-p2] Traceback:\n{traceback.format_exc()}")
-        # Log to file
+        from .api.settings_api import get_config_value
+        _processor_mode = get_config_value("processor_mode") or "alpha"
+    except Exception:
+        pass
+
+    if _processor_mode in ("alpha", "hybrid"):
+        _mode_label = "ALPHA" if _processor_mode == "alpha" else "HYBRID"
+        print(f"[processor-p2] {_mode_label} MODE — using local highlight detection")
         try:
-            log_path = os.path.join(os.path.dirname(recording_path), "phase2_errors.log")
-            with open(log_path, "a") as f:
-                from datetime import datetime as _dt
-                f.write(f"\n--- {_dt.now().isoformat()} | run #{run_id} | {os.path.basename(recording_path)} ---\n")
-                f.write(traceback.format_exc())
-                f.write("\n")
+            from .alpha.processor import AlphaProcessor
+            _alpha = AlphaProcessor()
+            # Load Phase 1 stats from DB for grading
+            p1_stats = {}
+            try:
+                from .database import SessionLocal
+                from .models import Run
+                db = SessionLocal()
+                run_row = db.query(Run).filter(Run.id == run_id).first()
+                if run_row:
+                    p1_stats = {
+                        "runner_eliminations": run_row.runner_eliminations,
+                        "combatant_eliminations": run_row.combatant_eliminations,
+                        "survived": run_row.survived,
+                        "kills": run_row.kills,
+                        "crew_revives": run_row.crew_revives,
+                        "duration_seconds": run_row.duration_seconds,
+                        "loot_value_total": run_row.loot_value_total,
+                        "map_name": run_row.map_name,
+                    }
+                db.close()
+            except Exception as e:
+                print(f"[processor-p2] Failed to load Phase 1 stats: {e}")
+            phase2_data = _alpha.process_phase2(p1_stats, video_path=recording_path)
+            print(f"[processor-p2] {_mode_label} Phase 2 took {time.time() - t0:.0f}s, "
+                  f"grade={phase2_data.get('grade')}, "
+                  f"{len(phase2_data.get('highlights', []))} highlights")
         except Exception as e:
-            print(f"[video_processor] Failed to write Phase 2 error log: {e}")
-        result["status"] = "phase2_failed"
-        return result
+            print(f"[processor-p2] Local Phase 2 failed ({e}), falling back to Claude")
+            _processor_mode = "claude"
+            phase2_data = None
+
+    if _processor_mode == "claude" or phase2_data is None:
+        try:
+            phase2_data = analyze_video_phase2(recording_path, run_id=run_id)
+            print(f"[processor-p2] Phase 2 analysis took {time.time() - t0:.0f}s, "
+                  f"grade={phase2_data.get('grade')}")
+        except Exception as e:
+            import traceback
+            print(f"[processor-p2] Phase 2 analysis failed: {e}")
+            print(f"[processor-p2] Traceback:\n{traceback.format_exc()}")
+            try:
+                log_path = os.path.join(os.path.dirname(recording_path), "phase2_errors.log")
+                with open(log_path, "a") as f:
+                    from datetime import datetime as _dt
+                    f.write(f"\n--- {_dt.now().isoformat()} | run #{run_id} | {os.path.basename(recording_path)} ---\n")
+                    f.write(traceback.format_exc())
+                    f.write("\n")
+            except Exception:
+                pass
+            result["status"] = "phase2_failed"
+            return result
 
     # Update run with narrative data (never overwrites stats)
     update_run_phase2(run_id, phase2_data)

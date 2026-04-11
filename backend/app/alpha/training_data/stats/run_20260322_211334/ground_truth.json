@@ -1,0 +1,19 @@
+{
+  "run_id": 53,
+  "folder": "run_20260322_211334",
+  "map_name": "Perimeter",
+  "survived": false,
+  "kills": 7,
+  "combatant_eliminations": 7,
+  "runner_eliminations": 0,
+  "crew_revives": 0,
+  "duration_seconds": 369,
+  "loot_value_total": -327.0,
+  "primary_weapon": "HARDLINE PR",
+  "secondary_weapon": "RETALIATOR LMG",
+  "killed_by": "BUMZO#8557",
+  "player_gamertag": "kale#8064",
+  "player_level": 36,
+  "vault_value": 74399.0,
+  "grade": "C"
+}

@@ -73,6 +73,7 @@ export interface AppSettings {
   p2_workers: number
   auto_p1: boolean
   auto_p2: boolean
+  processor_mode: string
   auth_mode: string
   model: string
   uplink_model?: string

@@ -42,6 +42,7 @@ DEFAULTS = {
     "p2_workers": 2,
     "auto_p1": True,       # Auto-run Phase 1 (stats extraction) when recording finishes
     "auto_p2": True,       # Auto-run Phase 2 (narrative + clips) when Phase 1 finishes
+    "processor_mode": "alpha",  # "alpha" (local), "hybrid" (local + Claude fallback), "claude" (API/CLI only)
     "auth_mode": "api",    # "api" or "cli"
     "model": "sonnet",     # "sonnet" or "haiku"
     "uplink_model": "haiku",  # "haiku" or "sonnet" for UPLINK chat/briefing
@@ -78,6 +79,7 @@ def get_settings():
         "p2_workers": saved.get("p2_workers", DEFAULTS["p2_workers"]),
         "auto_p1": saved.get("auto_p1", DEFAULTS["auto_p1"]),
         "auto_p2": saved.get("auto_p2", DEFAULTS["auto_p2"]),
+        "processor_mode": saved.get("processor_mode", DEFAULTS["processor_mode"]),
         "auth_mode": saved.get("auth_mode", DEFAULTS["auth_mode"]),
         "model": saved.get("model", DEFAULTS["model"]),
         "uplink_model": saved.get("uplink_model", DEFAULTS["uplink_model"]),
@@ -139,6 +141,8 @@ def update_config(body: ConfigUpdate):
         raise HTTPException(status_code=400, detail=f"Invalid model: {body.value}. Must be 'sonnet' or 'haiku'")
     if body.key == "encoder" and body.value not in ("hevc", "h264"):
         raise HTTPException(status_code=400, detail=f"Invalid encoder: {body.value}. Must be 'hevc' or 'h264'")
+    if body.key == "processor_mode" and body.value not in ("alpha", "hybrid", "claude"):
+        raise HTTPException(status_code=400, detail=f"Invalid processor_mode: {body.value}. Must be 'alpha', 'hybrid', or 'claude'")
 
     # Special handling for storage_path — validate directory exists
     if body.key == "storage_path":

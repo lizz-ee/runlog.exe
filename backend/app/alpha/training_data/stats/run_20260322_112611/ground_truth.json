@@ -1,0 +1,19 @@
+{
+  "run_id": 47,
+  "folder": "run_20260322_112611",
+  "map_name": "Perimeter",
+  "survived": false,
+  "kills": 0,
+  "combatant_eliminations": 0,
+  "runner_eliminations": 0,
+  "crew_revives": 0,
+  "duration_seconds": 187,
+  "loot_value_total": -1226.0,
+  "primary_weapon": "BULLY SMG",
+  "secondary_weapon": null,
+  "killed_by": "Duma#8465",
+  "player_gamertag": "kale#8064",
+  "player_level": 34,
+  "vault_value": 67076.0,
+  "grade": "D"
+}

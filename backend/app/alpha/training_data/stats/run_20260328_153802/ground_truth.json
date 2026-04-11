@@ -1,0 +1,19 @@
+{
+  "run_id": 57,
+  "folder": "run_20260328_153802",
+  "map_name": "Outpost",
+  "survived": true,
+  "kills": 5,
+  "combatant_eliminations": 5,
+  "runner_eliminations": 0,
+  "crew_revives": 2,
+  "duration_seconds": 1449,
+  "loot_value_total": 6100.0,
+  "primary_weapon": "BR33 VOLLEY RIFLE",
+  "secondary_weapon": "REPEATER HPR",
+  "killed_by": null,
+  "player_gamertag": "kale",
+  "player_level": 37,
+  "vault_value": 78247.0,
+  "grade": "S"
+}

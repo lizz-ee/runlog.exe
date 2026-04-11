@@ -1,0 +1,19 @@
+{
+  "run_id": 48,
+  "folder": "run_20260322_130116",
+  "map_name": "Perimeter",
+  "survived": true,
+  "kills": 16,
+  "combatant_eliminations": 15,
+  "runner_eliminations": 1,
+  "crew_revives": 1,
+  "duration_seconds": 1455,
+  "loot_value_total": 1633.0,
+  "primary_weapon": "HARDLINE PR",
+  "secondary_weapon": "OVERRUN AR",
+  "killed_by": null,
+  "player_gamertag": "kale",
+  "player_level": 35,
+  "vault_value": 67596.0,
+  "grade": "A"
+}
