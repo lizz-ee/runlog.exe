@@ -1893,41 +1893,18 @@ def process_recording(recording_path: str, clips_dir: str, on_phase=None) -> dic
                 _mode_label = "ALPHA" if _processor_mode == "alpha" else "HYBRID"
                 print(f"[processor] {_mode_label} MODE — using local processor")
                 try:
+                    from pathlib import Path
                     from .alpha.hybrid_router import HybridRouter
                     _router = HybridRouter(mode=_processor_mode)
-                    analysis = _router.alpha.process_phase1(
-                        os.path.dirname(deploy_jpg)
+                    # process_run handles alpha-only, hybrid confidence gating,
+                    # and Claude fallback for low-confidence fields internally
+                    analysis = _router.process_run(
+                        Path(os.path.dirname(deploy_jpg)), video_path=None
                     )
-                    # Hybrid: call Claude for low-confidence critical fields
-                    if _processor_mode == "hybrid":
-                        low_fields = [
-                            f for f in analysis.get("_low_confidence_fields", [])
-                            if f in {"survived", "kills", "combatant_eliminations",
-                                     "runner_eliminations", "crew_revives",
-                                     "loot_value_total", "duration_seconds"}
-                        ]
-                        if low_fields:
-                            print(f"[processor] Hybrid: {len(low_fields)} low-confidence fields, calling Claude")
-                            from pathlib import Path
-                            claude_fix = _router._targeted_claude_call(
-                                Path(os.path.dirname(deploy_jpg)), low_fields
-                            )
-                            if claude_fix:
-                                for k, v in claude_fix.items():
-                                    if not k.startswith("_") and v is not None:
-                                        print(f"[processor] Hybrid override: {k}: {analysis.get(k)} → {v}")
-                                        analysis[k] = v
-                                        analysis.setdefault("_confidence", {})[k] = 0.95
-                                ce = analysis.get("combatant_eliminations") or 0
-                                re_ = analysis.get("runner_eliminations") or 0
-                                analysis["kills"] = ce + re_
-                                analysis["_routing"] = "hybrid"
-                        else:
-                            print("[processor] Hybrid: all critical fields high confidence — no Claude call")
-                            analysis["_routing"] = "alpha_only"
                     analysis.setdefault("loading_screen_found", has_deploy)
                     analysis.setdefault("stats_tab_found", analysis.get("stats_tab_found", False))
                     analysis.setdefault("loadout_tab_found", analysis.get("loadout_tab_found", False))
+                    print(f"[processor] {_mode_label} routing: {analysis.get('_routing', 'alpha')}")
                 except Exception as e:
                     print(f"[processor] Local Phase 1 failed ({e}), falling back to Claude")
                     _processor_mode = "claude"

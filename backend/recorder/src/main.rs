@@ -691,8 +691,10 @@ fn main() {
                 pending.take().unwrap()
             };
 
-            // Full 4K resolution for OCR + screenshot quality
-            let ocr_scale = 1;
+            // Downscale 4K → 1920×1080 for OCR frames — reduces IPC bandwidth ~4x.
+            // Python upscales individual crops further as needed before calling winocr.
+            // At 1080p (width < 3000) no downscale needed, scale stays 1.
+            let ocr_scale = if frame_data.width >= 3000 { 2 } else { 1 };
             let ow = frame_data.width / ocr_scale;
             let oh = frame_data.height / ocr_scale;
 

@@ -23,12 +23,21 @@ except ImportError:
     _WINOCR_AVAILABLE = False
     print("[ocr] WARNING: winocr not available — install it: pip install winocr")
 
+# Minimum crop width before OCR — ensures text is large enough to read reliably.
+# At 1080p the lobby crop is ~650px wide; winocr struggles below ~800px.
+_MIN_OCR_WIDTH = 800
+
 
 def _ocr_pil(img: Image.Image, label: str = "") -> str:
     """Run Windows OCR on a PIL image. Returns uppercase text. Safe from any thread."""
     if not _WINOCR_AVAILABLE:
         return ""
     try:
+        # Upscale small crops so text is large enough for Windows OCR
+        w, h = img.size
+        if w < _MIN_OCR_WIDTH:
+            scale = _MIN_OCR_WIDTH / w
+            img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
         result = _winocr_sync(img, "en")
         text = (result.get("text") or "").upper().strip()
         if text and label:
