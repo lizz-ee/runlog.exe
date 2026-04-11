@@ -10,34 +10,27 @@ Uses Windows.Media.Ocr via winocr (~16ms per call, hardware-accelerated).
 EasyOCR is NOT used here — it stays in the alpha stats pipeline only.
 """
 
-import asyncio
 import io
-import time
 
 from PIL import Image
 
 # -- Windows OCR (winocr) -----------------------------------------------------
 
 try:
-    from winocr import recognize_pil as _winocr_recognize
+    from winocr import recognize_pil_sync as _winocr_sync
     _WINOCR_AVAILABLE = True
 except ImportError:
     _WINOCR_AVAILABLE = False
     print("[ocr] WARNING: winocr not available — install it: pip install winocr")
 
 
-async def _recognize(img: Image.Image) -> str:
-    """Run Windows OCR on a PIL image, return uppercase text."""
-    result = await _winocr_recognize(img, "en")
-    return result.text.upper().strip() if result and result.text else ""
-
-
 def _ocr_pil(img: Image.Image, label: str = "") -> str:
-    """Synchronous wrapper — safe to call from any thread."""
+    """Run Windows OCR on a PIL image. Returns uppercase text. Safe from any thread."""
     if not _WINOCR_AVAILABLE:
         return ""
     try:
-        text = asyncio.run(_recognize(img))
+        result = _winocr_sync(img, "en")
+        text = (result.get("text") or "").upper().strip()
         if text and label:
             print(f"[ocr] {label}: {text[:120]!r}")
         return text
@@ -79,8 +72,7 @@ def detect_game_state(jpeg_bytes: bytes, scan_mode: str = "lobby") -> dict | Non
         img = Image.open(io.BytesIO(jpeg_bytes))
 
         if scan_mode == "deploy":
-            crop = _crop_region(img, DEPLOY_REGION)
-            text = _ocr_pil(crop, "DEPLOY")
+            text = _ocr_pil(_crop_region(img, DEPLOY_REGION), "DEPLOY")
             if text:
                 for map_name in MAP_NAMES:
                     if map_name in text:
@@ -90,8 +82,7 @@ def detect_game_state(jpeg_bytes: bytes, scan_mode: str = "lobby") -> dict | Non
             return None
 
         if scan_mode == "postgame":
-            crop = _crop_region(img, DEPLOY_REGION)
-            text = _ocr_pil(crop, "POSTGAME")
+            text = _ocr_pil(_crop_region(img, DEPLOY_REGION), "POSTGAME")
             if text:
                 if "EXFILTRAT" in text:
                     return {"type": "exfiltrated", "map_name": None, "text": text}
@@ -100,15 +91,13 @@ def detect_game_state(jpeg_bytes: bytes, scan_mode: str = "lobby") -> dict | Non
             return None
 
         if scan_mode == "endgame":
-            crop = _crop_region(img, ENDGAME_REGION)
-            text = _ocr_pil(crop, "ENDGAME")
+            text = _ocr_pil(_crop_region(img, ENDGAME_REGION), "ENDGAME")
             if text and "RUN" in text and "COMPLETE" in text:
                 return {"type": "endgame", "map_name": None, "text": text}
             return None
 
         # 'lobby' — scan LOBBY region
-        crop = _crop_region(img, LOBBY_REGION)
-        text = _ocr_pil(crop, "LOBBY")
+        text = _ocr_pil(_crop_region(img, LOBBY_REGION), "LOBBY")
         if text:
             if "EXFILTRAT" in text:
                 return {"type": "exfiltrated", "map_name": None, "text": text}
