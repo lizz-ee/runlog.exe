@@ -175,6 +175,10 @@ def cli_latest_version() -> str | None:
 # Model Configuration
 # ═══════════════════════════════════════════════════════════════════════════════
 
+MODEL_HAIKU_API = "claude-haiku-4-5-20251001"
+MODEL_SONNET_API = "claude-sonnet-4-6"
+
+
 def get_model_config(purpose: str = "capture") -> dict:
     """Get configured model names for API and CLI.
 
@@ -193,8 +197,8 @@ def get_model_config(purpose: str = "capture") -> dict:
         model = "haiku" if purpose == "uplink" else "sonnet"
 
     if model == "haiku":
-        return {"api": "claude-haiku-4-5-20251001", "cli": "haiku"}
-    return {"api": "claude-sonnet-4-6", "cli": "sonnet"}
+        return {"api": MODEL_HAIKU_API, "cli": "haiku"}
+    return {"api": MODEL_SONNET_API, "cli": "sonnet"}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -402,7 +406,7 @@ def test_api_key(key: str) -> dict:
 
     client = anthropic.Anthropic(api_key=key)
     message = client.messages.create(
-        model="claude-haiku-4-5-20251001",
+        model=MODEL_HAIKU_API,
         max_tokens=10,
         messages=[{"role": "user", "content": "Say OK"}],
     )

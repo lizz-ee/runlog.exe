@@ -20,7 +20,7 @@ import os
 import shutil
 import subprocess
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 from .config import settings
 from . import ai_client
@@ -1420,6 +1420,13 @@ def _generate_sprite_sheet(video_path: str, duration: float):
         if result.returncode == 0 and os.path.exists(sprite_path):
             size_kb = os.path.getsize(sprite_path) / 1024
             print(f"[processor] Sprite sheet: {os.path.basename(sprite_path)} ({total_frames} frames, {cols}x{rows}, {size_kb:.0f}KB)")
+            # Write sprite metadata sidecar so /clips endpoint doesn't need ffprobe
+            try:
+                meta_path = video_path.replace(".mp4", "_sprite.json")
+                with open(meta_path, "w") as mf:
+                    json.dump({"cols": cols, "rows": rows, "frames": total_frames}, mf)
+            except Exception:
+                pass
         else:
             print(f"[processor] Sprite generation failed: {result.stderr[:200]}")
     except Exception as e:
@@ -1639,7 +1646,7 @@ def save_run_to_db(analysis: dict, run_date: datetime | None = None) -> int | No
 
         run = Run(
             map_name=analysis.get("map_name"),
-            date=run_date or datetime.utcnow(),
+            date=run_date or datetime.now(timezone.utc),
             session_id=_sid,
             survived=analysis.get("survived"),
             kills=analysis.get("kills"),
@@ -1777,7 +1784,7 @@ def process_recording(recording_path: str, clips_dir: str, on_phase=None) -> dic
     metrics = {
         "recording": os.path.basename(recording_path),
         "file_size_mb": round(file_size_mb, 1),
-        "started_at": datetime.utcnow().isoformat(),
+        "started_at": datetime.now(timezone.utc).isoformat(),
     }
 
     # Get video duration
@@ -2104,6 +2111,12 @@ def process_recording_phase2(
             recording_path, clips_dir, highlights, run_timestamp=rec_basename
         )
         print(f"[processor-p2] Created {len(result['clips'])} clips")
+        # Invalidate clips cache so new clips show up immediately
+        try:
+            from .api.capture_api import invalidate_clips_cache
+            invalidate_clips_cache()
+        except Exception:
+            pass
 
     # Re-mark as unviewed AFTER everything is done (grade, summary, clips all ready)
     try:

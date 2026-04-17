@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, desc, Integer
 
 from ..database import get_db
 from ..models import Run, Runner
@@ -12,71 +12,81 @@ router = APIRouter()
 
 @router.get("/overview", response_model=OverviewStats)
 def get_overview_stats(db: Session = Depends(get_db)):
-    runs = db.query(Run).all()
-    if not runs:
+    # Single aggregation query instead of loading all runs into Python
+    agg = db.query(
+        func.count(Run.id).label("total"),
+        func.sum(func.cast(Run.survived == True, Integer)).label("survived"),
+        func.coalesce(func.sum(Run.combatant_eliminations), 0).label("pve_kills"),
+        func.coalesce(func.sum(Run.runner_eliminations), 0).label("pvp_kills"),
+        func.coalesce(func.sum(Run.deaths), 0).label("deaths"),
+        func.coalesce(func.sum(Run.assists), 0).label("assists"),
+        func.coalesce(func.sum(Run.crew_revives), 0).label("revives"),
+        func.coalesce(func.sum(Run.loot_value_total), 0).label("loot"),
+        func.coalesce(func.sum(Run.duration_seconds), 0).label("total_time"),
+    ).first()
+
+    total = agg.total or 0
+    if total == 0:
         return OverviewStats()
 
-    total = len(runs)
-    survived = sum(1 for r in runs if r.survived)
-    pve_kills = sum(r.combatant_eliminations or 0 for r in runs)
-    pvp_kills = sum(r.runner_eliminations or 0 for r in runs)
+    survived = agg.survived or 0
+    pve_kills = agg.pve_kills
+    pvp_kills = agg.pvp_kills
     kills = pve_kills + pvp_kills
-    deaths = sum(r.deaths or 0 for r in runs)
-    assists = sum(r.assists or 0 for r in runs)
-    revives = sum(r.crew_revives or 0 for r in runs)
-    loot = sum(r.loot_value_total or 0 for r in runs)
-
-    # K/D is Runner K/D (PvP only) — PvE kills don't count for K/D
+    deaths = agg.deaths
+    assists = agg.assists
+    revives = agg.revives
+    loot = agg.loot
+    total_time = agg.total_time
     kd = calc_kd(pvp_kills, deaths)
 
-    # Favorite map
-    map_counts: dict[str, int] = {}
-    for r in runs:
-        if r.map_name:
-            map_counts[r.map_name] = map_counts.get(r.map_name, 0) + 1
-    fav_map = max(map_counts, key=map_counts.get) if map_counts else None
+    # Favorite map — single GROUP BY query
+    fav_map_row = db.query(Run.map_name, func.count(Run.id).label("cnt")).filter(
+        Run.map_name.isnot(None)
+    ).group_by(Run.map_name).order_by(desc("cnt")).first()
+    fav_map = fav_map_row[0] if fav_map_row else None
 
-    # Favorite runner
-    runner_counts: dict[int, int] = {}
-    for r in runs:
-        if r.runner_id:
-            runner_counts[r.runner_id] = runner_counts.get(r.runner_id, 0) + 1
-    fav_runner_name = None
-    if runner_counts:
-        fav_id = max(runner_counts, key=runner_counts.get)
-        fav_runner = db.query(Runner).filter(Runner.id == fav_id).first()
-        fav_runner_name = fav_runner.name if fav_runner else None
+    # Favorite runner — single GROUP BY + join
+    fav_runner_row = db.query(Runner.name, func.count(Run.id).label("cnt")).join(
+        Runner, Run.runner_id == Runner.id
+    ).group_by(Run.runner_id).order_by(desc("cnt")).first()
+    fav_runner_name = fav_runner_row[0] if fav_runner_row else None
 
-    # Favorite weapon
-    weapon_counts: dict[str, int] = {}
-    for r in runs:
-        if r.primary_weapon:
-            weapon_counts[r.primary_weapon] = weapon_counts.get(r.primary_weapon, 0) + 1
-    fav_weapon = max(weapon_counts, key=weapon_counts.get) if weapon_counts else None
+    # Favorite weapon — single GROUP BY query
+    fav_weapon_row = db.query(Run.primary_weapon, func.count(Run.id).label("cnt")).filter(
+        Run.primary_weapon.isnot(None)
+    ).group_by(Run.primary_weapon).order_by(desc("cnt")).first()
+    fav_weapon = fav_weapon_row[0] if fav_weapon_row else None
 
-    # Favorite squad mate — count how often each name appears in squad_members
-    # Exclude the local player's own gamertags (pulled live from DB, supports multiple profiles)
-    self_tags = {
-        tag.lower() for (tag,) in
-        db.query(Run.player_gamertag).filter(Run.player_gamertag.isnot(None)).distinct().all()
-    }
-    mate_counts: dict[str, int] = {}
-    for r in runs:
-        if r.squad_members:
-            members = r.squad_members if isinstance(r.squad_members, list) else []
-            for name in members:
-                if name and name.lower() not in self_tags:
-                    mate_counts[name] = mate_counts.get(name, 0) + 1
-    fav_mate = max(mate_counts, key=mate_counts.get) if mate_counts else None
-    fav_mate_runs = mate_counts.get(fav_mate, 0) if fav_mate else 0
+    # Favorite squad mate — group by base name (before #tag) so "Pyruuz" and "Pyruuz#7903" merge
+    self_tag_rows = db.query(Run.player_gamertag).filter(Run.player_gamertag.isnot(None)).distinct().all()
+    self_bases = {tag.split('#')[0].lower() for (tag,) in self_tag_rows}
+    mate_rows = db.query(Run.squad_members).filter(Run.squad_members.isnot(None)).all()
+    mate_counts: dict[str, int] = {}       # base_name -> count
+    mate_display: dict[str, str] = {}      # base_name -> best display name (with #tag if seen)
+    for (members,) in mate_rows:
+        if not isinstance(members, list):
+            continue
+        for name in members:
+            if not name:
+                continue
+            base = name.split('#')[0].lower()
+            if base in self_bases:
+                continue
+            mate_counts[base] = mate_counts.get(base, 0) + 1
+            if base not in mate_display or ('#' in name and '#' not in mate_display[base]):
+                mate_display[base] = name
+    fav_base = max(mate_counts, key=mate_counts.get) if mate_counts else None
+    fav_mate = mate_display.get(fav_base) if fav_base else None
+    fav_mate_runs = mate_counts.get(fav_base, 0) if fav_base else 0
 
-    # Time tracking
-    total_time = sum(r.duration_seconds or 0 for r in runs)
-    map_time: dict[str, int] = {}
-    for r in runs:
-        if r.map_name and r.duration_seconds:
-            map_time[r.map_name] = map_time.get(r.map_name, 0) + r.duration_seconds
-    time_by_map = [MapTime(map_name=k, total_seconds=v) for k, v in sorted(map_time.items(), key=lambda x: x[1], reverse=True)]
+    # Time by map — single GROUP BY query
+    map_time_rows = db.query(
+        Run.map_name, func.sum(Run.duration_seconds).label("total_s")
+    ).filter(Run.map_name.isnot(None), Run.duration_seconds.isnot(None)).group_by(
+        Run.map_name
+    ).order_by(desc("total_s")).all()
+    time_by_map = [MapTime(map_name=r[0], total_seconds=r[1] or 0) for r in map_time_rows]
 
     return OverviewStats(
         total_runs=total,
@@ -103,7 +113,11 @@ def get_overview_stats(db: Session = Depends(get_db)):
 
 @router.get("/by-map")
 def stats_by_map(db: Session = Depends(get_db)):
-    runs = db.query(Run).filter(Run.map_name.isnot(None)).all()
+    from sqlalchemy.orm import load_only
+    runs = db.query(Run).options(load_only(
+        Run.map_name, Run.survived, Run.combatant_eliminations, Run.runner_eliminations,
+        Run.deaths, Run.loot_value_total, Run.duration_seconds,
+    )).filter(Run.map_name.isnot(None)).all()
     maps: dict[str, dict] = {}
     for r in runs:
         if r.map_name not in maps:
@@ -132,7 +146,11 @@ def stats_by_map(db: Session = Depends(get_db)):
 
 @router.get("/by-runner")
 def stats_by_runner(db: Session = Depends(get_db)):
-    runs = db.query(Run).filter(Run.runner_id.isnot(None)).all()
+    from sqlalchemy.orm import load_only
+    runs = db.query(Run).options(load_only(
+        Run.runner_id, Run.survived, Run.kills, Run.combatant_eliminations, Run.runner_eliminations,
+        Run.deaths, Run.crew_revives, Run.loot_value_total, Run.duration_seconds, Run.primary_weapon,
+    )).filter(Run.runner_id.isnot(None)).all()
     # Pre-fetch all runners to avoid N+1 queries
     all_runners = {r.id: r.name for r in db.query(Runner).all()}
     runners: dict[int, dict] = {}
@@ -178,18 +196,26 @@ def stats_by_runner(db: Session = Depends(get_db)):
 
 
 @router.get("/trends")
-def stats_trends(db: Session = Depends(get_db)):
-    """Daily aggregated stats for trend charts."""
-    runs = db.query(Run).order_by(Run.date).all()
-    days: dict[str, dict] = {}
+def stats_trends(days_back: int = 0, db: Session = Depends(get_db)):
+    """Daily aggregated stats for trend charts. Optional days_back filter (0 = all)."""
+    from sqlalchemy.orm import load_only
+    q = db.query(Run).options(
+        load_only(Run.date, Run.survived, Run.kills, Run.deaths, Run.loot_value_total)
+    )
+    if days_back > 0:
+        from datetime import datetime, timedelta, timezone
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days_back)
+        q = q.filter(Run.date >= cutoff)
+    runs = q.order_by(Run.date).all()
+    days_map: dict[str, dict] = {}
     for r in runs:
         day = r.date.strftime("%Y-%m-%d") if r.date else "unknown"
-        if day not in days:
-            days[day] = {"date": day, "runs": 0, "survived": 0, "kills": 0, "deaths": 0, "loot": 0}
-        d = days[day]
+        if day not in days_map:
+            days_map[day] = {"date": day, "runs": 0, "survived": 0, "kills": 0, "deaths": 0, "loot": 0}
+        d = days_map[day]
         d["runs"] += 1
         d["survived"] += 1 if r.survived else 0
         d["kills"] += r.kills or 0
         d["deaths"] += r.deaths or 0
         d["loot"] += r.loot_value_total or 0
-    return list(days.values())
+    return list(days_map.values())

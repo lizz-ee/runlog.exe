@@ -194,7 +194,9 @@ class RustRecorder:
             for raw_line in self._proc.stderr:
                 line = raw_line.decode("utf-8", errors="replace").strip()
                 if line:
-                    print(f"[recorder-rs] {line}")
+                    # Encode-safe print — Windows console can't handle all Unicode
+                    safe = line.encode("ascii", errors="replace").decode("ascii")
+                    print(f"[recorder-rs] {safe}")
         except Exception as e:
             if self._running:
                 print(f"[recorder] Stderr reader error: {e}")

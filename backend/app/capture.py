@@ -98,6 +98,16 @@ class AutoCapture:
         self._auto_p2: bool = True   # submit to P2 pool automatically after P1
         self._p2_held: list[tuple[str, int]] = []  # items held when auto_p2 is off
         self._dismissed_files: set[str] = set()    # filenames dismissed from queue
+        # Pre-load dismissed markers from clips dirs so they survive reboots
+        try:
+            for entry in os.listdir(self.clips_dir):
+                run_dir = os.path.join(self.clips_dir, entry)
+                if os.path.isdir(run_dir):
+                    for f in os.listdir(run_dir):
+                        if f.endswith(".mp4.dismissed"):
+                            self._dismissed_files.add(f.replace(".dismissed", ""))
+        except Exception:
+            pass
 
     # -- Public API ----------------------------------------------------
 
@@ -294,51 +304,118 @@ class AutoCapture:
     }
 
     def _ocr_loop(self):
-        """OCR the latest frame using state machine — one region at a time."""
+        """OCR state machine — one region at a time.
+
+        In menus (not recording): uses Rust OCR frames sent via IPC (~2fps).
+        During recording: uses mss screenshots every 2s — completely decoupled
+        from the GPU recording pipeline (zero GPU readbacks during capture).
+        """
         last_seq = -1
         self._scan_state = 'lobby'  # lobby | deploy | endgame | postgame
         self._state_changed_at = time.time()
-        deploy_cycle = 0  # Counter for lobby re-check while in deploy state
-        while self._running:
-            with self._frame_lock:
-                frame = self._latest_frame
-                seq = self._frame_seq
+        deploy_cycle = 0
+        endgame_cycle = 0
+        _mss = None
 
-            if frame is not None and seq != last_seq:
+        while self._running:
+            # ---- Acquire frame ------------------------------------------------
+            if self._recording:
+                # During recording: take our own screenshot via mss (DWM/CPU path,
+                # independent of the GPU encoding pipeline — no readback stalls).
+                if _mss is None:
+                    try:
+                        import mss as _mss_lib
+                        _mss = _mss_lib.mss()
+                    except Exception as e:
+                        print(f"[capture] mss init failed: {e}")
+                frame = None
+                if _mss:
+                    try:
+                        shot = _mss.grab(_mss.monitors[1])  # primary monitor
+                        img = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
+                        buf = io.BytesIO()
+                        img.save(buf, format="JPEG", quality=75)
+                        frame = buf.getvalue()
+                    except Exception as e:
+                        print(f"[capture] mss grab failed: {e}")
+                        _mss = None
+                if frame is None:
+                    time.sleep(1.0)
+                    continue
+            else:
+                # In menus: use Rust OCR frames (game not running, no impact)
+                if _mss is not None:
+                    try:
+                        _mss.close()
+                    except Exception:
+                        pass
+                    _mss = None
+                with self._frame_lock:
+                    frame = self._latest_frame
+                    seq = self._frame_seq
+                if frame is None or seq == last_seq:
+                    time.sleep(0.1)
+                    continue
                 last_seq = seq
 
-                # Check for state timeout — fall back to lobby if stuck
-                timeout = self._STATE_TIMEOUTS.get(self._scan_state)
-                if timeout and (time.time() - self._state_changed_at) > timeout:
-                    old_state = self._scan_state
-                    self._scan_state = 'lobby'
-                    self._state_changed_at = time.time()
-                    print(f"[capture] State timeout: stuck in '{old_state}' for >{timeout}s, falling back to lobby")
-                    if self._recording and old_state == 'endgame':
-                        print(f"[capture] Stopping orphaned recording due to timeout")
-                        self._stop_recording()
+            # ---- State timeout ------------------------------------------------
+            timeout = self._STATE_TIMEOUTS.get(self._scan_state)
+            if timeout and (time.time() - self._state_changed_at) > timeout:
+                old_state = self._scan_state
+                self._scan_state = 'lobby'
+                self._state_changed_at = time.time()
+                print(f"[capture] State timeout: stuck in '{old_state}' for >{timeout}s, falling back to lobby")
+                if self._recording and old_state == 'endgame':
+                    print(f"[capture] Stopping orphaned recording due to timeout")
+                    self._stop_recording()
 
-                # While in deploy state, check lobby every 5th cycle to detect
-                # if user cancelled matchmaking and returned to lobby
-                if self._scan_state == 'deploy':
-                    deploy_cycle += 1
-                    if deploy_cycle % 5 == 0:
-                        lobby_result = detect_game_state(frame, scan_mode='lobby')
-                        if lobby_result and lobby_result['type'] in ('prepare', 'select_zone', 'ready_up'):
-                            print(f"[capture] Lobby re-detected ({lobby_result['type']}) while in deploy — returning to lobby state")
-                            self._scan_state = 'lobby'
-                            self._state_changed_at = time.time()
-                            deploy_cycle = 0
-                            continue
-                else:
-                    deploy_cycle = 0
-
-                result = detect_game_state(frame, scan_mode=self._scan_state)
-                if self._running:
-                    self._handle_detection(result, frame)
+            # ---- Deploy cancel check (every 5th cycle) ------------------------
+            if self._scan_state == 'deploy':
+                deploy_cycle += 1
+                if deploy_cycle % 5 == 0:
+                    lobby_result = detect_game_state(frame, scan_mode='lobby')
+                    if lobby_result and lobby_result['type'] in ('prepare', 'select_zone', 'ready_up'):
+                        print(f"[capture] Lobby re-detected ({lobby_result['type']}) while in deploy — returning to lobby state")
+                        self._scan_state = 'lobby'
+                        self._state_changed_at = time.time()
+                        deploy_cycle = 0
+                        continue
             else:
-                time.sleep(0.1)
+                deploy_cycle = 0
 
+            # ---- Endgame escape check (every 5th cycle) -----------------------
+            # If RUN_COMPLETE was never detected and the player is back in lobby,
+            # the state machine would be stuck in 'endgame' for 30 minutes.
+            # Check the lobby region periodically as an escape hatch.
+            if self._scan_state == 'endgame':
+                endgame_cycle += 1
+                if endgame_cycle % 5 == 0:
+                    lobby_result = detect_game_state(frame, scan_mode='lobby')
+                    if lobby_result and lobby_result['type'] in ('prepare', 'select_zone', 'ready_up'):
+                        print(f"[capture] Lobby re-detected ({lobby_result['type']}) while in endgame — missed RUN_COMPLETE, stopping recording")
+                        self._scan_state = 'lobby'
+                        self._state_changed_at = time.time()
+                        endgame_cycle = 0
+                        if self._recording:
+                            self._stop_recording()
+                        continue
+            else:
+                endgame_cycle = 0
+
+            # ---- OCR ---------------------------------------------------------
+            result = detect_game_state(frame, scan_mode=self._scan_state)
+            if self._running:
+                self._handle_detection(result, frame)
+
+            # Pace mss checks — 2s is well within the ~3-5s //RUN_COMPLETE window
+            if self._recording:
+                time.sleep(2.0)
+
+        if _mss is not None:
+            try:
+                _mss.close()
+            except Exception:
+                pass
         print("[capture] OCR loop stopped.")
 
     # Map detection phases to descriptive filenames
@@ -496,8 +573,7 @@ class AutoCapture:
                     print(f"[capture] Failed to write session marker: {e}")
 
             if self._recording_path:
-                rec_name = os.path.basename(self._recording_path).replace(".mp4", "")
-                screenshots_dir = os.path.join(self.clips_dir, rec_name, "screenshots")
+                screenshots_dir = os.path.join(os.path.dirname(self._recording_path), "screenshots")
                 os.makedirs(screenshots_dir, exist_ok=True)
 
                 # Save run metadata for the processor (ranked flag)
@@ -545,12 +621,9 @@ class AutoCapture:
             elapsed = time.time() - self._recording_start
             self._endgame_timestamp = elapsed
             print(f"[capture] RUN_COMPLETE at {elapsed:.1f}s into recording")
-            # Switch Rust OCR to fast direct mode for postgame detection
-            self._recorder.set_ocr_fast(True)
 
             if self._recording_path:
-                rec_name = os.path.basename(self._recording_path).replace(".mp4", "")
-                screenshots_dir = os.path.join(self.clips_dir, rec_name, "screenshots")
+                screenshots_dir = os.path.join(os.path.dirname(self._recording_path), "screenshots")
                 os.makedirs(screenshots_dir, exist_ok=True)
                 with open(os.path.join(screenshots_dir, "endgame.jpg"), "wb") as f:
                     f.write(frame_jpeg)
@@ -572,8 +645,7 @@ class AutoCapture:
         elif det_type in ('exfiltrated', 'eliminated') and self._recording:
             print(f"[capture] Detected {det_type.upper()} — saving stats screenshots (3-shot burst)")
             if self._recording_path:
-                rec_name = os.path.basename(self._recording_path).replace(".mp4", "")
-                screenshots_dir = os.path.join(self.clips_dir, rec_name, "screenshots")
+                screenshots_dir = os.path.join(os.path.dirname(self._recording_path), "screenshots")
                 os.makedirs(screenshots_dir, exist_ok=True)
 
                 # Shot 1: immediate (banner screen)
@@ -632,8 +704,12 @@ class AutoCapture:
         bitrate = int(bitrate_mbps) * 1_000_000
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"run_{timestamp}.mp4"
-        path = os.path.join(self.recordings_dir, filename)
+        run_tag = f"run_{timestamp}"
+        filename = f"{run_tag}.mp4"
+        # Record directly into the run's clips folder — no move needed later
+        run_folder = os.path.join(self.clips_dir, run_tag)
+        os.makedirs(os.path.join(run_folder, "screenshots"), exist_ok=True)
+        path = os.path.join(run_folder, filename)
 
         if self._recorder.start_recording(path, bitrate=bitrate, encoder=encoder, fps=fps):
             self._recording = True
@@ -739,14 +815,13 @@ class AutoCapture:
     def _generate_thumbnail(self, filepath: str, duration: float):
         """Generate thumbnail in background — updates the processing item when done."""
         filename = os.path.basename(filepath)
+        run_dir = os.path.dirname(filepath)  # clips/run_XXX/
 
         def _gen_thumb():
             thumb_name = filename.replace(".mp4", "_thumb.jpg")
-            thumb_path = os.path.join(self.recordings_dir, thumb_name)
+            thumb_path = os.path.join(run_dir, thumb_name)
             if not (os.path.exists(thumb_path) and os.path.getsize(thumb_path) > 5000):
-                # Prefer endgame screenshot (RUN_COMPLETE / death screen)
-                run_tag = filename.replace(".mp4", "")
-                endgame_jpg = os.path.join(self.clips_dir, run_tag, "screenshots", "endgame.jpg")
+                endgame_jpg = os.path.join(run_dir, "screenshots", "endgame.jpg")
                 if os.path.exists(endgame_jpg):
                     import shutil
                     shutil.copy2(endgame_jpg, thumb_path)
@@ -847,6 +922,22 @@ class AutoCapture:
         with self._p2_active_lock:
             self._p2_waiting = [(f, r) for f, r in self._p2_waiting if os.path.basename(f) != filename]
             self._p2_held = [(f, r) for f, r in self._p2_held if os.path.basename(f) != filename]
+        # Write persistent .dismissed marker next to the recording
+        run_tag = filename.replace(".mp4", "")
+        run_dir = os.path.join(self.clips_dir, run_tag)
+        if os.path.isdir(run_dir):
+            try:
+                open(os.path.join(run_dir, filename + ".dismissed"), "w").close()
+            except Exception:
+                pass
+            # Clean up marker files so the recording isn't re-queued
+            for ext in ('.p1done', '.encoded', '.endgame', '.session'):
+                marker_path = os.path.join(run_dir, filename + ext)
+                if os.path.exists(marker_path):
+                    try:
+                        os.remove(marker_path)
+                    except Exception:
+                        pass
         # Remove from UI
         self.remove_processing_item(filename)
         print(f"[capture] Dismissed: {filename}")
@@ -860,76 +951,45 @@ class AutoCapture:
         print(f"[capture] Dismissed {len(failed)} failed item(s)")
 
     def _auto_save_recording(self, filepath: str, run_id: int | None):
-        """Auto-save recording after processing completes. Moves to clips folder,
-        links to run, generates thumbnail + sprite sheet, sets status to 'complete'."""
+        """Finalize recording after processing completes. Recording is already in
+        clips folder — just generates assets and cleans markers."""
         import shutil
         filename = os.path.basename(filepath)
-        run_tag = filename.replace(".mp4", "")
-        run_folder = os.path.join(self.clips_dir, run_tag)
-        os.makedirs(run_folder, exist_ok=True)
-        saved_path = os.path.join(run_folder, filename)
 
-        if os.path.exists(saved_path):
-            # Already moved (previous session) — just use existing path
-            print(f"[auto-save] Recording already in place: {saved_path}")
-        elif os.path.exists(filepath):
-            try:
-                shutil.move(filepath, saved_path)
-            except Exception as e:
-                print(f"[auto-save] Failed to move recording: {e}")
-                return
-        else:
+        if not os.path.exists(filepath):
             print(f"[auto-save] Recording not found: {filepath}")
             return
 
-        # Move thumbnail if it exists
-        thumb = filename.replace(".mp4", "_thumb.jpg")
-        thumb_path = os.path.join(self.recordings_dir, thumb)
-        if os.path.exists(thumb_path):
-            shutil.move(thumb_path, os.path.join(run_folder, thumb))
+        run_dir = os.path.dirname(filepath)
 
-        # Link recording to run in database
-        if run_id:
-            try:
-                from .database import SessionLocal
-                from .models import Run
-                db = SessionLocal()
-                run = db.query(Run).filter(Run.id == run_id).first()
-                if run:
-                    run.recording_path = saved_path
-                    db.commit()
-                db.close()
-            except Exception as e:
-                print(f"[auto-save] DB update failed: {e}")
-
-        # Generate thumbnail + sprite sheet BEFORE marking complete
+        # Generate thumbnail + sprite sheet
         try:
             probe = subprocess.run(
                 ['ffprobe', '-v', 'quiet', '-show_entries',
-                 'format=duration', '-of', 'csv=p=0', saved_path],
+                 'format=duration', '-of', 'csv=p=0', filepath],
                 capture_output=True, text=True, timeout=10
             )
             duration = float(probe.stdout.strip()) if probe.stdout.strip() else 300
 
-            keep_thumb = saved_path.replace(".mp4", "_thumb.jpg")
+            keep_thumb = filepath.replace(".mp4", "_thumb.jpg")
             if not os.path.exists(keep_thumb):
-                endgame_jpg = os.path.join(os.path.dirname(saved_path), "screenshots", "endgame.jpg")
+                endgame_jpg = os.path.join(run_dir, "screenshots", "endgame.jpg")
                 if os.path.exists(endgame_jpg):
                     shutil.copy2(endgame_jpg, keep_thumb)
                 else:
                     mid = duration * 0.5
                     subprocess.run(
                         ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
-                         '-ss', str(mid), '-i', saved_path,
+                         '-ss', str(mid), '-i', filepath,
                          '-vframes', '1', '-vf', 'scale=384:-1',
                          '-q:v', '5', keep_thumb],
                         capture_output=True, timeout=30,
                     )
 
-            sprite_path = saved_path.replace(".mp4", "_sprite.jpg")
+            sprite_path = filepath.replace(".mp4", "_sprite.jpg")
             if not os.path.exists(sprite_path):
                 from .video_processor import _generate_sprite_sheet
-                _generate_sprite_sheet(saved_path, duration)
+                _generate_sprite_sheet(filepath, duration)
         except Exception as e:
             print(f"[auto-save] Asset generation failed: {e}")
 
@@ -939,11 +999,16 @@ class AutoCapture:
             if os.path.exists(marker):
                 os.remove(marker)
 
-        print(f"[auto-save] Recording saved: {saved_path}")
+        print(f"[auto-save] Finalized: {filepath}")
+
+    def _resolve_filepath(self, filename: str) -> str:
+        """Resolve a recording filename to its full path in clips."""
+        run_tag = filename.replace(".mp4", "")
+        return os.path.join(self.clips_dir, run_tag, filename)
 
     def reset_processing_item(self, filename: str):
         """Reset a failed processing item to queued and re-queue it."""
-        filepath = os.path.join(self.recordings_dir, filename)
+        filepath = self._resolve_filepath(filename)
         with self._processing_lock:
             for item in self._processing_items:
                 if item["file"] == filename:
@@ -958,7 +1023,7 @@ class AutoCapture:
 
     def retry_processing(self, filename: str):
         """Retry a failed processing item. Resumes from where it left off."""
-        filepath = os.path.join(self.recordings_dir, filename)
+        filepath = self._resolve_filepath(filename)
         run_id = None
         has_p1 = os.path.exists(filepath + ".p1done")
 
@@ -1055,6 +1120,24 @@ class AutoCapture:
             except Exception as e:
                 print(f"[p1] Failed to write .p1done marker: {e}")
 
+            # Update recording_path in DB (already in clips folder)
+            if run_id:
+                try:
+                    from .database import SessionLocal
+                    from .models import Run
+                    db = SessionLocal()
+                    run = db.query(Run).filter(Run.id == run_id).first()
+                    if run:
+                        run.recording_path = filepath
+                        db.commit()
+                    db.close()
+                except Exception as e:
+                    print(f"[p1] DB recording_path update failed: {e}")
+
+            # Invalidate clips cache so the new recording shows up immediately
+            from .api.capture_api import invalidate_clips_cache
+            invalidate_clips_cache()
+
             # Submit Phase 2 (gated by worker limit)
             self._submit_phase2(filepath, run_id)
 
@@ -1135,7 +1218,7 @@ class AutoCapture:
                 print(f"[p2] Failed: {p2_result}")
                 self._update_processing_item(filepath, "error", run_id=run_id, p2_failed=True)
                 try:
-                    log_path = os.path.join(self.recordings_dir, "phase2_errors.log")
+                    log_path = os.path.join(self.clips_dir, "phase2_errors.log")
                     with open(log_path, "a") as f:
                         f.write(f"\n--- {datetime.now().isoformat()} | run #{run_id} | {os.path.basename(filepath)} ---\n")
                         f.write(f"Result: {p2_result}\n")
@@ -1151,13 +1234,20 @@ class AutoCapture:
     # -- Resume + helpers ----------------------------------------------
 
     def _resume_unprocessed(self):
-        """Scan recordings directory for unprocessed .mp4 files."""
+        """Scan clips directory for unprocessed run recordings."""
         try:
-            mp4_files = [
-                f for f in os.listdir(self.recordings_dir)
-                if f.endswith(".mp4") and f.startswith("run_")
-                and not f.endswith("_thumb.jpg")
-            ]
+            # Scan clips/run_*/run_*.mp4 for recordings
+            mp4_files = []
+            for entry in os.listdir(self.clips_dir):
+                if not entry.startswith("run_"):
+                    continue
+                run_dir = os.path.join(self.clips_dir, entry)
+                if not os.path.isdir(run_dir):
+                    continue
+                mp4 = os.path.join(run_dir, entry + ".mp4")
+                if os.path.exists(mp4):
+                    mp4_files.append((entry + ".mp4", mp4))
+
             if not mp4_files:
                 return
 
@@ -1166,15 +1256,39 @@ class AutoCapture:
                 existing_files = {item["file"] for item in self._processing_items}
 
             resumed = 0
-            for filename in sorted(mp4_files):
+            for filename, filepath in sorted(mp4_files):
                 if filename in existing_files:
                     continue
 
-                filepath = os.path.join(self.recordings_dir, filename)
+                # Skip permanently dismissed recordings
+                if os.path.exists(filepath + ".dismissed"):
+                    continue
 
                 file_size = os.path.getsize(filepath)
                 if file_size < 1024 * 1024:
                     continue
+
+                # Check if this run already exists in the DB (fully processed, markers cleaned)
+                try:
+                    from .database import SessionLocal
+                    from .models import Run
+                    db = SessionLocal()
+                    existing_run = db.query(Run).filter(Run.recording_path == filepath).first()
+                    if existing_run is None:
+                        # Also check by date match (older runs may have a different recording_path)
+                        run_tag = filename.replace(".mp4", "")  # run_YYYYMMDD_HHMMSS
+                        ts_str = run_tag.replace("run_", "")    # YYYYMMDD_HHMMSS
+                        try:
+                            from datetime import datetime
+                            run_date = datetime.strptime(ts_str, "%Y%m%d_%H%M%S")
+                            existing_run = db.query(Run).filter(Run.date == run_date).first()
+                        except Exception:
+                            pass
+                    db.close()
+                    if existing_run:
+                        continue  # Already processed — skip
+                except Exception:
+                    pass
 
                 # Check marker files for previous progress
                 p1_marker = filepath + ".p1done"

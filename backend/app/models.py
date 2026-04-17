@@ -1,4 +1,8 @@
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utcnow():
+    return datetime.now(timezone.utc)
 from sqlalchemy import (
     Column, Integer, String, Boolean, Float, Text, DateTime, ForeignKey, JSON
 )
@@ -14,7 +18,7 @@ class Runner(Base):
     name = Column(String(100), nullable=False)
     icon = Column(String(255), nullable=True)
     notes = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
     loadouts = relationship("Loadout", back_populates="runner")
     runs = relationship("Run", back_populates="runner")
@@ -27,7 +31,7 @@ class Weapon(Base):
     name = Column(String(100), nullable=False)
     weapon_type = Column(String(50), nullable=True)  # primary, secondary
     notes = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
 
 class Loadout(Base):
@@ -42,7 +46,7 @@ class Loadout(Base):
     gear = Column(JSON, nullable=True)
     notes = Column(Text, nullable=True)
     screenshot_path = Column(String(500), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
     runner = relationship("Runner", back_populates="loadouts")
     runs = relationship("Run", back_populates="loadout")
@@ -52,11 +56,11 @@ class Run(Base):
     __tablename__ = "runs"
 
     id = Column(Integer, primary_key=True, index=True)
-    runner_id = Column(Integer, ForeignKey("runners.id"), nullable=True)
+    runner_id = Column(Integer, ForeignKey("runners.id"), nullable=True, index=True)
     loadout_id = Column(Integer, ForeignKey("loadouts.id"), nullable=True)
-    map_name = Column(String(100), nullable=True)
-    date = Column(DateTime, default=datetime.utcnow)
-    survived = Column(Boolean, nullable=True)
+    map_name = Column(String(100), nullable=True, index=True)
+    date = Column(DateTime, default=_utcnow, index=True)
+    survived = Column(Boolean, nullable=True, index=True)
     kills = Column(Integer, default=0)
     combatant_eliminations = Column(Integer, default=0)
     runner_eliminations = Column(Integer, default=0)
@@ -86,9 +90,9 @@ class Run(Base):
     viewed = Column(Boolean, default=False)  # Whether user has seen this run
     is_favorite = Column(Boolean, default=False)  # User-favorited run
     is_ranked = Column(Boolean, default=False)  # Ranked mode run
-    session_id = Column(Integer, ForeignKey("sessions.id"), nullable=True)
-    spawn_point_id = Column(Integer, ForeignKey("spawn_points.id"), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    session_id = Column(Integer, ForeignKey("sessions.id"), nullable=True, index=True)
+    spawn_point_id = Column(Integer, ForeignKey("spawn_points.id"), nullable=True, index=True)
+    created_at = Column(DateTime, default=_utcnow)
 
     runner = relationship("Runner", back_populates="runs")
     loadout = relationship("Loadout", back_populates="runs")
@@ -119,7 +123,7 @@ class SpawnPoint(Base):
     game_coord_y = Column(Float, nullable=True)  # Game coordinate from loading screen (e.g. 195.869476)
     screenshot_path = Column(String(500), nullable=True)
     notes = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
     runs = relationship("Run", back_populates="spawn_point", foreign_keys="Run.spawn_point_id")
 
@@ -128,7 +132,7 @@ class Session(Base):
     __tablename__ = "sessions"
 
     id = Column(Integer, primary_key=True, index=True)
-    started_at = Column(DateTime, default=datetime.utcnow)
+    started_at = Column(DateTime, default=_utcnow)
     ended_at = Column(DateTime, nullable=True)
     notes = Column(Text, nullable=True)
 

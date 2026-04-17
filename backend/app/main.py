@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import inspect, text
 import os
 import shutil
-from datetime import datetime
+from datetime import datetime, timezone
 
 from .database import engine, Base
 from .api import api_router
@@ -29,43 +29,51 @@ if os.path.exists(_db_file):
 # Create all tables
 Base.metadata.create_all(bind=engine)
 
-# Migrate: add new columns to existing tables if missing
+# Migrate: add new columns to existing tables if missing (single transaction)
 with engine.connect() as conn:
     inspector = inspect(engine)
     existing_cols = {c["name"] for c in inspector.get_columns("runs")}
-    if "grade" not in existing_cols:
-        conn.execute(text("ALTER TABLE runs ADD COLUMN grade VARCHAR(2)"))
+    _migrations = {
+        "grade": "ALTER TABLE runs ADD COLUMN grade VARCHAR(2)",
+        "summary": "ALTER TABLE runs ADD COLUMN summary TEXT",
+        "player_gamertag": "ALTER TABLE runs ADD COLUMN player_gamertag VARCHAR(100)",
+        "viewed": "ALTER TABLE runs ADD COLUMN viewed BOOLEAN DEFAULT 0",
+        "is_favorite": "ALTER TABLE runs ADD COLUMN is_favorite BOOLEAN DEFAULT 0",
+        "starting_loadout_value": "ALTER TABLE runs ADD COLUMN starting_loadout_value FLOAT",
+        "player_level": "ALTER TABLE runs ADD COLUMN player_level INTEGER",
+        "vault_value": "ALTER TABLE runs ADD COLUMN vault_value FLOAT",
+        "killed_by_weapon": "ALTER TABLE runs ADD COLUMN killed_by_weapon VARCHAR(100)",
+        "damage_contributors": "ALTER TABLE runs ADD COLUMN damage_contributors JSON",
+        "is_ranked": "ALTER TABLE runs ADD COLUMN is_ranked BOOLEAN DEFAULT 0",
+    }
+    applied = 0
+    for col_name, ddl in _migrations.items():
+        if col_name not in existing_cols:
+            conn.execute(text(ddl))
+            applied += 1
+    if applied:
         conn.commit()
-    if "summary" not in existing_cols:
-        conn.execute(text("ALTER TABLE runs ADD COLUMN summary TEXT"))
+        print(f"[migrate] Applied {applied} column migrations")
+
+    # Create indexes on existing tables (idempotent — IF NOT EXISTS)
+    _indexes = [
+        "CREATE INDEX IF NOT EXISTS ix_runs_date ON runs (date)",
+        "CREATE INDEX IF NOT EXISTS ix_runs_map_name ON runs (map_name)",
+        "CREATE INDEX IF NOT EXISTS ix_runs_survived ON runs (survived)",
+        "CREATE INDEX IF NOT EXISTS ix_runs_runner_id ON runs (runner_id)",
+        "CREATE INDEX IF NOT EXISTS ix_runs_session_id ON runs (session_id)",
+        "CREATE INDEX IF NOT EXISTS ix_runs_spawn_point_id ON runs (spawn_point_id)",
+    ]
+    idx_applied = 0
+    for ddl in _indexes:
+        try:
+            conn.execute(text(ddl))
+            idx_applied += 1
+        except Exception:
+            pass
+    if idx_applied:
         conn.commit()
-    if "player_gamertag" not in existing_cols:
-        conn.execute(text("ALTER TABLE runs ADD COLUMN player_gamertag VARCHAR(100)"))
-        conn.commit()
-    if "viewed" not in existing_cols:
-        conn.execute(text("ALTER TABLE runs ADD COLUMN viewed BOOLEAN DEFAULT 0"))
-        conn.commit()
-    if "is_favorite" not in existing_cols:
-        conn.execute(text("ALTER TABLE runs ADD COLUMN is_favorite BOOLEAN DEFAULT 0"))
-        conn.commit()
-    if "starting_loadout_value" not in existing_cols:
-        conn.execute(text("ALTER TABLE runs ADD COLUMN starting_loadout_value FLOAT"))
-        conn.commit()
-    if "player_level" not in existing_cols:
-        conn.execute(text("ALTER TABLE runs ADD COLUMN player_level INTEGER"))
-        conn.commit()
-    if "vault_value" not in existing_cols:
-        conn.execute(text("ALTER TABLE runs ADD COLUMN vault_value FLOAT"))
-        conn.commit()
-    if "killed_by_weapon" not in existing_cols:
-        conn.execute(text("ALTER TABLE runs ADD COLUMN killed_by_weapon VARCHAR(100)"))
-        conn.commit()
-    if "damage_contributors" not in existing_cols:
-        conn.execute(text("ALTER TABLE runs ADD COLUMN damage_contributors JSON"))
-        conn.commit()
-    if "is_ranked" not in existing_cols:
-        conn.execute(text("ALTER TABLE runs ADD COLUMN is_ranked BOOLEAN DEFAULT 0"))
-        conn.commit()
+        print(f"[migrate] Ensured {idx_applied} indexes exist")
 
 # Seed spawn points from reference data if table is empty
 from .database import SessionLocal
@@ -103,7 +111,7 @@ def get_or_create_session() -> int:
         return current_session_id
     from .models import Session as SessionModel
     db = SessionLocal()
-    session = SessionModel(started_at=datetime.utcnow())
+    session = SessionModel(started_at=datetime.now(timezone.utc))
     db.add(session)
     db.commit()
     db.refresh(session)
@@ -120,7 +128,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:8000", "app://.", "file://"],
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["Content-Type"],

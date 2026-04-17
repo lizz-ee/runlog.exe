@@ -103,6 +103,14 @@ def detect_game_state(jpeg_bytes: bytes, scan_mode: str = "lobby") -> dict | Non
             text = _ocr_pil(_crop_region(img, ENDGAME_REGION), "ENDGAME")
             if text and "RUN" in text and "COMPLETE" in text:
                 return {"type": "endgame", "map_name": None, "text": text}
+            # RUN_COMPLETE banner is brief (~2s) and can be missed by the 2s mss interval.
+            # Fall back to checking the center region for ELIMINATED/EXFILTRATED directly.
+            text2 = _ocr_pil(_crop_region(img, DEPLOY_REGION), "ENDGAME_CENTER")
+            if text2:
+                if "EXFILTRAT" in text2:
+                    return {"type": "exfiltrated", "map_name": None, "text": text2}
+                if "ELIMINATED" in text2 or "ELIMINAT" in text2:
+                    return {"type": "eliminated", "map_name": None, "text": text2}
             return None
 
         # 'lobby' — scan LOBBY region

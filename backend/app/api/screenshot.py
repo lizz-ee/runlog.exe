@@ -4,7 +4,7 @@ import json
 import os
 import shutil
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List
 
 from fastapi import APIRouter, UploadFile, File, HTTPException
@@ -86,7 +86,7 @@ async def _save_upload(file: UploadFile) -> str:
     upload_dir = os.path.abspath(settings.media_upload_dir)
     os.makedirs(upload_dir, exist_ok=True)
     ext = file.filename.split(".")[-1] if file.filename and "." in file.filename else "png"
-    filename = f"{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}.{ext}"
+    filename = f"{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}.{ext}"
     filepath = os.path.join(upload_dir, filename)
 
     with open(filepath, "wb") as f:

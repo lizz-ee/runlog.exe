@@ -27,6 +27,25 @@ _engine: AutoCapture | None = None
 RECORDINGS_DIR = os.path.join(_STORAGE_DIR, "recordings")
 CLIPS_DIR = os.path.join(_STORAGE_DIR, "clips")
 
+# TTL cache for clip list — avoids hundreds of filesystem syscalls per request
+import time as _time
+_clips_cache: dict = {"data": None, "ts": 0}
+_CLIPS_CACHE_TTL = 10  # seconds
+
+
+def invalidate_clips_cache():
+    """Call after any clip creation, deletion, or keep operation."""
+    _clips_cache["data"] = None
+    _clips_cache["ts"] = 0
+
+
+def _safe_path(base_dir: str, user_path: str) -> str:
+    """Resolve user_path under base_dir, rejecting traversal attempts."""
+    resolved = os.path.normpath(os.path.join(base_dir, user_path))
+    if not resolved.startswith(os.path.normpath(base_dir) + os.sep) and resolved != os.path.normpath(base_dir):
+        raise HTTPException(status_code=400, detail="Invalid path")
+    return resolved
+
 
 def _get_engine() -> AutoCapture:
     """Return the singleton, or raise 409 if not yet started."""
@@ -103,22 +122,17 @@ def capture_frame():
 
 @router.get("/thumbnail/{filename:path}")
 def serve_thumbnail(filename: str):
-    """Serve a recording thumbnail image. Checks recordings dir and clips/saved folders."""
+    """Serve a recording thumbnail image from the run's clips folder."""
     from fastapi.responses import FileResponse
-    # Check recordings dir first
-    filepath = os.path.join(RECORDINGS_DIR, filename)
-    if os.path.exists(filepath):
-        return FileResponse(filepath, media_type="image/jpeg")
-    # Check clips dir (thumbnail moves with auto-save into run subfolder)
-    # Direct path
-    clips_path = os.path.join(CLIPS_DIR, filename)
+    # Thumbnails live next to the recording: clips/run_xxx/run_xxx_thumb.jpg
+    run_tag = os.path.basename(filename).replace("_thumb.jpg", "")
+    thumb_path = _safe_path(CLIPS_DIR, os.path.join(run_tag, os.path.basename(filename)))
+    if os.path.exists(thumb_path):
+        return FileResponse(thumb_path, media_type="image/jpeg")
+    # Fallback: direct path in clips dir
+    clips_path = _safe_path(CLIPS_DIR, filename)
     if os.path.exists(clips_path):
         return FileResponse(clips_path, media_type="image/jpeg")
-    # Inside run subfolder (e.g. clips/run_xxx/run_xxx_thumb.jpg)
-    run_tag = filename.replace("_thumb.jpg", "")
-    subfolder_path = os.path.join(CLIPS_DIR, run_tag, filename)
-    if os.path.exists(subfolder_path):
-        return FileResponse(subfolder_path, media_type="image/jpeg")
     raise HTTPException(status_code=404, detail="Thumbnail not found")
 
 
@@ -130,6 +144,10 @@ def list_clips():
     The YYYYMMDD_HHMMSS matches the recording timestamp, which links
     clips to runs via the run's date field.
     """
+    # Return cached result if fresh
+    if _clips_cache["data"] is not None and (_time.time() - _clips_cache["ts"]) < _CLIPS_CACHE_TTL:
+        return JSONResponse(content={"clips": _clips_cache["data"]})
+
     import re
     clips = []
     if os.path.exists(CLIPS_DIR):
@@ -145,6 +163,8 @@ def list_clips():
                 # Skip 4K versions — app uses 1080p
                 if f.endswith(".mp4") and "_4k" not in f:
                     _add_clip_entry(clips, run_folder_path, f, run_folder=run_folder)
+    _clips_cache["data"] = clips
+    _clips_cache["ts"] = _time.time()
     return JSONResponse(content={"clips": clips})
 
 
@@ -182,21 +202,37 @@ def _add_clip_entry(clips: list, folder: str, filename: str, run_folder: str | N
     sprite_name = filename.replace(".mp4", "_sprite.jpg")
     sprite_exists = os.path.exists(os.path.join(folder, sprite_name))
 
-    # Get sprite grid dimensions if sprite exists
+    # Get sprite grid dimensions from sidecar metadata (no ffprobe needed)
     sprite_cols, sprite_rows, sprite_frames = None, None, None
     if sprite_exists:
+        import json as _json
         import math
+        sprite_meta_path = filepath.replace(".mp4", "_sprite.json")
         try:
-            probe = subprocess.run(
-                ['ffprobe', '-v', 'quiet', '-show_entries', 'format=duration', '-of', 'csv=p=0', filepath],
-                capture_output=True, text=True, timeout=5
-            )
-            dur = float(probe.stdout.strip())
-            sprite_frames = min(300, max(30, int(dur * 3)))
-            sprite_cols = min(10, sprite_frames)
-            sprite_rows = math.ceil(sprite_frames / sprite_cols)
-        except Exception:
-            pass
+            with open(sprite_meta_path) as mf:
+                meta = _json.load(mf)
+            sprite_cols = meta["cols"]
+            sprite_rows = meta["rows"]
+            sprite_frames = meta["frames"]
+        except (FileNotFoundError, KeyError, ValueError, _json.JSONDecodeError):
+            # Fallback: generate sidecar from ffprobe (one-time migration)
+            try:
+                probe = subprocess.run(
+                    ['ffprobe', '-v', 'quiet', '-show_entries', 'format=duration', '-of', 'csv=p=0', filepath],
+                    capture_output=True, text=True, timeout=5
+                )
+                dur = float(probe.stdout.strip())
+                sprite_frames = min(300, max(30, int(dur * 3)))
+                sprite_cols = min(10, sprite_frames)
+                sprite_rows = math.ceil(sprite_frames / sprite_cols)
+                # Write sidecar so we don't ffprobe again
+                try:
+                    with open(sprite_meta_path, "w") as mf:
+                        _json.dump({"cols": sprite_cols, "rows": sprite_rows, "frames": sprite_frames}, mf)
+                except Exception:
+                    pass
+            except Exception:
+                pass
 
     # For serving, use run_folder/filename path if in subfolder
     serve_path = f"{run_folder}/{filename}" if run_folder else filename
@@ -226,7 +262,7 @@ def serve_clip(filepath: str, request: Request):
     """
     from starlette.responses import StreamingResponse
 
-    full_path = os.path.join(CLIPS_DIR, filepath)
+    full_path = _safe_path(CLIPS_DIR, filepath)
     if not os.path.exists(full_path):
         raise HTTPException(status_code=404, detail="Clip not found")
 
@@ -239,6 +275,8 @@ def serve_clip(filepath: str, request: Request):
         start = int(parts[0]) if parts[0] else 0
         end = int(parts[1]) if parts[1] else file_size - 1
         end = min(end, file_size - 1)
+        if start > end or start < 0:
+            raise HTTPException(status_code=416, detail="Invalid range")
         content_length = end - start + 1
 
         def iterfile():
@@ -274,30 +312,15 @@ class RecordingAction(BaseModel):
 
 @router.post("/recording/keep")
 def keep_recording(body: RecordingAction):
-    """Mark a recording to be kept. Moves to saved folder and links to run."""
+    """Mark a recording to be kept (already in clips folder — just links to run)."""
     filename = body.filename
     if not filename:
         raise HTTPException(status_code=400, detail="filename required")
 
-    filepath = os.path.join(RECORDINGS_DIR, filename)
+    run_tag = filename.replace(".mp4", "")
+    filepath = os.path.join(CLIPS_DIR, run_tag, filename)
     if not os.path.exists(filepath):
         raise HTTPException(status_code=404, detail="Recording not found")
-
-    # Move full recording into the run's clips subfolder
-    # Filename format: run_YYYYMMDD_HHMMSS.mp4 -> clips/run_YYYYMMDD_HHMMSS/
-    run_tag = filename.replace(".mp4", "")
-    run_folder = os.path.join(CLIPS_DIR, run_tag)
-    os.makedirs(run_folder, exist_ok=True)
-    saved_path = os.path.join(run_folder, filename)
-
-    import shutil
-    shutil.move(filepath, saved_path)
-
-    # Also move thumbnail if it exists
-    thumb = filename.replace(".mp4", "_thumb.jpg")
-    thumb_path = os.path.join(RECORDINGS_DIR, thumb)
-    if os.path.exists(thumb_path):
-        shutil.move(thumb_path, os.path.join(run_folder, thumb))
 
     # Store recording path on the run record
     if body.run_id:
@@ -307,60 +330,17 @@ def keep_recording(body: RecordingAction):
         try:
             run = db.query(Run).filter(Run.id == body.run_id).first()
             if run:
-                run.recording_path = saved_path
+                run.recording_path = filepath
                 db.commit()
         finally:
             db.close()
-
-    # Clean up marker files
-    for ext in ('.p1done', '.encoded', '.endgame', '.session'):
-        marker = filepath + ext
-        if os.path.exists(marker):
-            os.remove(marker)
 
     # Remove from processing queue UI
     if _engine:
         _engine.remove_processing_item(filename)
 
-    # Generate thumbnail + sprite sheet for full recording (background)
-    import threading
-    def _gen_keep_assets():
-        try:
-            # Get duration
-            probe = subprocess.run(
-                ['ffprobe', '-v', 'quiet', '-show_entries', 'format=duration', '-of', 'csv=p=0', saved_path],
-                capture_output=True, text=True, timeout=10
-            )
-            duration = float(probe.stdout.strip())
-
-            # Use endgame screenshot as thumbnail (best moment) or fall back to 50% frame
-            keep_thumb = saved_path.replace(".mp4", "_thumb.jpg")
-            if not os.path.exists(keep_thumb):
-                # Check for endgame screenshot in the run's screenshots folder
-                run_tag = os.path.basename(saved_path).replace(".mp4", "")
-                endgame_jpg = os.path.join(os.path.dirname(saved_path), "screenshots", "endgame.jpg")
-                if os.path.exists(endgame_jpg):
-                    import shutil
-                    shutil.copy2(endgame_jpg, keep_thumb)
-                else:
-                    mid = duration * 0.5
-                    subprocess.run(
-                        ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
-                         '-ss', str(mid), '-i', saved_path,
-                         '-vframes', '1', '-vf', 'scale=384:-1',
-                         '-q:v', '5', keep_thumb],
-                        capture_output=True, timeout=30,
-                    )
-
-            # Sprite sheet for hover scrub
-            from ..video_processor import _generate_sprite_sheet
-            _generate_sprite_sheet(saved_path, duration)
-        except Exception as e:
-            print(f"[keep] Asset generation failed: {e}")
-
-    threading.Thread(target=_gen_keep_assets, daemon=True).start()
-
-    return JSONResponse(content={"status": "kept", "path": saved_path})
+    invalidate_clips_cache()
+    return JSONResponse(content={"status": "kept", "path": filepath})
 
 
 @router.post("/recording/delete")
@@ -370,19 +350,13 @@ def delete_recording(body: RecordingAction):
     if not filename:
         raise HTTPException(status_code=400, detail="filename required")
 
-    filepath = os.path.join(RECORDINGS_DIR, filename)
-    if os.path.exists(filepath):
-        os.remove(filepath)
+    import shutil
+    run_tag = filename.replace(".mp4", "")
+    run_dir = os.path.join(CLIPS_DIR, run_tag)
 
-    # Also remove thumbnail, marker files, and clips folder
-    thumb = filename.replace(".mp4", "_thumb.jpg")
-    thumb_path = os.path.join(RECORDINGS_DIR, thumb)
-    if os.path.exists(thumb_path):
-        os.remove(thumb_path)
-    for ext in ('.p1done', '.encoded', '.endgame', '.session'):
-        marker = filepath + ext
-        if os.path.exists(marker):
-            os.remove(marker)
+    # Remove the entire run folder (recording, screenshots, clips, markers)
+    if os.path.isdir(run_dir):
+        shutil.rmtree(run_dir, ignore_errors=True)
 
     # Remove from processing queue UI
     if _engine:
@@ -444,7 +418,7 @@ def open_run_folder(body: dict):
     import subprocess
     folder = body.get("folder")
     if folder:
-        folder_path = os.path.join(CLIPS_DIR, folder)
+        folder_path = _safe_path(CLIPS_DIR, folder)
     else:
         folder_path = CLIPS_DIR
 
@@ -459,7 +433,7 @@ def open_run_folder(body: dict):
 @router.get("/folder-size/{folder}")
 def get_folder_size(folder: str):
     """Get the total size of a run's clips folder in MB."""
-    folder_path = os.path.join(CLIPS_DIR, folder)
+    folder_path = _safe_path(CLIPS_DIR, folder)
     if not os.path.isdir(folder_path):
         return JSONResponse(content={"size_mb": 0})
     total = sum(
@@ -477,7 +451,7 @@ def delete_clip(body: dict):
     if not filename:
         raise HTTPException(status_code=400, detail="filename required")
 
-    filepath = os.path.join(CLIPS_DIR, filename)
+    filepath = _safe_path(CLIPS_DIR, filename)
     if not os.path.exists(filepath):
         raise HTTPException(status_code=404, detail="Clip not found")
 
@@ -489,6 +463,7 @@ def delete_clip(body: dict):
         if os.path.exists(asset_path):
             os.remove(asset_path)
 
+    invalidate_clips_cache()
     return JSONResponse(content={"status": "deleted", "filename": filename})
 
 
@@ -525,6 +500,7 @@ def delete_kept_recording(body: dict):
     finally:
         db.close()
 
+    invalidate_clips_cache()
     return JSONResponse(content={"status": "deleted", "run_id": run_id})
 
 
@@ -540,13 +516,17 @@ def cut_custom_clip(body: ClipCutRequest):
     """Create a custom clip from a video using IN/OUT points. Stream copy, no re-encode."""
     import re
 
+    if body.in_point < 0:
+        raise HTTPException(status_code=400, detail="IN point must be >= 0")
+    if body.out_point <= body.in_point:
+        raise HTTPException(status_code=400, detail="OUT point must be after IN point")
+    if body.out_point > 86400:
+        raise HTTPException(status_code=400, detail="OUT point exceeds maximum (24h)")
     duration = body.out_point - body.in_point
     if duration < 1.0:
         raise HTTPException(status_code=400, detail="Clip must be at least 1 second")
-    if body.in_point < 0:
-        raise HTTPException(status_code=400, detail="IN point must be >= 0")
 
-    source_path = os.path.join(CLIPS_DIR, body.source)
+    source_path = _safe_path(CLIPS_DIR, body.source)
     if not os.path.exists(source_path):
         raise HTTPException(status_code=404, detail="Source video not found")
 
@@ -620,6 +600,7 @@ def cut_custom_clip(body: ClipCutRequest):
 
     size_mb = os.path.getsize(clip_path) / (1024 * 1024)
     print(f"[clip/cut] Custom clip: {filename} ({duration:.1f}s, {size_mb:.1f}MB)")
+    invalidate_clips_cache()
 
     return JSONResponse(content={
         "status": "created",

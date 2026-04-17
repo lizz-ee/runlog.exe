@@ -12,7 +12,7 @@ import json
 import os
 import subprocess
 import shutil
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Generator
 
 from fastapi import APIRouter, Depends, Query
@@ -69,7 +69,9 @@ def get_session_index(db: Session, session_id: int) -> int:
 
 
 # ── Briefing cache ──────────────────────────────────────────────
+import threading
 _briefing_cache = {"session_id": None, "run_count": 0, "text": None}
+_briefing_lock = threading.Lock()
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -118,7 +120,8 @@ def tool_get_session_summary(db: Session, session_id: int = None, **kwargs) -> d
     if current_session_id is None and not session_id:
         session_code = "RECALL//" + session_code
 
-    runs = db.query(Run).filter(Run.session_id == session.id).all()
+    from sqlalchemy.orm import joinedload
+    runs = db.query(Run).options(joinedload(Run.runner)).filter(Run.session_id == session.id).all()
     total = len(runs)
     if total == 0:
         return {"session_id": session.id, "session_code": session_code,
@@ -132,7 +135,7 @@ def tool_get_session_summary(db: Session, session_id: int = None, **kwargs) -> d
     deaths = sum(r.deaths or 0 for r in runs)
     revives = sum(r.crew_revives or 0 for r in runs)
     maps = list(set(r.map_name for r in runs if r.map_name))
-    shells = list(set(db.query(Runner.name).filter(Runner.id == r.runner_id).scalar() for r in runs if r.runner_id))
+    shells = list(set(r.runner.name for r in runs if r.runner))
     best = max(runs, key=lambda r: (r.grade or 'Z', r.loot_value_total or 0))
     return {
         "session_id": session.id,
@@ -309,9 +312,9 @@ def tool_get_performance_trend(db: Session, stat: str = "survival", range: str =
     """Time-series performance data."""
     q = db.query(Run)
     if range == "week":
-        q = q.filter(Run.date >= datetime.utcnow() - timedelta(days=7))
+        q = q.filter(Run.date >= datetime.now(timezone.utc) - timedelta(days=7))
     elif range == "month":
-        q = q.filter(Run.date >= datetime.utcnow() - timedelta(days=30))
+        q = q.filter(Run.date >= datetime.now(timezone.utc) - timedelta(days=30))
     runs = q.order_by(Run.date.asc()).all()
     if not runs:
         return []
@@ -400,21 +403,29 @@ def tool_get_spawn_stats(db: Session, map: str, spawn: str = None, **kwargs) -> 
 
 def tool_get_squad_stats(db: Session, **kwargs) -> list:
     """Top squad mates with weighted scoring."""
-    runs = db.query(Run).all()
-    self_tags = {t.lower() for (t,) in db.query(Run.player_gamertag).filter(Run.player_gamertag.isnot(None)).distinct().all()}
+    from sqlalchemy.orm import load_only
+    runs = db.query(Run).options(load_only(
+        Run.squad_members, Run.survived, Run.loot_value_total, Run.player_gamertag,
+    )).all()
+    self_bases = {r.player_gamertag.split('#')[0].lower() for r in runs if r.player_gamertag}
     mates = {}
     for r in runs:
         if not r.squad_members or not isinstance(r.squad_members, list):
             continue
         for name in r.squad_members:
-            if not name or name.lower() in self_tags:
+            if not name:
                 continue
-            if name not in mates:
-                mates[name] = {"gamertag": name, "runs": 0, "survived": 0, "loot": 0}
-            mates[name]["runs"] += 1
+            base = name.split('#')[0].lower()
+            if base in self_bases:
+                continue
+            if base not in mates:
+                mates[base] = {"gamertag": name, "runs": 0, "survived": 0, "loot": 0}
+            if '#' in name and '#' not in mates[base]["gamertag"]:
+                mates[base]["gamertag"] = name
+            mates[base]["runs"] += 1
             if r.survived:
-                mates[name]["survived"] += 1
-            mates[name]["loot"] += r.loot_value_total or 0
+                mates[base]["survived"] += 1
+            mates[base]["loot"] += r.loot_value_total or 0
     total_runs = len(runs)
     overall_surv = calc_survival_rate(sum(1 for r in runs if r.survived), total_runs)
     for m in mates.values():
@@ -670,14 +681,16 @@ def briefing_endpoint(db: Session = Depends(get_db)):
     session_id = summary.get("session_id")
     run_count = summary.get("run_count", 0)
 
-    # Check cache
-    if (_briefing_cache["session_id"] == session_id and
-        _briefing_cache["run_count"] == run_count and
-        _briefing_cache["text"]):
-        def cached():
-            yield f"data: {json.dumps({'text': _briefing_cache['text']})}\n\n"
-            yield "data: [DONE]\n\n"
-        return StreamingResponse(cached(), media_type="text/event-stream")
+    # Check cache (lock prevents concurrent generation for the same session)
+    with _briefing_lock:
+        if (_briefing_cache["session_id"] == session_id and
+            _briefing_cache["run_count"] == run_count and
+            _briefing_cache["text"]):
+            cached_text = _briefing_cache["text"]
+            def cached():
+                yield f"data: {json.dumps({'text': cached_text})}\n\n"
+                yield "data: [DONE]\n\n"
+            return StreamingResponse(cached(), media_type="text/event-stream")
 
     if run_count == 0:
         def empty():
@@ -705,11 +718,12 @@ Be terse. Data-first. Address as Runner."""
         for chunk in _run_ai_with_tools(messages, db):
             collected.append(chunk)
             yield f"data: {json.dumps({'text': chunk})}\n\n"
-        # Cache the result
+        # Cache the result (thread-safe write)
         full_text = "".join(collected)
-        _briefing_cache["session_id"] = session_id
-        _briefing_cache["run_count"] = run_count
-        _briefing_cache["text"] = full_text
+        with _briefing_lock:
+            _briefing_cache["session_id"] = session_id
+            _briefing_cache["run_count"] = run_count
+            _briefing_cache["text"] = full_text
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")

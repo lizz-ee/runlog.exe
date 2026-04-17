@@ -1,6 +1,17 @@
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 from pydantic import BaseModel
+
+
+class LootItem(BaseModel):
+    name: str = ""
+    value: float = 0.0
+
+
+class DamageContributor(BaseModel):
+    name: str = ""
+    damage: float = 0.0
+    finished: bool = False
 
 
 # --- Runner ---
@@ -51,8 +62,8 @@ class LoadoutCreate(BaseModel):
     runner_id: Optional[int] = None
     primary_weapon: Optional[str] = None
     secondary_weapon: Optional[str] = None
-    mods: Optional[list] = None
-    gear: Optional[list] = None
+    mods: Optional[list[str]] = None
+    gear: Optional[list[str]] = None
     notes: Optional[str] = None
 
 class LoadoutUpdate(BaseModel):
@@ -60,8 +71,8 @@ class LoadoutUpdate(BaseModel):
     runner_id: Optional[int] = None
     primary_weapon: Optional[str] = None
     secondary_weapon: Optional[str] = None
-    mods: Optional[list] = None
-    gear: Optional[list] = None
+    mods: Optional[list[str]] = None
+    gear: Optional[list[str]] = None
     notes: Optional[str] = None
 
 class LoadoutOut(BaseModel):
@@ -70,8 +81,8 @@ class LoadoutOut(BaseModel):
     runner_id: Optional[int]
     primary_weapon: Optional[str]
     secondary_weapon: Optional[str]
-    mods: Optional[list]
-    gear: Optional[list]
+    mods: Optional[list[str]]
+    gear: Optional[list[str]]
     notes: Optional[str]
     screenshot_path: Optional[str]
     created_at: datetime
@@ -94,11 +105,11 @@ class RunCreate(BaseModel):
     deaths: int = 0
     assists: int = 0
     crew_revives: int = 0
-    loot_extracted: Optional[list] = None
+    loot_extracted: Optional[list[Any]] = None
     loot_value_total: float = 0.0
     duration_seconds: Optional[int] = None
     squad_size: Optional[int] = None
-    squad_members: Optional[list] = None
+    squad_members: Optional[list[str]] = None
     notes: Optional[str] = None
     session_id: Optional[int] = None
 
@@ -112,11 +123,11 @@ class RunUpdate(BaseModel):
     deaths: Optional[int] = None
     assists: Optional[int] = None
     crew_revives: Optional[int] = None
-    loot_extracted: Optional[list] = None
+    loot_extracted: Optional[list[Any]] = None
     loot_value_total: Optional[float] = None
     duration_seconds: Optional[int] = None
     squad_size: Optional[int] = None
-    squad_members: Optional[list] = None
+    squad_members: Optional[list[str]] = None
     notes: Optional[str] = None
     viewed: Optional[bool] = None
     session_id: Optional[int] = None
@@ -134,11 +145,11 @@ class RunOut(BaseModel):
     deaths: int
     assists: int
     crew_revives: int
-    loot_extracted: Optional[list]
+    loot_extracted: Optional[list[Any]]
     loot_value_total: float
     duration_seconds: Optional[int]
     squad_size: Optional[int]
-    squad_members: Optional[list]
+    squad_members: Optional[list[str]]
     screenshot_path: Optional[str]
     notes: Optional[str]
     session_id: Optional[int]
@@ -148,7 +159,7 @@ class RunOut(BaseModel):
     killed_by: Optional[str] = None
     killed_by_damage: Optional[int] = None
     killed_by_weapon: Optional[str] = None
-    damage_contributors: Optional[list] = None
+    damage_contributors: Optional[list[Any]] = None
     starting_loadout_value: Optional[float] = None
     player_level: Optional[int] = None
     vault_value: Optional[float] = None
@@ -233,7 +244,7 @@ class ParsedScreenshot(BaseModel):
     assists: int = 0
     map_name: Optional[str] = None
     duration_seconds: Optional[int] = None
-    loot_extracted: Optional[list] = None
+    loot_extracted: Optional[list[Any]] = None
     loot_value_total: float = 0.0
     runner_name: Optional[str] = None
     primary_weapon: Optional[str] = None

@@ -226,14 +226,51 @@ if %errorlevel% neq 0 (
     echo        ERROR: Requirements install failed.
     set /a ERRORS+=1
 )
-echo        Downloading OCR models [first-time only]...
-echo import easyocr; easyocr.Reader(['en'], gpu=False); print('OCR models ready')> "%TEMP%\_ocr_init.py"
+echo        Installing Tesseract OCR [optional - improves alpha stats accuracy]...
+set "TESS_EXE=C:\Program Files\Tesseract-OCR\tesseract.exe"
+tesseract --version >nul 2>&1
+if %errorlevel% equ 0 (
+    for /f "tokens=2" %%v in ('tesseract --version 2^>^&1 ^| findstr /i "tesseract"') do echo        FOUND: Tesseract %%v
+    goto :tess_done
+)
+if exist "%TESS_EXE%" (
+    set "PATH=C:\Program Files\Tesseract-OCR;%PATH%"
+    echo        FOUND: Tesseract at default location
+    goto :tess_done
+)
+echo        Fetching latest Tesseract release...
+powershell -Command "try { $r = Invoke-RestMethod 'https://api.github.com/repos/UB-Mannheim/tesseract/releases/latest'; $a = $r.assets | Where-Object { $_.name -match 'w64-setup.*\.exe' } | Select-Object -First 1; if ($a) { Invoke-WebRequest -Uri $a.browser_download_url -OutFile '%TEMP%\tess-installer.exe' } else { exit 1 } } catch { exit 1 }" 2>nul
+if not exist "%TEMP%\tess-installer.exe" (
+    echo        WARNING: Could not download Tesseract. Alpha OCR still works, single-digit accuracy may be lower.
+    goto :tess_done
+)
+echo        Installing silently...
+"%TEMP%\tess-installer.exe" /S
+del "%TEMP%\tess-installer.exe" 2>nul
+if exist "%TESS_EXE%" (
+    set "PATH=C:\Program Files\Tesseract-OCR;%PATH%"
+    echo        Tesseract installed.
+) else (
+    echo        WARNING: Tesseract install failed ^(may need admin rights^). Alpha OCR still works.
+)
+:tess_done
+
+echo        Warming up alpha stats OCR models [EasyOCR, first-time only]...
+echo import easyocr; easyocr.Reader(['en'], gpu=False); print('EasyOCR ready')> "%TEMP%\_ocr_init.py"
 set PYTHONIOENCODING=utf-8
 "%PYTHON_CMD%" "%TEMP%\_ocr_init.py"
 if %errorlevel% neq 0 (
-    echo        WARNING: OCR model download may have failed. App will retry on first launch.
+    echo        WARNING: EasyOCR model download failed. Alpha/hybrid stats will retry on first use.
 )
 del "%TEMP%\_ocr_init.py" 2>nul
+echo        Checking winocr [Windows OCR - no download needed]...
+echo import winocr; print('winocr ready')> "%TEMP%\_winocr_test.py"
+"%PYTHON_CMD%" "%TEMP%\_winocr_test.py"
+if %errorlevel% neq 0 (
+    echo        WARNING: winocr not available - live game detection will not work.
+    echo        Ensure Windows 10/11 and run: pip install winocr
+)
+del "%TEMP%\_winocr_test.py" 2>nul
 echo        Python packages installed.
 
 :: --- Rust recorder ---

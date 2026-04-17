@@ -2,7 +2,7 @@ import json
 import os
 import uuid
 import time as _time
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from sqlalchemy.orm import Session as DBSession
@@ -11,8 +11,9 @@ import io
 
 from pydantic import BaseModel
 
+from sqlalchemy.orm import joinedload
 from ..database import get_db
-from ..models import SpawnPoint
+from ..models import SpawnPoint, Run
 from ..config import settings
 from ..schemas import SpawnPointCreate, SpawnPointOut, ParsedSpawnScreenshot
 from .screenshot import _call_claude, _extract_json
@@ -62,7 +63,7 @@ async def _save_spawn_upload(file: UploadFile) -> str:
     ext = file.filename.split(".")[-1].lower() if file.filename and "." in file.filename else "png"
     if ext not in ("jpg", "jpeg", "png", "webp"):
         ext = "png"
-    filename = f"spawn_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}.{ext}"
+    filename = f"spawn_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}.{ext}"
     filepath = os.path.join(settings.media_upload_dir, filename)
 
     with open(filepath, "wb") as f:
@@ -187,7 +188,9 @@ def spawn_heatmap(db: DBSession = Depends(get_db)):
     if _heatmap_cache["data"] is not None and (_time.time() - _heatmap_cache["ts"]) < _HEATMAP_TTL:
         return _heatmap_cache["data"]
 
-    spawns = db.query(SpawnPoint).all()
+    spawns = db.query(SpawnPoint).options(
+        joinedload(SpawnPoint.runs).joinedload(Run.runner)
+    ).all()
 
     maps: dict[str, dict[str, dict]] = {}
     for s in spawns:
