@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('runlog', {
   },
 
   // Get API base URL (empty in dev for Vite proxy, http://127.0.0.1:8000 in production)
+  // sendSync is acceptable here — called once at startup, value is needed synchronously
   getApiBaseUrl: () => ipcRenderer.sendSync('get-api-base-url'),
 
   // Window controls

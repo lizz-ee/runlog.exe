@@ -80,9 +80,6 @@
       "owner": "OWNER",
       "repo": "runlog.exe"
     },
-    "asar": true,
-    "asarUnpack": [
-      "node_modules/screenshot-desktop/**"
-    ]
+    "asar": true
   }
 }

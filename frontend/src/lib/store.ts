@@ -12,7 +12,7 @@ export interface Toast {
 
 export interface PendingCapture {
   type: 'run' | 'spawn'
-  data: any
+  data: Record<string, unknown>
   timestamp: number
 }
 

@@ -9,7 +9,7 @@ export default function Toasts() {
     if (!toasts.length) return
     const timer = setTimeout(() => removeToast(toasts[0].id), 5000)
     return () => clearTimeout(timer)
-  }, [toasts])
+  }, [toasts, removeToast])
 
   return (
     <div className="fixed bottom-4 right-4 z-50 space-y-2 max-w-sm">

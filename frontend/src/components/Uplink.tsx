@@ -98,14 +98,16 @@ export default function Uplink() {
     if (!input.trim() || streaming) return
     const userMsg = input.trim()
     setInput('')
-    const newMessages = [...messages, { role: 'user' as const, content: userMsg }]
+    // Capture current messages at send time to avoid stale closures
+    const currentMessages = useStore.getState().uplinkMessages
+    const newMessages = [...currentMessages, { role: 'user' as const, content: userMsg }]
     setMessages(newMessages)
     setStreaming(true)
     try {
       const response = await fetch(`${apiBase}/api/uplink/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userMsg, history: messages.map(m => ({ role: m.role, content: m.content })) }),
+        body: JSON.stringify({ message: userMsg, history: currentMessages.map(m => ({ role: m.role, content: m.content })) }),
       })
       const reader = response.body?.getReader()
       if (!reader) return
@@ -126,7 +128,7 @@ export default function Uplink() {
     } catch { setMessages([...newMessages, { role: 'assistant', content: 'SIGNAL LOST — RECONNECTING...' }]) }
     setStreaming(false)
     setTimeout(() => inputRef.current?.focus(), 50)
-  }, [input, messages, streaming])
+  }, [input, streaming])
 
   useEffect(() => { chatRef.current && (chatRef.current.scrollTop = chatRef.current.scrollHeight) }, [messages])
 
@@ -263,7 +265,7 @@ export default function Uplink() {
             )}
 
             {messages.map((msg, i) => (
-              <div key={i}>
+              <div key={`${msg.role}-${i}-${msg.content.slice(0, 20)}`}>
                 {msg.role === 'user' ? (
                   <div className="text-right">
                     <span className="text-[7px] font-mono text-m-green/25 tracking-[0.2em] block mb-1">RUNNER //</span>

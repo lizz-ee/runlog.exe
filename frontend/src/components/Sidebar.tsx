@@ -76,9 +76,10 @@ export default function Sidebar() {
 
   // Fetch staging counts per map
   useEffect(() => {
+    const controller = new AbortController()
     async function fetchStaging() {
       try {
-        const { data } = await axios.get<SpawnHeatmap[]>(`${apiBase}/api/spawns/heatmap`)
+        const { data } = await axios.get<SpawnHeatmap[]>(`${apiBase}/api/spawns/heatmap`, { signal: controller.signal })
         const counts: Record<string, number> = {}
         for (const map of data) {
           const uncharted = map.locations.filter((l: SpawnHeatmapEntry) =>
@@ -91,11 +92,13 @@ export default function Sidebar() {
           }
         }
         setStagingCounts(counts)
-      } catch (e) { console.error('[Sidebar] fetch staging counts failed:', e) }
+      } catch (e) {
+        if (!controller.signal.aborted) console.error('[Sidebar] fetch staging counts failed:', e)
+      }
     }
     fetchStaging()
     const interval = setInterval(fetchStaging, 10000)
-    return () => clearInterval(interval)
+    return () => { controller.abort(); clearInterval(interval) }
   }, [])
 
   return (

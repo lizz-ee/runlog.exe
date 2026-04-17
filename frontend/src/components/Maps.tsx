@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { getMapStats, getSpawnHeatmap } from '../lib/api'
 import { useStore } from '../lib/store'
@@ -47,8 +47,8 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
   const doneCount = captureStatus?.processing_items?.filter(i => i.status === 'done').length ?? 0
 
   const mapData = MAPS[selectedMap]
-  const currentStats = mapStats.find((s) => s.map === selectedMap)
-  const currentHeatmap = heatmap.find((h) => h.map === selectedMap)
+  const currentStats = useMemo(() => mapStats.find((s) => s.map === selectedMap), [mapStats, selectedMap])
+  const currentHeatmap = useMemo(() => heatmap.find((h) => h.map === selectedMap), [heatmap, selectedMap])
   const mapImage = mapData?.image ? MAP_IMAGES[mapData.image] : null
 
   // Load spawns: try DB first, fall back to map-data.ts

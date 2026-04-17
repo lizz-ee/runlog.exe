@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, memo } from 'react'
 import axios from 'axios'
 import { getFrameUrl, getThumbnailUrl, apiBase, dismissRecording, dismissAllFailed } from '../lib/api'
 import { useStore } from '../lib/store'
@@ -44,12 +44,13 @@ function getStageIndex(status: string): number {
   return idx >= 0 ? idx : -1
 }
 
-function PipelineProgress({ status, detail, p1Failed, p2Failed, runId }: {
+const PipelineProgress = memo(function PipelineProgress({ status, detail, p1Failed, p2Failed, runId, autoP2 }: {
   status: string
   detail?: string | null
   p1Failed?: boolean
   p2Failed?: boolean
   runId?: number | null
+  autoP2?: boolean
 }) {
   const isP1Failed = status === 'phase1_failed' || !!p1Failed
   const isP2Failed = !!p2Failed
@@ -59,18 +60,37 @@ function PipelineProgress({ status, detail, p1Failed, p2Failed, runId }: {
   // If status is "queued" but run_id exists, P1 is done — item is waiting for a P2 slot
   const p1Done = !!runId
   const isP2Waiting = status === 'queued' && p1Done
-  const currentIdx = isP2Waiting ? 0 : getStageIndex(status)  // Circle is "active" (queued)
+  // P1 done but P2 is off — paused state
+  const isP2Paused = (status === 'phase1_done' || isP2Waiting) && autoP2 === false
+  const currentIdx = isP2Waiting ? 0 : getStageIndex(status)
 
   // Shape per stage: P1 (circle, triangle, square), P2 (triangle, square)
   const SHAPES = ['circle', 'triangle', 'square', 'triangle', 'square'] as const
+
+  // Determine label text
+  let labelText = ''
+  let labelColor = 'text-m-cyan'
+  if (isP2Paused) {
+    labelText = 'P2.PAUSED'
+    labelColor = 'text-m-yellow'
+  } else if (status === 'phase1_done') {
+    labelText = 'STATS'
+    labelColor = 'text-m-green'
+  } else if (isP2Waiting) {
+    labelText = 'QUEUED'
+    labelColor = 'text-m-text-muted'
+  } else if (status !== 'done' && status !== 'encoding' && !(status === 'queued' && !p1Done)) {
+    labelText = PHASE_LABELS[status] || status.toUpperCase()
+    labelColor = isP1Failed ? 'text-m-red' : 'text-m-cyan'
+  }
 
   return (
     <div className="flex items-center gap-0">
       {/* Detail text + flags before shapes */}
       <div className="flex flex-col items-end mr-2 gap-0">
-        {status !== 'done' && status !== 'encoding' && !(status === 'queued' && !p1Done) && (
-          <span className={`text-[9px] font-mono tracking-wider ${isP1Failed ? 'text-m-red' : status === 'queued' ? 'text-m-text-muted' : 'text-m-cyan'}`}>
-            {status === 'queued' && p1Done ? 'QUEUED' : PHASE_LABELS[status] || status.toUpperCase()}
+        {labelText && (
+          <span className={`text-[9px] font-mono tracking-wider ${labelColor}`}>
+            {labelText}
           </span>
         )}
         {detail && status !== 'done' && (
@@ -87,30 +107,46 @@ function PipelineProgress({ status, detail, p1Failed, p2Failed, runId }: {
         const shape = SHAPES[i]
         const isP2Stage = i >= p2StartIdx
 
-        const colorClass = isP2Waiting
-          ? (i === 0 ? 'text-m-cyan'          // Circle = queued (active cyan)
-            : i <= p1EndIdx ? 'text-m-green'   // P1 shapes = done (green)
-            : 'text-m-border/40')              // P2 shapes = not started (dim)
-          : isDone
-            ? (isP1Failed && i <= p1EndIdx ? 'text-m-red/60'
-              : isP2Failed && isP2Stage ? 'text-m-red/60'
-              : 'text-m-green')
-            : isP1Failed && i <= p1EndIdx
-              ? (isActive ? 'text-m-red' : isCompleted ? 'text-m-red/60' : 'text-m-border/40')
-              : isCompleted
-                ? 'text-m-green'
-                : isActive
-                  ? 'text-m-cyan'
-                  : 'text-m-border/40'
+        let colorClass: string
+        if (isP2Paused) {
+          // P1 done, P2 paused: P1 stages green, P2 stages amber/yellow
+          if (i <= p1EndIdx) {
+            colorClass = isP1Failed ? 'text-m-red/60' : 'text-m-green'
+          } else {
+            colorClass = 'text-m-yellow/30'
+          }
+        } else if (isP2Waiting) {
+          colorClass = i === 0 ? 'text-m-cyan'
+            : i <= p1EndIdx ? 'text-m-green'
+            : 'text-m-border/40'
+        } else if (isDone) {
+          colorClass = isP1Failed && i <= p1EndIdx ? 'text-m-red/60'
+            : isP2Failed && isP2Stage ? 'text-m-red/60'
+            : 'text-m-green'
+        } else if (isP1Failed && i <= p1EndIdx) {
+          colorClass = isActive ? 'text-m-red' : isCompleted ? 'text-m-red/60' : 'text-m-border/40'
+        } else if (status === 'phase1_done' && i <= p1EndIdx) {
+          colorClass = 'text-m-green'
+        } else if (isCompleted) {
+          colorClass = 'text-m-green'
+        } else if (isActive) {
+          colorClass = 'text-m-cyan'
+        } else {
+          colorClass = 'text-m-border/40'
+        }
 
-        const spin = isActive && !isP2Waiting && (shape === 'square' || shape === 'triangle')
+        const spin = isActive && !isP2Waiting && !isP2Paused && (shape === 'square' || shape === 'triangle')
 
         return (
           <div key={stage.key} className={`flex items-center ${phaseGap ? 'ml-2' : 'ml-[3px]'} ${i === 0 ? 'ml-0' : ''}`}>
+            {/* Pause separator between P1 and P2 when paused */}
+            {phaseGap && isP2Paused && (
+              <span className="text-m-yellow/50 text-[7px] font-mono mr-1" title="Phase 2 paused">⏸</span>
+            )}
             <div>
               <svg width="8" height="8" viewBox="0 0 8 8" className={`${colorClass} ${spin ? 'animate-spin-slow' : ''}`} style={{
                 ...(spin ? { animationDuration: '3s' } : {}),
-                ...((isActive || (isP2Waiting && i === 0)) ? { filter: 'drop-shadow(0 0 3px currentColor)' } : {}),
+                ...((isActive || (isP2Waiting && i === 0)) && !isP2Paused ? { filter: 'drop-shadow(0 0 3px currentColor)' } : {}),
               }}>
                 {shape === 'circle' && (
                   <circle cx="4" cy="4" r="3.5" fill="currentColor" />
@@ -128,7 +164,7 @@ function PipelineProgress({ status, detail, p1Failed, p2Failed, runId }: {
       })}
     </div>
   )
-}
+})
 
 function ScanLine({ gradient }: { gradient: string }) {
   const [key, setKey] = useState(0)
@@ -512,7 +548,7 @@ export default function Live() {
                         </div>
                       </div>
                     ) : (
-                      <PipelineProgress status={item.status} detail={item.detail} p1Failed={item.p1_failed} p2Failed={item.p2_failed} runId={item.run_id} />
+                      <PipelineProgress status={item.status} detail={item.detail} p1Failed={item.p1_failed} p2Failed={item.p2_failed} runId={item.run_id} autoP2={status?.auto_p2} />
                     )}
                   </div>
                 </div>

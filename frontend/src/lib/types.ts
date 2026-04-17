@@ -314,15 +314,6 @@ export interface ShellStats {
   score: number
 }
 
-/** Overlay settings from Electron */
-export interface OverlaySettings {
-  enabled: boolean
-  corner: string
-  customX?: number
-  customY?: number
-  opacity?: number
-  size?: string
-  closeWhenDone?: boolean
-}
+export type { OverlaySettings } from './electron'
 
 export type View = 'dashboard' | 'history' | 'shells' | 'squad' | 'map-perimeter' | 'map-dire-marsh' | 'map-outpost' | 'map-cryo-archive' | 'live' | 'uplink' | 'settings'

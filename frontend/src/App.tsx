@@ -4,7 +4,8 @@ import { useStore } from './lib/store'
 import { formatTime } from './lib/utils'
 import { getRecentRuns, getOverviewStats, getRunners, getLoadouts, getCaptureStatus, apiBase } from './lib/api'
 import { onScreenshotParsed } from './lib/electron'
-import type { CaptureStatus, OverlaySettings } from './lib/types'
+import type { CaptureStatus } from './lib/types'
+import type { OverlaySettings } from './lib/electron'
 import Sidebar from './components/Sidebar'
 import Dashboard from './components/Dashboard'
 import RunHistory from './components/RunHistory'
@@ -66,16 +67,16 @@ export default function App() {
     onScreenshotParsed((event) => {
       setPendingCapture(event)
       if (event.type === 'run') {
-        const d = event.data
+        const d = event.data as Record<string, number | string | boolean | null>
         const status = d.survived ? 'EXTRACTED' : 'KIA'
-        const kills = (d.combatant_eliminations || 0) + (d.runner_eliminations || 0)
+        const kills = (Number(d.combatant_eliminations) || 0) + (Number(d.runner_eliminations) || 0)
         addToast({
           type: d.survived ? 'success' : 'error',
           title: `RUN CAPTURED — ${status}`,
           body: `${kills} KILLS | $${d.loot_value_total || 0} LOOT | ${d.map_name || 'UNKNOWN'}`,
         })
       } else if (event.type === 'spawn') {
-        const d = event.data
+        const d = event.data as Record<string, string | null>
         addToast({
           type: 'info',
           title: 'SPAWN LOGGED',
@@ -119,7 +120,9 @@ export default function App() {
         try {
           const status = JSON.parse((e as MessageEvent).data)
           handleStatusUpdate(status)
-        } catch {}
+        } catch (err) {
+          console.error('[SSE] Failed to parse capture_status:', err)
+        }
       })
       eventSource.onerror = () => {
         // SSE failed or disconnected — close and fall back to polling
@@ -134,7 +137,7 @@ export default function App() {
     // Initial poll to get immediate status (SSE only pushes on changes)
     poll()
 
-    const runlog = (window as any).runlog
+    const runlog = window.runlog
     if (runlog?.onRecordingStatus) {
       runlog.onRecordingStatus(() => poll())
     }
@@ -147,7 +150,7 @@ export default function App() {
 
   // Push overlay updates when recording state changes
   useEffect(() => {
-    const runlog = (window as any).runlog
+    const runlog = window.runlog
     if (!runlog?.updateOverlay || !captureStatus) return
     if (captureStatus.recording) {
       const det = captureStatus.last_detection
@@ -184,36 +187,41 @@ export default function App() {
     const phase1Item = items.find(i => i.status === 'phase1_done' && i.run_id)
     if (phase1Item?.run_id) {
       refreshData()
-      const runlog = (window as any).runlog
+      const runlog = window.runlog
       if (runlog?.notifyOverlay) runlog.notifyOverlay('NEW STATS AVAILABLE', 4000)
     }
   }, [captureStatus?.processing_items?.find(i => i.status === 'phase1_done')?.run_id])
 
   // Notify when a run finishes processing (item vanishes from queue)
-  const prevItemCount = useRef(captureStatus?.processing_items?.length ?? 0)
+  const prevItemFiles = useRef<Set<string>>(new Set())
   useEffect(() => {
-    const currentCount = captureStatus?.processing_items?.length ?? 0
-    if (prevItemCount.current > 0 && currentCount < prevItemCount.current) {
-      // Item(s) vanished — processing completed
-      refreshData()
-      refreshUnviewed()
-      const runlog = (window as any).runlog
-      if (runlog?.notifyOverlay) runlog.notifyOverlay('RUN PROCESSED', 4000)
+    const currentItems = captureStatus?.processing_items || []
+    const currentFiles = new Set(currentItems.map(i => i.file))
+    const prevFiles = prevItemFiles.current
 
-      // Close app when queue empty (if enabled)
-      if (currentCount === 0) {
-        const runlog = (window as any).runlog
-        if (runlog?.getOverlaySettings) {
-          runlog.getOverlaySettings().then((s: OverlaySettings) => {
-            if (s?.closeWhenDone) {
-              setTimeout(() => { if (runlog?.windowClose) runlog.windowClose() }, 3000)
-            }
-          })
+    // Check if any items from previous set are gone (completed/removed)
+    if (prevFiles.size > 0) {
+      const removed = [...prevFiles].filter(f => !currentFiles.has(f))
+      if (removed.length > 0) {
+        refreshData()
+        refreshUnviewed()
+        const runlog = window.runlog
+        if (runlog?.notifyOverlay) runlog.notifyOverlay('RUN PROCESSED', 4000)
+
+        // Close app when queue empty (if enabled)
+        if (currentFiles.size === 0) {
+          if (runlog?.getOverlaySettings) {
+            runlog.getOverlaySettings().then((s: OverlaySettings) => {
+              if (s?.closeWhenDone) {
+                setTimeout(() => { if (runlog?.windowClose) runlog.windowClose() }, 3000)
+              }
+            })
+          }
         }
       }
     }
-    prevItemCount.current = currentCount
-  }, [captureStatus?.processing_items?.length])
+    prevItemFiles.current = currentFiles
+  }, [captureStatus?.processing_items])
 
   // Show toast for auto-resumed recordings
   useEffect(() => {

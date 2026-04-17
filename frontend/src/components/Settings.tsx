@@ -35,7 +35,7 @@ function SettingRow({ label, children }: { label: string; children: React.ReactN
 function ToggleButton({ options, value, onChange, disabledValues }: {
   options: { value: string | number; label: string }[]
   value: string | number
-  onChange: (v: any) => void
+  onChange: (v: string | number) => void
   disabledValues?: (string | number)[]
 }) {
   return (
@@ -162,9 +162,10 @@ export default function Settings() {
       setKeyInput('')
       const s = await getSettings()
       setConfig(s)
-    } catch (err: any) {
+    } catch (err: unknown) {
       setStatus('invalid')
-      setStatusMsg(err.response?.data?.detail || 'INVALID KEY')
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      setStatusMsg(axiosErr.response?.data?.detail || 'INVALID KEY')
     }
   }
 
@@ -509,8 +510,8 @@ export default function Settings() {
                   ]}
                   value={overlaySize}
                   onChange={v => {
-                    setOverlaySize(v);
-                    (window as any).runlog?.setOverlaySize?.(v)
+                    setOverlaySize(String(v));
+                    window.runlog?.setOverlaySize?.(String(v))
                   }}
                 />
               </SettingRow>

@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { format } from 'date-fns'
 import axios from 'axios'
-import { getRuns, updateRun, createRunner, getClips, getClipUrl, apiBase, toggleFavorite, cutClip, deleteClip, deleteKeptRecording } from '../lib/api'
+import { getRuns, updateRun, createRunner, getRunners, getClips, getClipUrl, apiBase, toggleFavorite, cutClip, deleteClip, deleteKeptRecording } from '../lib/api'
 import { useStore } from '../lib/store'
 import { formatTime } from '../lib/utils'
 import type { Run, Clip } from '../lib/types'
@@ -42,15 +42,16 @@ function HexFavorite({ filled, onClick }: { filled: boolean; onClick: (e: React.
 /* ── Shell Picker (inline edit) ── */
 function ShellPicker({ run, onUpdate }: { run: Run; onUpdate: () => void }) {
   const [editing, setEditing] = useState(false)
-  const { runners } = useStore()
-
   const handleSelect = async (name: string) => {
     setEditing(false)
     try {
-      let runner = runners.find(r => r.name.toLowerCase() === name.toLowerCase())
+      // Always fetch fresh runners — store may be empty if picked before initial load completes
+      const freshRunners = await getRunners()
+      useStore.getState().setRunners(freshRunners)
+      let runner = freshRunners.find(r => r.name.toLowerCase() === name.toLowerCase())
       if (!runner) {
         runner = await createRunner({ name })
-        useStore.getState().setRunners([...runners, runner])
+        useStore.getState().setRunners([...freshRunners, runner])
       }
       await updateRun(run.id, { runner_id: runner.id } as any)
       onUpdate()

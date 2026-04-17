@@ -81,17 +81,7 @@ function getOverlayPosition(corner) {
 
 function setOverlayAlign(corner) {
   if (!overlayWindow) return
-  const isRight = corner && corner.includes('right')
-  const isCenter = corner && corner.includes('center')
-  const isTop = corner && corner.includes('top')
-  const hAlign = isRight ? 'flex-end' : isCenter ? 'center' : 'flex-start'
-  overlayWindow.webContents.executeJavaScript(
-    `document.body.style.alignItems = '${hAlign}';
-     document.body.style.justifyContent = '${isTop ? 'flex-start' : 'flex-end'}';
-     var w = document.getElementById('wrap');
-     w.style.alignItems = '${hAlign}';
-     w.style.flexDirection = '${isTop ? 'column-reverse' : 'column'}';`
-  ).catch(() => {})
+  overlayWindow.webContents.send('overlay-align', corner)
 }
 
 function createOverlay() {
@@ -132,6 +122,7 @@ function createOverlay() {
       nodeIntegration: false,
       contextIsolation: true,
       backgroundThrottling: false,
+      preload: path.join(__dirname, 'overlay-preload.js'),
     },
   })
   overlayWindow.setIgnoreMouseEvents(true)
@@ -146,10 +137,17 @@ function createOverlay() {
     }
   }, 3000)
 
+  function cleanupOverlay() {
+    if (overlayWindow?._keepAliveInterval) {
+      clearInterval(overlayWindow._keepAliveInterval)
+      overlayWindow._keepAliveInterval = null
+    }
+  }
   overlayWindow.on('closed', () => {
-    if (overlayWindow?._keepAliveInterval) clearInterval(overlayWindow._keepAliveInterval)
+    cleanupOverlay()
     overlayWindow = null
   })
+  overlayWindow.webContents.on('destroyed', cleanupOverlay)
 
   const overlayHTML = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>
@@ -197,7 +195,7 @@ body { background: transparent; overflow: hidden; user-select: none; -webkit-app
 </div>
 <script>
 var _notifTimer = null;
-window.showNotification = function(msg, duration) {
+function showNotification(msg, duration) {
   var notif = document.getElementById('notif');
   notif.textContent = msg;
   notif.classList.add('show');
@@ -206,8 +204,8 @@ window.showNotification = function(msg, duration) {
     notif.classList.remove('show');
     _notifTimer = null;
   }, duration || 4000);
-};
-window.updateOverlay = function(s, d) {
+}
+function updateOverlayState(s, d) {
   var bar = document.getElementById('bar');
   var sym = document.getElementById('sym');
   var main = document.getElementById('main');
@@ -229,7 +227,28 @@ window.updateOverlay = function(s, d) {
       aux.textContent = 'SCAN.ACTIVE';
     }
   }
-};
+}
+function setAlign(corner) {
+  var isRight = corner && corner.includes('right');
+  var isCenter = corner && corner.includes('center');
+  var isTop = corner && corner.includes('top');
+  var hAlign = isRight ? 'flex-end' : isCenter ? 'center' : 'flex-start';
+  document.body.style.alignItems = hAlign;
+  document.body.style.justifyContent = isTop ? 'flex-start' : 'flex-end';
+  var w = document.getElementById('wrap');
+  w.style.alignItems = hAlign;
+  w.style.flexDirection = isTop ? 'column-reverse' : 'column';
+}
+function setBarSize(fontSize, height) {
+  document.getElementById('bar').style.font = '700 ' + fontSize + 'px "JetBrains Mono", monospace';
+  document.getElementById('bar').style.height = height + 'px';
+}
+if (window.overlayBridge) {
+  window.overlayBridge.onState(function(s, d) { updateOverlayState(s, d); });
+  window.overlayBridge.onNotification(function(msg, dur) { showNotification(msg, dur); });
+  window.overlayBridge.onAlign(function(corner) { setAlign(corner); });
+  window.overlayBridge.onResize(function(fontSize, height) { setBarSize(fontSize, height); });
+}
 </script></body></html>`
 
   overlayWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(overlayHTML))
@@ -240,11 +259,7 @@ window.updateOverlay = function(s, d) {
 
 function updateOverlay(state, detail) {
   if (!overlayWindow) return
-  const safeState = JSON.stringify(state || '')
-  const safeDetail = JSON.stringify((detail || '').toString())
-  overlayWindow.webContents.executeJavaScript(
-    `window.updateOverlay && window.updateOverlay(${safeState}, ${safeDetail})`,
-  ).catch(() => {})
+  overlayWindow.webContents.send('overlay-state', state || '', (detail || '').toString())
 }
 
 function showNotification(title, body) {
@@ -632,10 +647,7 @@ ipcMain.on('overlay-update', (_event, state, detail) => {
 })
 ipcMain.on('overlay-notify', (_event, message, duration) => {
   if (!overlayWindow) return
-  const safeMsg = JSON.stringify((message || '').toString())
-  overlayWindow.webContents.executeJavaScript(
-    `window.showNotification && window.showNotification(${safeMsg}, ${duration || 4000})`,
-  ).catch(() => {})
+  overlayWindow.webContents.send('overlay-notification', (message || '').toString(), duration || 4000)
 })
 ipcMain.on('overlay-toggle', (_event, enabled) => {
   const settings = loadOverlaySettings()
@@ -717,10 +729,7 @@ ipcMain.on('overlay-set-size', (_event, size) => {
     overlayWindow.setMinimumSize(100, oh)
     overlayWindow.setMaximumSize(600, oh)
     overlayWindow.setBounds({ x: bounds.x, y: bounds.y, width: OVERLAY_WIN_WIDTH, height: oh })
-    overlayWindow.webContents.executeJavaScript(
-      `document.getElementById('bar').style.font = '700 ${dims.fontSize}px "JetBrains Mono", monospace';
-       document.getElementById('bar').style.height = '${dims.height}px';`
-    )
+    overlayWindow.webContents.send('overlay-resize', dims.fontSize, dims.height)
   }
 })
 

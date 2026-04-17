@@ -58,7 +58,7 @@ export default function Squad() {
         </div>
         <div className="grid grid-cols-7 gap-3">
           {Array.from({ length: 7 }).map((_, i) => (
-            <div key={`empty-${i}`} className="aspect-[3/4] border border-m-border/20 bg-m-card/30 relative overflow-hidden">
+            <div key={`vacant-slot-${i}`} className="aspect-[3/4] border border-m-border/20 bg-m-card/30 relative overflow-hidden">
               <div className={`absolute inset-0 opacity-20`}>
                 {RUNNER_IMAGES[i] && (
                   <img src={RUNNER_IMAGES[i]} alt={`Runner ${i + 1}`} className="w-full h-full object-cover" />
@@ -98,7 +98,7 @@ export default function Squad() {
         ))}
         {/* Fill empty slots */}
         {Array.from({ length: Math.max(0, 7 - mates.length) }).map((_, i) => (
-          <div key={`empty-${i}`} className="aspect-[3/4] border border-m-border/20 bg-m-card/30 flex items-center justify-center">
+          <div key={`vacant-${mates.length + i}`} className="aspect-[3/4] border border-m-border/20 bg-m-card/30 flex items-center justify-center">
             <span className="text-m-text-muted/10 text-[9px] tracking-[0.3em]">VACANT</span>
           </div>
         ))}
