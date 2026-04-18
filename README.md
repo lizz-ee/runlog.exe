@@ -118,7 +118,7 @@ Where the magic happens. The detection engine watches your game, auto-records ev
 | Database | SQLite (local-first, auto-backup) |
 | AI | Claude API (Sonnet/Haiku) or Claude CLI |
 | Capture | Rust (WGC + MediaFoundation HEVC/H.264) |
-| OCR | EasyOCR |
+| OCR | winocr (Windows.Media.Ocr) |
 | Video | FFmpeg |
 
 ---

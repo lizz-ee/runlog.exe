@@ -185,6 +185,10 @@ struct SharedState {
     ocr_thread_alive: AtomicBool,
     /// WAV file writer — audio thread writes PCM directly to disk when recording
     wav_writer: Mutex<Option<WavWriter>>,
+    /// OCR frame interval (capture frames) — env RUNLOG_OCR_INTERVAL, default 30
+    ocr_interval_cfg: u64,
+    /// OCR JPEG quality (1-100) — env RUNLOG_OCR_QUALITY, default 85
+    ocr_jpeg_quality: u8,
 }
 
 
@@ -209,6 +213,7 @@ impl GraphicsCaptureApiHandler for Recorder {
     type Error = Box<dyn std::error::Error + Send + Sync>;
 
     fn new(ctx: Context<Self::Flags>) -> Result<Self, Self::Error> {
+        let interval = ctx.flags.ocr_interval_cfg;
         Ok(Self {
             state: ctx.flags,
             encoder: None,
@@ -217,7 +222,7 @@ impl GraphicsCaptureApiHandler for Recorder {
             frame_count: 0,
             width: 0,
             height: 0,
-            ocr_interval: OCR_FRAME_INTERVAL, // ~0.5s at 60fps in menus
+            ocr_interval: interval,
         })
     }
 
@@ -274,7 +279,7 @@ impl GraphicsCaptureApiHandler for Recorder {
             let encoder_type = self.state.record_encoder.lock().unwrap().take();
             let fps = self.state.record_fps.lock().unwrap().take();
             if let Some(path) = path {
-                let br = bitrate.unwrap_or(50_000_000).clamp(1_000_000, 300_000_000);
+                let br = bitrate.unwrap_or(30_000_000).clamp(1_000_000, 300_000_000);
                 let sub_type = match encoder_type.as_deref() {
                     Some("h264") => VideoSettingsSubType::H264,
                     _ => VideoSettingsSubType::HEVC,  // default to HEVC
@@ -656,19 +661,23 @@ fn run_audio_capture(state: Arc<SharedState>) {
             }
 
             let recording = state.should_record.load(Ordering::Acquire);
+            // Fast poll while recording so WASAPI buffer never overflows; slower
+            // poll when idle — the WAV isn't being written anyway, so there's no
+            // reason to wake up every 10ms and burn CPU during gameplay menus.
+            let idle_poll_ms = if recording { 10 } else { 100 };
 
             // Poll for available frames
             let packet_size = match capture_client.GetNextPacketSize() {
                 Ok(s) => s,
                 Err(e) => {
                     eprintln!("[audio] GetNextPacketSize failed: {}", e);
-                    std::thread::sleep(std::time::Duration::from_millis(10));
+                    std::thread::sleep(std::time::Duration::from_millis(idle_poll_ms));
                     continue;
                 }
             };
 
             if packet_size == 0 {
-                std::thread::sleep(std::time::Duration::from_millis(10));
+                std::thread::sleep(std::time::Duration::from_millis(idle_poll_ms));
                 continue;
             }
 
@@ -749,6 +758,19 @@ fn main() {
     let title = window.title().unwrap_or_else(|_| "Marathon".into());
     eprintln!("[recorder] Found window: {}", title);
 
+    // Runtime-tunable OCR knobs
+    let ocr_interval_cfg: u64 = std::env::var("RUNLOG_OCR_INTERVAL")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .map(|n: u64| n.clamp(5, 600))
+        .unwrap_or(OCR_FRAME_INTERVAL);
+    let ocr_jpeg_quality: u8 = std::env::var("RUNLOG_OCR_QUALITY")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .map(|n: u8| n.clamp(30, 100))
+        .unwrap_or(JPEG_QUALITY);
+    eprintln!("[recorder] OCR config: interval={} frames, jpeg_quality={}", ocr_interval_cfg, ocr_jpeg_quality);
+
     // Shared state
     let state = Arc::new(SharedState {
         window_title: Mutex::new(title.clone()),
@@ -765,6 +787,8 @@ fn main() {
         ocr_notify: std::sync::Condvar::new(),
         ocr_thread_alive: AtomicBool::new(true),
         wav_writer: Mutex::new(None),
+        ocr_interval_cfg,
+        ocr_jpeg_quality,
     });
 
     // OCR processing thread — does the slow work off the capture callback
@@ -821,7 +845,7 @@ fn main() {
 
             // JPEG encode + emit
             let mut jpeg_buf = Vec::with_capacity(JPEG_BUF_CAPACITY);
-            let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_buf, JPEG_QUALITY);
+            let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_buf, ocr_state.ocr_jpeg_quality);
             if encoder.encode(&rgb_buf, ow as u32, oh as u32, image::ExtendedColorType::Rgb8).is_ok() {
                 use base64::Engine;
                 let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg_buf);

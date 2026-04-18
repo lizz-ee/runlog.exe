@@ -319,6 +319,10 @@ class AutoCapture:
 
         while self._running:
             # ---- Acquire frame ------------------------------------------------
+            # frame_img: PIL.Image used for OCR (no encode roundtrip)
+            # frame_bytes: JPEG bytes, kept as None until a save actually needs them
+            frame_img: Image.Image | None = None
+            frame_bytes: bytes | None = None
             if self._recording:
                 # During recording: take our own screenshot via mss (DWM/CPU path,
                 # independent of the GPU encoding pipeline — no readback stalls).
@@ -328,18 +332,14 @@ class AutoCapture:
                         _mss = _mss_lib.mss()
                     except Exception as e:
                         print(f"[capture] mss init failed: {e}")
-                frame = None
                 if _mss:
                     try:
                         shot = _mss.grab(_mss.monitors[1])  # primary monitor
-                        img = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
-                        buf = io.BytesIO()
-                        img.save(buf, format="JPEG", quality=75)
-                        frame = buf.getvalue()
+                        frame_img = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
                     except Exception as e:
                         print(f"[capture] mss grab failed: {e}")
                         _mss = None
-                if frame is None:
+                if frame_img is None:
                     time.sleep(1.0)
                     continue
             else:
@@ -351,12 +351,19 @@ class AutoCapture:
                         pass
                     _mss = None
                 with self._frame_lock:
-                    frame = self._latest_frame
+                    frame_bytes = self._latest_frame
                     seq = self._frame_seq
-                if frame is None or seq == last_seq:
+                if frame_bytes is None or seq == last_seq:
                     time.sleep(0.1)
                     continue
                 last_seq = seq
+                try:
+                    frame_img = Image.open(io.BytesIO(frame_bytes))
+                    frame_img.load()  # force decode now so downstream ops are cheap
+                except Exception as e:
+                    print(f"[capture] menu frame decode failed: {e}")
+                    time.sleep(0.1)
+                    continue
 
             # ---- State timeout ------------------------------------------------
             timeout = self._STATE_TIMEOUTS.get(self._scan_state)
@@ -373,7 +380,7 @@ class AutoCapture:
             if self._scan_state == 'deploy':
                 deploy_cycle += 1
                 if deploy_cycle % 5 == 0:
-                    lobby_result = detect_game_state(frame, scan_mode='lobby')
+                    lobby_result = detect_game_state(frame_img, scan_mode='lobby')
                     if lobby_result and lobby_result['type'] in ('prepare', 'select_zone', 'ready_up'):
                         print(f"[capture] Lobby re-detected ({lobby_result['type']}) while in deploy — returning to lobby state")
                         self._scan_state = 'lobby'
@@ -390,7 +397,7 @@ class AutoCapture:
             if self._scan_state == 'endgame':
                 endgame_cycle += 1
                 if endgame_cycle % 5 == 0:
-                    lobby_result = detect_game_state(frame, scan_mode='lobby')
+                    lobby_result = detect_game_state(frame_img, scan_mode='lobby')
                     if lobby_result and lobby_result['type'] in ('prepare', 'select_zone', 'ready_up'):
                         print(f"[capture] Lobby re-detected ({lobby_result['type']}) while in endgame — missed RUN_COMPLETE, stopping recording")
                         self._scan_state = 'lobby'
@@ -403,9 +410,9 @@ class AutoCapture:
                 endgame_cycle = 0
 
             # ---- OCR ---------------------------------------------------------
-            result = detect_game_state(frame, scan_mode=self._scan_state)
+            result = detect_game_state(frame_img, scan_mode=self._scan_state)
             if self._running:
-                self._handle_detection(result, frame)
+                self._handle_detection(result, frame_img, frame_bytes)
 
             # Pace mss checks — 2s is well within the ~3-5s //RUN_COMPLETE window
             if self._recording:
@@ -519,12 +526,30 @@ class AutoCapture:
                     print(f"[capture] Failed to move numbered buffer {i}: {e}")
         return moved
 
-    def _handle_detection(self, result: dict | None, frame_jpeg: bytes):
-        """Process OCR detection result — act on first match, no debounce."""
+    def _handle_detection(self, result: dict | None, frame_img: "Image.Image | None", frame_bytes: bytes | None):
+        """Process OCR detection result — act on first match, no debounce.
+
+        frame_img: PIL image from the OCR cycle (always present on detection).
+        frame_bytes: JPEG bytes if already available (menu path from Rust);
+                     None during recording — encoded lazily below only if a save fires.
+        """
         det_type = result['type'] if result else None
 
         if not det_type:
             return
+
+        # Lazy-encode JPEG bytes only when a save actually fires (avoids the
+        # ~10ms encode on every OCR cycle during recording when no hit occurs).
+        SAVE_TYPES = {'ready_up', 'run', 'deploying', 'deploy', 'endgame', 'exfiltrated', 'eliminated'}
+        frame_jpeg: bytes | None = frame_bytes
+        if det_type in SAVE_TYPES and frame_jpeg is None and frame_img is not None:
+            try:
+                buf = io.BytesIO()
+                frame_img.save(buf, format="JPEG", quality=75)
+                frame_jpeg = buf.getvalue()
+            except Exception as e:
+                print(f"[capture] Lazy JPEG encode failed: {e}")
+                return
 
         # --- State transitions (simple toggle between 3 OCR regions) ---
         prev_state = self._scan_state
@@ -699,7 +724,7 @@ class AutoCapture:
         # Load recording settings from config
         from .api.settings_api import get_config_value
         encoder = get_config_value("encoder") or "hevc"
-        bitrate_mbps = get_config_value("bitrate") or 50
+        bitrate_mbps = get_config_value("bitrate") or 30
         fps = get_config_value("fps") or 60
         bitrate = int(bitrate_mbps) * 1_000_000
 

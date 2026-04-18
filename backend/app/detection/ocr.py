@@ -70,15 +70,17 @@ def _crop_region(img: Image.Image, region: tuple) -> Image.Image:
     return img.crop((int(w * x1), int(h * y1), int(w * x2), int(h * y2)))
 
 
-def detect_game_state(jpeg_bytes: bytes, scan_mode: str = "lobby") -> dict | None:
+def detect_game_state(frame: "Image.Image | bytes", scan_mode: str = "lobby") -> dict | None:
     """Scan ONE OCR region based on current state machine mode.
+
+    Accepts either a PIL.Image (preferred — skips decode) or raw JPEG bytes.
 
     scan_mode: 'lobby' | 'deploy' | 'endgame' | 'postgame'
 
     Returns a detection dict or None.
     """
     try:
-        img = Image.open(io.BytesIO(jpeg_bytes))
+        img = frame if isinstance(frame, Image.Image) else Image.open(io.BytesIO(frame))
 
         if scan_mode == "deploy":
             text = _ocr_pil(_crop_region(img, DEPLOY_REGION), "DEPLOY")

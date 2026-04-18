@@ -135,7 +135,7 @@ function createOverlay() {
       overlayWindow.setAlwaysOnTop(true, 'screen-saver')
       if (!overlayWindow.isVisible()) overlayWindow.showInactive()
     }
-  }, 3000)
+  }, 10000)
 
   function cleanupOverlay() {
     if (overlayWindow?._keepAliveInterval) {

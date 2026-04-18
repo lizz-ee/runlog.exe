@@ -40,7 +40,7 @@ async def _event_stream():
     try:
         while True:
             try:
-                event = await asyncio.wait_for(q.get(), timeout=15.0)
+                event = await asyncio.wait_for(q.get(), timeout=30.0)
                 yield f"event: {event['type']}\ndata: {json.dumps(event['data'])}\n\n"
             except asyncio.TimeoutError:
                 # Send keepalive comment to prevent connection timeout

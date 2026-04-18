@@ -98,7 +98,7 @@ export default function App() {
 
     function startPolling() {
       if (fallbackInterval) return
-      fallbackInterval = setInterval(poll, 10000) // Slower fallback when SSE unavailable
+      fallbackInterval = setInterval(poll, 20000) // Slower fallback when SSE unavailable
     }
 
     async function poll() {

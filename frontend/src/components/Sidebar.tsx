@@ -66,13 +66,15 @@ const VIEW_TO_MAP: Record<string, string> = {
 export default function Sidebar() {
   const { view, setView, stats, unviewedCount, refreshUnviewed, captureStatus } = useStore()
   const isProcessing = (captureStatus?.processing_items || []).some(i => i.status !== 'done')
+  const isRecording = !!captureStatus?.recording
   const [stagingCounts, setStagingCounts] = useState<Record<string, number>>({})
 
   useEffect(() => {
     refreshUnviewed()
-    const interval = setInterval(() => { refreshUnviewed() }, 5000)
+    if (isRecording) return  // Pause UI polls during active recording — game has focus
+    const interval = setInterval(() => { refreshUnviewed() }, 10000)
     return () => clearInterval(interval)
-  }, [])
+  }, [isRecording])
 
   // Fetch staging counts per map
   useEffect(() => {
@@ -97,9 +99,10 @@ export default function Sidebar() {
       }
     }
     fetchStaging()
-    const interval = setInterval(fetchStaging, 10000)
+    if (isRecording) return () => controller.abort()  // Pause during recording
+    const interval = setInterval(fetchStaging, 30000)
     return () => { controller.abort(); clearInterval(interval) }
-  }, [])
+  }, [isRecording])
 
   return (
     <aside className="w-52 bg-m-black border-r border-1 border-m-border flex flex-col">
