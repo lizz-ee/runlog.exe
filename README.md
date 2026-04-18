@@ -81,6 +81,21 @@ Where the magic happens. The detection engine watches your game, auto-records ev
 
 ![DETECT.EXE — Live Capture](docs/screenshots/detect_exe.png)
 
+A lightweight, always-on-top **HUD overlay** mirrors capture status while you play — enable it in SYS.CONFIG, pick a corner, set size and opacity. Hides itself when the run is done.
+
+---
+
+## SYS.CONFIG
+
+Everything tunable in one place. Sections:
+
+- **REC.CONFIG** — encoder (HEVC/H.264), bitrate, FPS
+- **PROC.CONFIG** — Phase 1 and Phase 2 worker concurrency, auto-process toggles
+- **STOR.CONFIG** — move recordings, clips, and screenshots to any folder with one-click migration
+- **PROC.MODE** — ALPHA (local, free, offline), HYBRID (local-first with Claude fallback), or CLAUDE (API/CLI only)
+- **HUD.OVERLAY** — on/off, corner, size, opacity, live preview
+- **AUTH.CONFIG** — API key or Claude CLI, per-model selection for capture and UPLINK (Sonnet/Haiku)
+
 ---
 
 ## Under the Hood
@@ -89,12 +104,15 @@ Where the magic happens. The detection engine watches your game, auto-records ev
 - **Rust binary** (`runlog-recorder.exe`) — Windows Graphics Capture API, zero-copy GPU pipeline
 - **MediaFoundation encoding** — 60fps at native 4K, HEVC or H.264 (configurable)
 - **Privacy-safe** — captures only the Marathon window, never the desktop
-- **OCR state machine** — three scan regions detect deployment (start), RUN_COMPLETE (timestamp), and lobby (stop)
+- **OCR state machine** — scan regions detect deployment (start), RUN_COMPLETE (timestamp), and lobby (stop)
 - **Per-phase screenshots** — READY UP, RUN, DEPLOYING phases captured for shell/loadout identification
 
-### Two-Phase AI Analysis
-- **Phase 1 (Stats):** Three parallel Claude calls extract map, shell (facial geometry matching), spawn coordinates, plus a sequential call for kills, deaths, loot, weapons, damage contributors from end-of-run screenshots
-- **Phase 2 (Narrative):** Chain-of-thought video analysis — scene inventory, event identification, then grade + summary + highlight timestamps. Clips cut via stream copy from original 4K footage
+### Processing Modes
+runlog.exe ships with three interchangeable processors, swappable at any time in SYS.CONFIG:
+
+- **ALPHA (default)** — fully local. winocr for HUD/stats, template matching for map/weapons, a trained shell classifier for identity, rule-based grading. Free, offline, ~<2s per run.
+- **HYBRID** — runs ALPHA first, falls back to Claude for any fields the local pipeline can't resolve. Typical cost ~$0.01/run.
+- **CLAUDE** — full AI pipeline. Phase 1 fires parallel calls for map + loadout/identity, shell ID (reference-image matching against the 7 classes), and spawn coordinates, then a sequential call for kills, deaths, loot, weapons, and damage contributors. Phase 2 runs chain-of-thought video analysis for grade, narrative, and highlight timestamps.
 
 ### Highlight Clips
 - Auto-generated from Phase 2 — every PvP kill, death, revive, and extraction clipped
@@ -138,7 +156,9 @@ The install script automatically checks for and installs all prerequisites (Pyth
 
 ### Authentication
 
-Once the app is running, go to **SYS.CONFIG** and set up Claude AI access. Two options — set your preferred provider with the **AI.PROVIDER** toggle:
+The default **ALPHA** processor runs entirely offline — no account, no key, no Claude needed.
+
+To enable HYBRID or CLAUDE modes, open **SYS.CONFIG → AUTH.CONFIG** and pick a provider with the **AI.PROVIDER** toggle:
 
 1. **API Key** — Paste your Anthropic API key, tested before saving
 2. **Claude CLI** — Install Claude Code (`npm install -g @anthropic-ai/claude-code`), log in via the in-app LOGIN button or `claude login` in terminal. Uses your Claude subscription, no API tokens needed. Version detection and one-click updates built in.
@@ -184,8 +204,8 @@ cd frontend && npm run dist
 
 ## Local-First
 
-- All data stored locally: `%APPDATA%/runlog/marathon/data/`
+- Default data location: `%APPDATA%/runlog/marathon/data/` — recordings, clips, and screenshots can be relocated to any folder via SYS.CONFIG → STOR.CONFIG (one-click migration)
 - No accounts, no cloud sync, no telemetry
 - Automatic database backups on startup (keeps last 7)
-- Works offline for everything except AI analysis
+- Fully offline in ALPHA mode — AI only involved if you opt into HYBRID or CLAUDE
 - Your API key stays on your machine
