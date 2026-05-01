@@ -26,9 +26,9 @@ export interface OverlaySettings {
 }
 
 interface RunlogBridge {
-  onScreenshotParsed: (callback: (event: ScreenshotEvent) => void) => void
-  onAutoCaptureEvent: (callback: (event: AutoCaptureEvent) => void) => void
-  onRecordingStatus: (callback: (data: { status: string; message: string }) => void) => void
+  onScreenshotParsed: (callback: (event: ScreenshotEvent) => void) => () => void
+  onAutoCaptureEvent: (callback: (event: AutoCaptureEvent) => void) => () => void
+  onRecordingStatus: (callback: (data: { status: string; message: string }) => void) => () => void
   getApiBaseUrl: () => string
   windowMinimize: () => void
   windowMaximize: () => void
@@ -43,7 +43,6 @@ interface RunlogBridge {
   setOverlaySize: (size: string) => void
   setOverlayPosition: (xPct: number, yPct: number) => void
   previewOverlay: () => void
-  openFile: (filePath: string) => void
   openUrl: (url: string) => void
 }
 
@@ -61,12 +60,14 @@ export function getApiBaseUrl(): string {
 
 export function onScreenshotParsed(callback: (event: ScreenshotEvent) => void) {
   if (window.runlog) {
-    window.runlog.onScreenshotParsed(callback)
+    return window.runlog.onScreenshotParsed(callback)
   }
+  return () => {}
 }
 
 export function onAutoCaptureEvent(callback: (event: AutoCaptureEvent) => void) {
   if (window.runlog) {
-    window.runlog.onAutoCaptureEvent(callback)
+    return window.runlog.onAutoCaptureEvent(callback)
   }
+  return () => {}
 }

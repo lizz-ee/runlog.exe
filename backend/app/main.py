@@ -45,6 +45,7 @@ with engine.connect() as conn:
         "killed_by_weapon": "ALTER TABLE runs ADD COLUMN killed_by_weapon VARCHAR(100)",
         "damage_contributors": "ALTER TABLE runs ADD COLUMN damage_contributors JSON",
         "is_ranked": "ALTER TABLE runs ADD COLUMN is_ranked BOOLEAN DEFAULT 0",
+        "analysis_meta": "ALTER TABLE runs ADD COLUMN analysis_meta JSON",
     }
     applied = 0
     for col_name, ddl in _migrations.items():
@@ -128,7 +129,16 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:8000", "app://.", "file://"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        f"http://127.0.0.1:{os.environ.get('RUNLOG_API_PORT', '8000')}",
+        f"http://localhost:{os.environ.get('RUNLOG_API_PORT', '8000')}",
+        "app://.",
+        "file://",
+        "null",
+    ],
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["Content-Type"],

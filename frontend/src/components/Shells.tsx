@@ -5,13 +5,13 @@ import { formatTime, formatDuration } from '../lib/utils'
 import type { ShellStats } from '../lib/types'
 import Squad from './Squad'
 
-import triageImg from '../assets/shells/triage.png'
-import vandalImg from '../assets/shells/vandal.png'
-import reconImg from '../assets/shells/recon.png'
-import thiefImg from '../assets/shells/thief.png'
-import destroyerImg from '../assets/shells/destroyer.png'
-import assassinImg from '../assets/shells/assassin.png'
-import rookImg from '../assets/shells/rook-profile.png'
+import triageImg from '../assets/shells/triage.webp'
+import vandalImg from '../assets/shells/vandal.webp'
+import reconImg from '../assets/shells/recon.webp'
+import thiefImg from '../assets/shells/thief.webp'
+import destroyerImg from '../assets/shells/destroyer.webp'
+import assassinImg from '../assets/shells/assassin.webp'
+import rookImg from '../assets/shells/rook-profile.webp'
 
 const SHELL_IMAGES: Record<string, string> = {
   triage: triageImg,

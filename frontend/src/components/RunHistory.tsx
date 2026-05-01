@@ -4,7 +4,7 @@ import axios from 'axios'
 import { getRuns, updateRun, createRunner, getRunners, getClips, getClipUrl, apiBase, toggleFavorite, cutClip, deleteClip, deleteKeptRecording } from '../lib/api'
 import { useStore } from '../lib/store'
 import { formatTime } from '../lib/utils'
-import type { Run, Clip } from '../lib/types'
+import type { Run, Clip, RunFilters } from '../lib/types'
 import rankedIcon from '../assets/ranked.png'
 
 // Grade colors — rarity tier system matching NEURAL.LINK
@@ -53,7 +53,7 @@ function ShellPicker({ run, onUpdate }: { run: Run; onUpdate: () => void }) {
         runner = await createRunner({ name })
         useStore.getState().setRunners([...freshRunners, runner])
       }
-      await updateRun(run.id, { runner_id: runner.id } as any)
+      await updateRun(run.id, { runner_id: runner.id })
       onUpdate()
     } catch (e) {
       console.error('Failed to update shell:', e)
@@ -669,7 +669,7 @@ export default function RunHistory() {
   const RUNS_PER_PAGE = 21
 
   const fetchPage = useCallback(() => {
-    const params: Record<string, any> = {
+    const params: RunFilters = {
       limit: RUNS_PER_PAGE,
       offset: page * RUNS_PER_PAGE,
     }
@@ -979,6 +979,18 @@ export function RunRow({ run, isExpanded, onToggle, onToggleFavorite, onUpdate, 
   }, [isExpanded, folderSizeTick, refreshFolderSize])
 
   const gc = run.grade ? (GRADE_COLORS[run.grade] || GRADE_COLORS.D) : null
+  const analysisMeta = run.analysis_meta
+  const processorLabel = typeof analysisMeta?.processor === 'string'
+    ? analysisMeta.processor.toUpperCase()
+    : typeof analysisMeta?.routing === 'string'
+      ? analysisMeta.routing.toUpperCase()
+      : null
+  const lowConfidenceFields = Array.isArray(analysisMeta?.low_confidence_fields)
+    ? analysisMeta.low_confidence_fields.filter((f): f is string => typeof f === 'string')
+    : []
+  const claudeFields = Array.isArray(analysisMeta?.claude_fields)
+    ? analysisMeta.claude_fields.filter((f): f is string => typeof f === 'string')
+    : []
 
   return (
     <div>
@@ -1067,6 +1079,28 @@ export function RunRow({ run, isExpanded, onToggle, onToggleFavorite, onUpdate, 
               </span>
               <ShellPicker run={run} onUpdate={onUpdate} />
             </div>
+
+            {processorLabel && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[9px] font-mono text-m-text-muted tracking-wider w-20">PIPELINE</span>
+                <span className={`text-[10px] font-mono ${
+                  processorLabel.includes('FALLBACK') || lowConfidenceFields.length ? 'text-m-yellow' : 'text-m-green'
+                }`}>
+                  {processorLabel}
+                </span>
+                {claudeFields.length > 0 && (
+                  <span className="text-[10px] font-mono text-m-cyan">
+                    CLAUDE:{claudeFields.length}
+                  </span>
+                )}
+                {lowConfidenceFields.length > 0 && (
+                  <span className="text-[10px] font-mono text-m-text-muted">
+                    LOW {lowConfidenceFields.slice(0, 4).join(', ')}
+                    {lowConfidenceFields.length > 4 ? ` +${lowConfidenceFields.length - 4}` : ''}
+                  </span>
+                )}
+              </div>
+            )}
 
             {/* SQUAD */}
             <div className="flex items-center gap-2">

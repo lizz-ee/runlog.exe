@@ -13,12 +13,14 @@ uses template matching + OCR to identify events:
 import logging
 import os
 import subprocess
+import tempfile
 from pathlib import Path
 
 import cv2
 import numpy as np
 from PIL import Image
 
+from backend.app.media_process import run_media
 from backend.app.alpha.ocr_pipeline import _ocr_sync
 
 logger = logging.getLogger(__name__)
@@ -53,28 +55,31 @@ class HUDDetector:
         self.engine = TemplateEngine()
 
     def extract_frames(self, video_path: str, fps: int = 1,
-                       output_dir: str | None = None) -> list[str]:
+                       output_dir: str | None = None,
+                       start_sec: float | None = None,
+                       duration_sec: float | None = None) -> list[str]:
         """Extract frames from video at given fps using ffmpeg.
 
         Returns list of frame file paths.
         """
         video_path = os.path.abspath(video_path)
         if output_dir is None:
-            output_dir = os.path.join(
-                os.path.dirname(video_path),
-                f"_hud_frames_{os.path.basename(video_path).replace('.mp4', '')}"
+            output_dir = tempfile.mkdtemp(
+                prefix=f"_hud_{os.path.basename(video_path).replace('.mp4', '')}_",
+                dir=os.path.dirname(video_path),
             )
         os.makedirs(output_dir, exist_ok=True)
 
         pattern = os.path.join(output_dir, "frame_%04d.jpg")
-        cmd = [
-            'ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
-            '-i', video_path,
-            '-vf', f'fps={fps}',
-            '-q:v', '3', pattern,
-        ]
+        cmd = ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error']
+        if start_sec is not None:
+            cmd.extend(['-ss', str(max(0, start_sec))])
+        cmd.extend(['-i', video_path])
+        if duration_sec is not None:
+            cmd.extend(['-t', str(max(0.1, duration_sec))])
+        cmd.extend(['-vf', f'fps={fps}', '-q:v', '3', pattern])
         try:
-            subprocess.run(cmd, capture_output=True, timeout=300)
+            run_media(cmd, capture_output=True, timeout=300)
         except subprocess.TimeoutExpired:
             logger.warning("Frame extraction timed out after 5 minutes")
         except Exception as e:
@@ -84,7 +89,10 @@ class HUDDetector:
             [os.path.join(output_dir, f) for f in os.listdir(output_dir)
              if f.startswith("frame_") and f.endswith(".jpg")]
         )
-        logger.info(f"Extracted {len(frames)} frames at {fps}fps")
+        window_msg = ""
+        if start_sec is not None or duration_sec is not None:
+            window_msg = f" window={start_sec or 0:.1f}+{duration_sec or 0:.1f}s"
+        logger.info(f"Extracted {len(frames)} frames at {fps}fps{window_msg}")
         return frames
 
     def analyze_frame(self, frame_path: str) -> dict:
@@ -305,34 +313,46 @@ class HUDDetector:
 
         return None
 
-    def scan_video(self, video_path: str, fps: int = 1) -> list[dict]:
+    def scan_video(self, video_path: str, fps: int = 1,
+                   windows: list[tuple[float, float]] | None = None) -> list[dict]:
         """Scan entire video and return timestamped events.
+
+        `windows` may be provided as [(start_sec, end_sec)] to scan targeted
+        high-FPS regions without extracting the whole video at that rate.
 
         Returns list of dicts: [{timestamp: int, ...analysis_fields}]
         """
-        frames = self.extract_frames(video_path, fps=fps)
-        if not frames:
-            return []
-
         events = []
-        for i, frame_path in enumerate(frames):
-            timestamp = i  # At 1fps, frame index = seconds
-            result = self.analyze_frame(frame_path)
-            result["timestamp"] = timestamp
-            events.append(result)
+        scan_windows = windows or [(0.0, None)]
 
-            if (i + 1) % 60 == 0:
-                logger.info(f"Scanned {i+1}/{len(frames)} frames...")
+        for start_sec, end_sec in scan_windows:
+            duration = None if end_sec is None else max(0.1, end_sec - start_sec)
+            frames = self.extract_frames(
+                video_path,
+                fps=fps,
+                start_sec=start_sec,
+                duration_sec=duration,
+            )
+            if not frames:
+                continue
 
-        # Cleanup frames
-        frames_dir = os.path.dirname(frames[0]) if frames else None
-        if frames_dir:
+            for i, frame_path in enumerate(frames):
+                timestamp = int(round(start_sec + (i / max(fps, 0.1))))
+                result = self.analyze_frame(frame_path)
+                result["timestamp"] = timestamp
+                events.append(result)
+
+                if (i + 1) % 60 == 0:
+                    logger.info(f"Scanned {i+1}/{len(frames)} frames...")
+
+            frames_dir = os.path.dirname(frames[0]) if frames else None
             try:
                 import shutil
                 shutil.rmtree(frames_dir, ignore_errors=True)
             except Exception:
                 pass
 
+        events.sort(key=lambda e: e["timestamp"])
         logger.info(f"Scan complete: {len(events)} frames, "
                      f"{sum(1 for e in events if e['state'] != EVENT_IDLE)} non-idle")
         return events

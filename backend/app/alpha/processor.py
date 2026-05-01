@@ -30,6 +30,7 @@ import numpy as np
 from PIL import Image
 
 from backend.app.alpha.grading import calculate_grade, generate_summary
+from backend.app.alpha.health import alpha_health
 from backend.app.alpha.ocr_pipeline import AlphaOCR
 from backend.app.alpha.shell_classifier import ShellClassifier
 from backend.app.alpha.templates import TemplateEngine
@@ -38,6 +39,20 @@ logger = logging.getLogger(__name__)
 
 # Default confidence threshold for hybrid fallback
 DEFAULT_CONFIDENCE_THRESHOLD = 0.8
+
+GATED_FIELDS = [
+    "map_name", "survived", "kills", "combatant_eliminations",
+    "runner_eliminations", "crew_revives", "loot_value_total",
+    "duration_seconds", "shell_name", "spawn_coordinates",
+    "primary_weapon", "secondary_weapon", "player_level", "vault_value",
+]
+
+DEATH_GATED_FIELDS = [
+    "killed_by", "killed_by_weapon", "killed_by_damage", "damage_contributors",
+]
+
+SHELL_ACCEPT_CONFIDENCE = 0.75
+SHELL_REPORT_CONFIDENCE = 0.55
 
 
 class AlphaProcessor:
@@ -53,6 +68,26 @@ class AlphaProcessor:
         self.ocr = AlphaOCR()
         self.shell_classifier = ShellClassifier()
         logger.info("AlphaProcessor initialized (Claude-free mode)")
+
+    @staticmethod
+    def _set_if_better(
+        extracted: dict,
+        confidence: dict,
+        sources: dict,
+        field: str,
+        value,
+        score: float | None,
+        source: str,
+    ) -> None:
+        """Keep the highest-confidence value for a field."""
+        if value is None:
+            return
+        current_score = confidence.get(field, -1.0)
+        if extracted.get(field) is None or (score is not None and score >= current_score):
+            extracted[field] = value
+            if score is not None:
+                confidence[field] = score
+            sources[field] = source
 
     # =========================================================================
     # Phase 1: Stat Extraction (replaces Claude Calls 1A, 2A, 3A, 2)
@@ -113,28 +148,38 @@ class AlphaProcessor:
             "loadout_tab_found": False,
         }
         confidence = {}
+        sources = {}
+        metadata = {}
 
         # --- Call 1A: Loadout & Identity (deploy + readyup screenshots) ---
         loadout_data = self._extract_loadout(ss_dir)
         conf = loadout_data.pop("_confidence", {})
+        sources.update(loadout_data.pop("_sources", {}))
         result.update(loadout_data)
         confidence.update(conf)
 
         # --- Call 2A: Shell ID (character crop from readyup screenshots) ---
         shell_data = self._extract_shell(ss_dir)
         conf = shell_data.pop("_confidence", {})
+        sources.update(shell_data.pop("_sources", {}))
+        if "_shell_candidates" in shell_data:
+            metadata["_shell_candidates"] = shell_data.pop("_shell_candidates")
         result.update(shell_data)
         confidence.update(conf)
 
         # --- Call 3A: Spawn Coordinates (deploy screenshots) ---
         coords_data = self._extract_coordinates(ss_dir)
         conf = coords_data.pop("_confidence", {})
+        sources.update(coords_data.pop("_sources", {}))
         result.update(coords_data)
         confidence.update(conf)
 
         # --- Call 2: End Stats (stats + endgame screenshots) ---
         stats_data = self._extract_stats(ss_dir)
         conf = stats_data.pop("_confidence", {})
+        sources.update(stats_data.pop("_sources", {}))
+        if "_tab_classification" in stats_data:
+            metadata["_tab_classification"] = stats_data.pop("_tab_classification")
         result.update(stats_data)
         confidence.update(conf)
 
@@ -143,25 +188,33 @@ class AlphaProcessor:
             result["deaths"] = 0 if result["survived"] else 1
 
         # --- Build confidence report ---
-        # Fields that matter for hybrid gate (skip metadata fields)
-        gated_fields = [
-            "map_name", "survived", "kills", "combatant_eliminations",
-            "runner_eliminations", "crew_revives", "loot_value_total",
-            "duration_seconds", "shell_name", "spawn_coordinates",
-            "primary_weapon", "secondary_weapon",
-        ]
         low_conf = []
+        gated_fields = list(GATED_FIELDS)
+        if result.get("survived") is not True:
+            gated_fields.extend(DEATH_GATED_FIELDS)
         for field in gated_fields:
             if result.get(field) is not None:
                 score = confidence.get(field, 0.0)
                 if score < DEFAULT_CONFIDENCE_THRESHOLD:
                     low_conf.append(field)
-            elif field in ("survived", "kills", "duration_seconds"):
-                # Critical fields that are None = definitely low confidence
+            else:
                 low_conf.append(field)
 
         result["_confidence"] = confidence
         result["_low_confidence_fields"] = low_conf
+        result["_sources"] = sources
+        result.update(metadata)
+        capability = alpha_health()
+        result["_alpha_health"] = {
+            "confidence_threshold": DEFAULT_CONFIDENCE_THRESHOLD,
+            "fields_scored": len(confidence),
+            "low_confidence_fields": low_conf,
+            "routing": "alpha",
+            "capability_status": capability.get("status"),
+            "capability_ready": capability.get("ready"),
+            "capability_blockers": capability.get("blockers", []),
+            "capability_warnings": capability.get("warnings", []),
+        }
         logger.info(
             f"Phase 1 complete: {len(confidence)} fields scored, "
             f"{len(low_conf)} below threshold ({DEFAULT_CONFIDENCE_THRESHOLD})"
@@ -175,6 +228,7 @@ class AlphaProcessor:
         """Extract loadout info from readyup and deploy screenshots (Call 1A)."""
         extracted = {}
         confidence = {}
+        sources = {}
 
         # --- Map name from deploy screenshots ---
         for name in ["deploy.jpg", "deploy_1.jpg", "deploy_2.jpg", "deploy_3.jpg"]:
@@ -191,6 +245,7 @@ class AlphaProcessor:
             if map_name:
                 extracted["map_name"] = map_name
                 confidence["map_name"] = 0.95
+                sources["map_name"] = path.name
                 break
 
             # OCR fallback
@@ -199,6 +254,7 @@ class AlphaProcessor:
             if map_data.get("map_name"):
                 extracted["map_name"] = map_data["map_name"]
                 confidence.update(map_data.get("_confidence", {}))
+                sources["map_name"] = path.name
                 break
 
         # --- Readyup screen info ---
@@ -215,26 +271,33 @@ class AlphaProcessor:
                 extracted["player_gamertag"] = readyup_data["player_gamertag"]
                 if "player_gamertag" in readyup_conf:
                     confidence["player_gamertag"] = readyup_conf["player_gamertag"]
+                sources["player_gamertag"] = path.name
             if readyup_data.get("loadout_value") is not None:
                 extracted["loadout_value"] = readyup_data["loadout_value"]
                 if "loadout_value" in readyup_conf:
                     confidence["loadout_value"] = readyup_conf["loadout_value"]
+                sources["loadout_value"] = path.name
             if readyup_data.get("map_name") and not extracted.get("map_name"):
                 extracted["map_name"] = readyup_data["map_name"]
                 if "map_name" in readyup_conf:
                     confidence["map_name"] = readyup_conf["map_name"]
+                sources["map_name"] = path.name
             if readyup_data.get("crew_size"):
                 extracted["crew_size"] = readyup_data["crew_size"]
                 if "crew_size" in readyup_conf:
                     confidence["crew_size"] = readyup_conf["crew_size"]
+                sources["crew_size"] = path.name
             break
 
         extracted["_confidence"] = confidence
+        extracted["_sources"] = sources
         return extracted
 
     def _extract_shell(self, ss_dir: Path) -> dict:
         """Classify the player's shell from character crop images (Call 2A)."""
         conf_map = {}
+        sources = {}
+        candidates_by_crop = {}
 
         # Look for character crop files (named *_char.jpg)
         char_crops = sorted([
@@ -247,17 +310,40 @@ class AlphaProcessor:
             crop = ss_dir / "character_crop.jpg"
             if crop.exists():
                 char_crops = [crop]
+        face_crop = ss_dir / "face_crop.jpg"
+        if face_crop.exists():
+            char_crops.append(face_crop)
 
         for crop_path in char_crops:
             try:
-                shell_name, shell_conf = self.shell_classifier.predict(crop_path)
-                if shell_conf >= 0.5:
+                topk = self.shell_classifier.predict_topk(crop_path, k=3)
+                candidates_by_crop[crop_path.name] = [
+                    {"shell": name, "confidence": round(conf, 3)}
+                    for name, conf in topk
+                ]
+                shell_name, shell_conf = topk[0]
+                if shell_conf >= SHELL_ACCEPT_CONFIDENCE:
                     logger.info(
                         "Shell classified: %s (%.1f%%) from %s",
                         shell_name, shell_conf * 100, crop_path.name,
                     )
                     conf_map["shell_name"] = round(shell_conf, 2)
-                    return {"shell_name": shell_name, "_confidence": conf_map}
+                    sources["shell_name"] = crop_path.name
+                    return {
+                        "shell_name": shell_name,
+                        "_confidence": conf_map,
+                        "_sources": sources,
+                        "_shell_candidates": candidates_by_crop,
+                    }
+                elif shell_conf >= SHELL_REPORT_CONFIDENCE:
+                    conf_map["shell_name"] = round(shell_conf, 2)
+                    sources["shell_name"] = crop_path.name
+                    return {
+                        "shell_name": shell_name,
+                        "_confidence": conf_map,
+                        "_sources": sources,
+                        "_shell_candidates": candidates_by_crop,
+                    }
                 else:
                     logger.info(
                         "Shell prediction below threshold: %s (%.1f%%) from %s",
@@ -266,7 +352,7 @@ class AlphaProcessor:
             except Exception:
                 logger.warning("Shell classification failed for %s", crop_path.name, exc_info=True)
 
-        return {"_confidence": conf_map}
+        return {"_confidence": conf_map, "_sources": sources, "_shell_candidates": candidates_by_crop}
 
     def _extract_coordinates(self, ss_dir: Path) -> dict:
         """Extract spawn coordinates from deploy screenshots (Call 3A)."""
@@ -284,14 +370,17 @@ class AlphaProcessor:
 
             coords_data = self.ocr.read_spawn_coordinates(img)
             if coords_data.get("spawn_coordinates"):
+                coords_data["_sources"] = {"spawn_coordinates": path.name}
                 return coords_data
 
-        return {"_confidence": {}}
+        return {"_confidence": {}, "_sources": {}}
 
     def _extract_stats(self, ss_dir: Path) -> dict:
         """Extract end-of-run stats from stats/endgame screenshots (Call 2)."""
         extracted = {}
         confidence = {}
+        sources = {}
+        tab_classification = []
 
         # --- Stats tab screenshots (primary source) ---
         stats_files = sorted([
@@ -300,30 +389,77 @@ class AlphaProcessor:
         ])
 
         if stats_files:
-            extracted["stats_tab_found"] = True
+            # Later stats captures tend to be more settled, but classify every
+            # image so LOADOUT/PROGRESS frames feed the readers built for them.
+            for sf in reversed(stats_files):
+                frame = cv2.imread(str(sf))
+                img = Image.open(sf)
+                state = self.engine.detect_game_state(frame) if frame is not None else "unknown"
+                tab = self.engine.detect_active_tab(frame) if frame is not None else None
+                crew_size = self.engine.detect_crew_size(frame) if frame is not None else None
 
-            # Use stats_3 if available (stats_1/2 may capture the EXFILTRATED splash
-            # before stat values load). stats_3 is most likely to have full data.
-            best = stats_files[-1] if len(stats_files) > 0 else stats_files[0]
-            img = Image.open(best)
+                if state == "stats" and tab is None:
+                    tab = "STATS"
 
-            stats_data = self.ocr.read_stats_tab(img)
-            stats_conf = stats_data.pop("_confidence", {})
-            extracted.update({k: v for k, v in stats_data.items() if v is not None})
-            confidence.update(stats_conf)
+                tab_classification.append({
+                    "file": sf.name,
+                    "state": state,
+                    "tab": tab,
+                    "crew_size": crew_size,
+                })
 
-            # Try other stats screenshots for missing fields
-            for sf in stats_files:
-                if sf == best:
+                if state not in ("stats", "endgame", "unknown"):
                     continue
-                img2 = Image.open(sf)
-                stats2 = self.ocr.read_stats_tab(img2)
-                stats2_conf = stats2.pop("_confidence", {})
-                for key, val in stats2.items():
-                    if val is not None and extracted.get(key) is None:
-                        extracted[key] = val
-                        if key in stats2_conf:
-                            confidence[key] = stats2_conf[key]
+
+                # The top bar exists on every post-match report and carries the
+                # safest player level/vault value, so read it regardless of tab.
+                top_data = self.ocr.read_top_bar(img)
+                top_conf = top_data.pop("_confidence", {})
+                for key, val in top_data.items():
+                    self._set_if_better(
+                        extracted, confidence, sources,
+                        key, val, top_conf.get(key), sf.name,
+                    )
+
+                if tab == "LOADOUT":
+                    extracted["loadout_tab_found"] = True
+                    loadout_data = self.ocr.read_loadout_tab(img)
+                    loadout_conf = loadout_data.pop("_confidence", {})
+                    for key, val in loadout_data.items():
+                        self._set_if_better(
+                            extracted, confidence, sources,
+                            key, val, loadout_conf.get(key), sf.name,
+                        )
+                    continue
+
+                if tab == "STATS" or (state == "stats" and tab is None):
+                    stats_data = self.ocr.read_stats_tab(img, crew_size=crew_size)
+                    stats_conf = stats_data.pop("_confidence", {})
+                    if stats_data.get("survived") is not None or stats_data.get("duration_seconds") is not None:
+                        extracted["stats_tab_found"] = True
+                    for key, val in stats_data.items():
+                        self._set_if_better(
+                            extracted, confidence, sources,
+                            key, val, stats_conf.get(key), sf.name,
+                        )
+
+            # If tab highlighting was unreliable, try loadout OCR on the last
+            # screenshot as a low-cost fallback for weapon/vault fields.
+            if not extracted.get("loadout_tab_found") and stats_files:
+                fallback = stats_files[-1]
+                img = Image.open(fallback)
+                loadout_data = self.ocr.read_loadout_tab(img)
+                loadout_conf = loadout_data.pop("_confidence", {})
+                found_loadout_field = False
+                for key, val in loadout_data.items():
+                    if val is not None:
+                        found_loadout_field = True
+                    self._set_if_better(
+                        extracted, confidence, sources,
+                        key, val, min(loadout_conf.get(key, 0.0), 0.6), fallback.name,
+                    )
+                if found_loadout_field:
+                    extracted["loadout_tab_found"] = True
 
         # --- Endgame screenshot (survived detection fallback) ---
         endgame = ss_dir / "endgame.jpg"
@@ -334,8 +470,24 @@ class AlphaProcessor:
                 if survived is not None:
                     extracted["survived"] = survived
                     confidence["survived"] = 0.85  # Template match = reliable
+                    sources["survived"] = endgame.name
+
+        # --- Death widget (right side of RUN_COMPLETE/death screen) ---
+        for name in ["endgame_damage.jpg", "endgame.jpg"]:
+            dmg_path = ss_dir / name
+            if not dmg_path.exists():
+                continue
+            dmg_data = self.ocr.read_damage_widget(Image.open(dmg_path))
+            dmg_conf = dmg_data.pop("_confidence", {})
+            for key, val in dmg_data.items():
+                self._set_if_better(
+                    extracted, confidence, sources,
+                    key, val, dmg_conf.get(key), dmg_path.name,
+                )
 
         extracted["_confidence"] = confidence
+        extracted["_sources"] = sources
+        extracted["_tab_classification"] = tab_classification
         return extracted
 
     # =========================================================================

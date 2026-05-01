@@ -508,10 +508,7 @@ fn set_high_priority() {
     }
 }
 
-fn set_gpu_priority() {
-    // Set GPU scheduling priority to REALTIME — same as OBS
-    // Prevents Windows from deprioritizing our GPU work when a fullscreen game is running
-
+fn set_gpu_priority_from_env() {
     #[link(name = "gdi32")]
     extern "system" {
         fn D3DKMTSetProcessSchedulingPriorityClass(
@@ -525,17 +522,33 @@ fn set_gpu_priority() {
         fn GetCurrentProcess() -> *mut std::ffi::c_void;
     }
 
-    // D3DKMT_SCHEDULINGPRIORITYCLASS_REALTIME = 5
-    const D3DKMT_SCHEDULINGPRIORITYCLASS_REALTIME: u32 = 5;
+    let mode = std::env::var("RUNLOG_GPU_PRIORITY")
+        .unwrap_or_else(|_| "normal".to_string())
+        .to_ascii_lowercase();
+    let priority = match mode.as_str() {
+        "idle" => Some(0),
+        "below_normal" | "below-normal" => Some(1),
+        "normal" | "" => Some(2),
+        "above_normal" | "above-normal" => Some(3),
+        "high" => Some(4),
+        "realtime" | "real_time" | "real-time" => Some(5),
+        "none" | "off" => None,
+        _ => Some(2),
+    };
+
+    let Some(priority) = priority else {
+        eprintln!("[recorder] GPU priority: unchanged");
+        return;
+    };
 
     unsafe {
         let process = GetCurrentProcess();
         let result = D3DKMTSetProcessSchedulingPriorityClass(
             process,
-            D3DKMT_SCHEDULINGPRIORITYCLASS_REALTIME,
+            priority,
         );
         if result == 0 {
-            eprintln!("[recorder] GPU priority: REALTIME");
+            eprintln!("[recorder] GPU priority: {} ({})", mode, priority);
         } else {
             eprintln!("[recorder] GPU priority: failed (code {})", result);
         }
@@ -744,7 +757,7 @@ fn main() {
 
     // Prevent Windows from throttling this process when in background
     set_high_priority();
-    set_gpu_priority();
+    set_gpu_priority_from_env();
 
     // Wait for Marathon window
     let window = loop {

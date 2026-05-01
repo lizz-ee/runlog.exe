@@ -59,6 +59,7 @@ export interface Run {
   vault_value: number | null
   grade: string | null
   summary: string | null
+  analysis_meta: Record<string, unknown> | null
   spawn_location: string | null
   shell_name: string | null
   player_gamertag: string | null
@@ -73,6 +74,17 @@ export interface PaginatedRuns {
   items: Run[]
   total: number
   maps: string[]
+}
+
+export interface RunFilters {
+  limit?: number
+  offset?: number
+  map_name?: string
+  survived?: boolean
+  runner_id?: number
+  grade?: string
+  is_favorite?: boolean
+  is_ranked?: boolean
 }
 
 export interface LootItem {
@@ -212,6 +224,8 @@ export interface CaptureStatus {
   recording_path: string | null
   queue_size: number
   processing_phase: string | null
+  processing_paused: boolean
+  processing_pause_reason: string | null
   processing_items: ProcessingItem[]
   status_counts: Record<string, number>
   resumed_count: number
@@ -311,6 +325,26 @@ export interface ShellStats {
   avg_loot: number
   avg_time: number
   favorite_weapon: string | null
+  score: number
+}
+
+export interface SquadMateStats {
+  gamertag: string
+  runs: number
+  survived: number
+  pve_kills: number
+  pvp_kills: number
+  deaths: number
+  revives: number
+  loot: number
+  time: number
+  survival_rate: number
+  survival_diff: number
+  kills: number
+  kd: number
+  avg_loot: number
+  avg_kills: number
+  avg_time: number
   score: number
 }
 

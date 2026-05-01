@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { lazy, Suspense, useEffect, useRef } from 'react'
 import axios from 'axios'
 import { useStore } from './lib/store'
 import { formatTime } from './lib/utils'
@@ -7,23 +7,32 @@ import { onScreenshotParsed } from './lib/electron'
 import type { CaptureStatus } from './lib/types'
 import type { OverlaySettings } from './lib/electron'
 import Sidebar from './components/Sidebar'
-import Dashboard from './components/Dashboard'
-import RunHistory from './components/RunHistory'
-import Maps from './components/Maps'
-import Live from './components/Live'
-import Shells from './components/Shells'
-import Squad from './components/Squad'
-import Settings from './components/Settings'
-import Uplink from './components/Uplink'
 import Toasts from './components/Toasts'
 import TitleBar from './components/TitleBar'
 import ErrorBoundary from './components/ErrorBoundary'
+
+const Dashboard = lazy(() => import('./components/Dashboard'))
+const RunHistory = lazy(() => import('./components/RunHistory'))
+const Maps = lazy(() => import('./components/Maps'))
+const Live = lazy(() => import('./components/Live'))
+const Shells = lazy(() => import('./components/Shells'))
+const Squad = lazy(() => import('./components/Squad'))
+const Settings = lazy(() => import('./components/Settings'))
+const Uplink = lazy(() => import('./components/Uplink'))
 
 const MAP_VIEW_TO_NAME: Record<string, string> = {
   'map-perimeter': 'Perimeter',
   'map-dire-marsh': 'Dire Marsh',
   'map-outpost': 'Outpost',
   'map-cryo-archive': 'Cryo Archive',
+}
+
+function RouteFallback() {
+  return (
+    <div className="h-full min-h-[360px] flex items-center justify-center text-m-green/60 font-mono text-xs tracking-[0.25em]">
+      LOADING.MODULE
+    </div>
+  )
 }
 
 function getSeenRunId(): number | null {
@@ -64,7 +73,7 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    onScreenshotParsed((event) => {
+    const unsubscribe = onScreenshotParsed((event) => {
       setPendingCapture(event)
       if (event.type === 'run') {
         const d = event.data as Record<string, number | string | boolean | null>
@@ -84,12 +93,14 @@ export default function App() {
         })
       }
     })
+    return unsubscribe
   }, [])
 
   // SSE for real-time capture status, with polling fallback
   useEffect(() => {
     let eventSource: EventSource | null = null
     let fallbackInterval: ReturnType<typeof setInterval> | null = null
+    let unsubscribeRecordingStatus: (() => void) | null = null
 
     function handleStatusUpdate(status: CaptureStatus) {
       setCaptureStatus(status)
@@ -139,11 +150,12 @@ export default function App() {
 
     const runlog = window.runlog
     if (runlog?.onRecordingStatus) {
-      runlog.onRecordingStatus(() => poll())
+      unsubscribeRecordingStatus = runlog.onRecordingStatus(() => poll())
     }
 
     return () => {
       eventSource?.close()
+      unsubscribeRecordingStatus?.()
       if (fallbackInterval) clearInterval(fallbackInterval)
     }
   }, [])
@@ -250,14 +262,16 @@ export default function App() {
       <Sidebar />
       <main className="flex-1 overflow-y-auto px-8 pt-5 pb-8">
         <ErrorBoundary>
-        {view === 'dashboard' && <Dashboard />}
-        {view === 'history' && <RunHistory />}
-        {view === 'shells' && <Shells />}
-        {view === 'squad' && <Squad />}
-        {mapName && <Maps selectedMap={mapName} />}
-        {view === 'live' && <Live />}
-        {view === 'uplink' && <Uplink />}
-        {view === 'settings' && <Settings />}
+          <Suspense fallback={<RouteFallback />}>
+            {view === 'dashboard' && <Dashboard />}
+            {view === 'history' && <RunHistory />}
+            {view === 'shells' && <Shells />}
+            {view === 'squad' && <Squad />}
+            {mapName && <Maps selectedMap={mapName} />}
+            {view === 'live' && <Live />}
+            {view === 'uplink' && <Uplink />}
+            {view === 'settings' && <Settings />}
+          </Suspense>
         </ErrorBoundary>
       </main>
       <Toasts />

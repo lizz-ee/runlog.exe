@@ -5,13 +5,13 @@ Architecture:
   Rust binary (runlog-recorder.exe) handles:
     - WGC window capture (Marathon only, privacy safe)
     - H.264 encoding via MediaFoundation HW encoder (zero-copy GPU, 60fps 4K)
-    - OCR frames sent as base64 JPEG at ~2fps
+    - Menu OCR preview frames sent as base64 JPEG before recording
 
   Python handles:
-    - OCR game state detection (EasyOCR)
+    - OCR game state detection (Windows OCR for state, EasyOCR for stats processing)
     - Recording start/stop commands
     - Screenshot management
-    - Processing pipeline (Sonnet analysis)
+    - Processing pipeline
 
   Three OCR regions:
     OCR.DEPLOY  (center)  — map name on deployment screen → START recording + screenshots
@@ -27,7 +27,7 @@ Architecture:
 
 import os
 import queue
-import subprocess
+import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -36,11 +36,16 @@ from datetime import datetime
 from PIL import Image
 import io
 
-from .detection.ocr import detect_game_state, DEPLOY_REGION
+from .detection.ocr import detect_game_state, detect_game_state_from_crop, scan_regions_for_mode
+from .media_process import run_media
 from .rust_recorder import RustRecorder
 
-MAX_P1_WORKERS = 4   # Phase 1 (fast stats extraction) — unconstrained
-MAX_P2_WORKERS = 2   # Phase 2 (video narrative + clips) — heavy, capped
+MAX_P1_WORKERS = 4   # Phase 1 cap — keep CPU headroom for the game
+MAX_P2_WORKERS = 2   # Phase 2 cap — video/AI work is heavier
+MIN_RECORDING_SCAN_SECONDS = 30.0
+POST_RECORDING_PROCESSING_GRACE_SECONDS = 20.0
+MATCHMAKING_PROCESSING_STATES = {'deploy', 'searching'}
+GAMEPLAY_PROCESSING_STATES = MATCHMAKING_PROCESSING_STATES | {'endgame', 'postgame'}
 
 
 class AutoCapture:
@@ -58,6 +63,7 @@ class AutoCapture:
         self._recording_start: float = 0
         self._recording_path: str | None = None
         self._capture_mode: str = "none"
+        self._last_recording_stopped_at: float = 0
 
         # Rust recorder
         self._recorder = RustRecorder()
@@ -91,6 +97,7 @@ class AutoCapture:
         self._p2_active: int = 0
         self._p2_active_lock = threading.Lock()
         self._p2_waiting: list[tuple[str, int]] = []  # [(filepath, run_id), ...]
+        self._p1_max_workers: int = 1
         self._p2_max_workers: int = MAX_P2_WORKERS
 
         # Auto-run flags — can be paused via SYS.CONFIG
@@ -155,12 +162,12 @@ class AutoCapture:
 
         # Processing pools — Phase 1 (fast) + Phase 2 (heavy)
         # Read worker counts from config, fall back to defaults
-        from .api.settings_api import get_config_value
-        p1_workers = get_config_value("p1_workers") or MAX_P1_WORKERS
-        p2_workers = get_config_value("p2_workers") or MAX_P2_WORKERS
+        quality_preset, p1_workers, p2_workers, auto_p1, auto_p2 = self._read_processing_config()
+        self._p1_max_workers = p1_workers
         self._p2_max_workers = p2_workers
-        self._auto_p1 = get_config_value("auto_p1") if get_config_value("auto_p1") is not None else True
-        self._auto_p2 = get_config_value("auto_p2") if get_config_value("auto_p2") is not None else True
+        self._auto_p1 = auto_p1
+        self._auto_p2 = auto_p2
+        print(f"[capture] Processing preset: {quality_preset}")
         print(f"[capture] Processing pools: P1={p1_workers} workers, P2={p2_workers} workers")
         print(f"[capture] Auto-run: P1={self._auto_p1}, P2={self._auto_p2}")
         self._p1_executor = ThreadPoolExecutor(
@@ -179,6 +186,56 @@ class AutoCapture:
 
         self._broadcast_status()
         return self.get_status()
+
+    @staticmethod
+    def _clamp_int(value, default: int, minimum: int, maximum: int) -> int:
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            return default
+        return max(minimum, min(parsed, maximum))
+
+    def _read_processing_config(self) -> tuple[str, int, int, bool, bool]:
+        from .api.settings_api import get_config_value
+
+        quality_preset = str(get_config_value("quality_preset") or "balanced")
+        p1_workers = self._clamp_int(get_config_value("p1_workers"), 1, 1, MAX_P1_WORKERS)
+        p2_workers = self._clamp_int(get_config_value("p2_workers"), 1, 1, MAX_P2_WORKERS)
+        auto_p1 = bool(get_config_value("auto_p1") if get_config_value("auto_p1") is not None else True)
+        auto_p2 = bool(get_config_value("auto_p2") if get_config_value("auto_p2") is not None else True)
+        return quality_preset, p1_workers, p2_workers, auto_p1, auto_p2
+
+    def reload_processing_config(self):
+        """Apply the selected quality preset to a running capture engine."""
+        quality_preset, p1_workers, p2_workers, auto_p1, auto_p2 = self._read_processing_config()
+        old_p1 = self._p1_max_workers
+        old_p2 = self._p2_max_workers
+
+        self._p1_max_workers = p1_workers
+        self._p2_max_workers = p2_workers
+        self._auto_p1 = auto_p1
+        self._auto_p2 = auto_p2
+
+        if self._p1_executor and p1_workers != old_p1:
+            old_executor = self._p1_executor
+            self._p1_executor = ThreadPoolExecutor(
+                max_workers=p1_workers, thread_name_prefix="p1-processor"
+            )
+            old_executor.shutdown(wait=False, cancel_futures=False)
+
+        if self._p2_executor and p2_workers != old_p2:
+            old_executor = self._p2_executor
+            self._p2_executor = ThreadPoolExecutor(
+                max_workers=p2_workers, thread_name_prefix="p2-processor"
+            )
+            old_executor.shutdown(wait=False, cancel_futures=False)
+
+        print(
+            f"[capture] Runtime preset applied: {quality_preset} "
+            f"(P1={p1_workers}, P2={p2_workers})"
+        )
+        self._drain_phase2_waiting()
+        self._broadcast_status()
 
     def stop(self) -> dict:
         """Stop everything."""
@@ -245,6 +302,8 @@ class AutoCapture:
             s = item["status"]
             status_counts[s] = status_counts.get(s, 0) + 1
 
+        processing_pause_reason = self._processing_defer_reason()
+
         return {
             "active": self._running,
             "recording": self._recording,
@@ -252,6 +311,8 @@ class AutoCapture:
             "recording_path": self._recording_path,
             "queue_size": self._process_queue.qsize(),
             "processing_phase": processing_phase,
+            "processing_paused": processing_pause_reason is not None,
+            "processing_pause_reason": processing_pause_reason,
             "processing_items": items,
             "status_counts": status_counts,
             "resumed_count": self.resumed_count,
@@ -269,6 +330,46 @@ class AutoCapture:
     def get_latest_frame_jpeg(self) -> bytes | None:
         with self._frame_lock:
             return self._latest_frame
+
+    @staticmethod
+    def _mss_region(monitor: dict, region: tuple[float, float, float, float]) -> dict:
+        """Convert a percentage OCR region into an mss monitor rectangle."""
+        x1, y1, x2, y2 = region
+        left = int(monitor["left"] + monitor["width"] * x1)
+        top = int(monitor["top"] + monitor["height"] * y1)
+        right = int(monitor["left"] + monitor["width"] * x2)
+        bottom = int(monitor["top"] + monitor["height"] * y2)
+        return {
+            "left": left,
+            "top": top,
+            "width": max(1, right - left),
+            "height": max(1, bottom - top),
+        }
+
+    def _detect_recording_state(self, sct, scan_mode: str) -> dict | None:
+        """Run OCR during recording by grabbing only the regions that mode needs."""
+        monitor = sct.monitors[1]
+        for label, region in scan_regions_for_mode(scan_mode):
+            shot = sct.grab(self._mss_region(monitor, region))
+            crop = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
+            result = detect_game_state_from_crop(crop, scan_mode, label)
+            if result:
+                return result
+        return None
+
+    def _capture_fullscreen_jpeg(self, quality: int = 75) -> bytes | None:
+        """Take a one-off full screenshot for saved evidence frames."""
+        try:
+            import mss as _mss_lib
+            with _mss_lib.mss() as sct:
+                shot = sct.grab(sct.monitors[1])
+            img = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=quality)
+            return buf.getvalue()
+        except Exception as e:
+            print(f"[capture] Fullscreen screenshot failed: {e}")
+            return None
 
     def _broadcast_status(self):
         """Push current status to all SSE clients."""
@@ -307,8 +408,9 @@ class AutoCapture:
         """OCR state machine — one region at a time.
 
         In menus (not recording): uses Rust OCR frames sent via IPC (~2fps).
-        During recording: uses mss screenshots every 2s — completely decoupled
-        from the GPU recording pipeline (zero GPU readbacks during capture).
+        During recording: uses mss every 2s, but grabs only the OCR regions
+        needed by the current state. Full screenshots are taken only for saved
+        evidence frames.
         """
         last_seq = -1
         self._scan_state = 'lobby'  # lobby | deploy | endgame | postgame
@@ -324,22 +426,19 @@ class AutoCapture:
             frame_img: Image.Image | None = None
             frame_bytes: bytes | None = None
             if self._recording:
-                # During recording: take our own screenshot via mss (DWM/CPU path,
-                # independent of the GPU encoding pipeline — no readback stalls).
+                elapsed = time.time() - self._recording_start
+                if self._scan_state == 'endgame' and elapsed < MIN_RECORDING_SCAN_SECONDS:
+                    time.sleep(min(2.0, MIN_RECORDING_SCAN_SECONDS - elapsed))
+                    continue
+                # During recording, keep OCR acquisition outside the Rust encoder
+                # path and scoped to the active OCR region set.
                 if _mss is None:
                     try:
                         import mss as _mss_lib
                         _mss = _mss_lib.mss()
                     except Exception as e:
                         print(f"[capture] mss init failed: {e}")
-                if _mss:
-                    try:
-                        shot = _mss.grab(_mss.monitors[1])  # primary monitor
-                        frame_img = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
-                    except Exception as e:
-                        print(f"[capture] mss grab failed: {e}")
-                        _mss = None
-                if frame_img is None:
+                if _mss is None:
                     time.sleep(1.0)
                     continue
             else:
@@ -375,9 +474,10 @@ class AutoCapture:
                 if self._recording and old_state == 'endgame':
                     print(f"[capture] Stopping orphaned recording due to timeout")
                     self._stop_recording()
+                    continue
 
             # ---- Deploy cancel check (every 5th cycle) ------------------------
-            if self._scan_state == 'deploy':
+            if self._scan_state == 'deploy' and frame_img is not None:
                 deploy_cycle += 1
                 if deploy_cycle % 5 == 0:
                     lobby_result = detect_game_state(frame_img, scan_mode='lobby')
@@ -397,7 +497,16 @@ class AutoCapture:
             if self._scan_state == 'endgame':
                 endgame_cycle += 1
                 if endgame_cycle % 5 == 0:
-                    lobby_result = detect_game_state(frame_img, scan_mode='lobby')
+                    try:
+                        if self._recording:
+                            lobby_result = self._detect_recording_state(_mss, 'lobby') if _mss else None
+                        else:
+                            lobby_result = detect_game_state(frame_img, scan_mode='lobby') if frame_img else None
+                    except Exception as e:
+                        print(f"[capture] endgame escape OCR failed: {e}")
+                        if self._recording:
+                            _mss = None
+                        lobby_result = None
                     if lobby_result and lobby_result['type'] in ('prepare', 'select_zone', 'ready_up'):
                         print(f"[capture] Lobby re-detected ({lobby_result['type']}) while in endgame — missed RUN_COMPLETE, stopping recording")
                         self._scan_state = 'lobby'
@@ -410,9 +519,21 @@ class AutoCapture:
                 endgame_cycle = 0
 
             # ---- OCR ---------------------------------------------------------
-            result = detect_game_state(frame_img, scan_mode=self._scan_state)
+            if self._recording:
+                if _mss is None:
+                    time.sleep(1.0)
+                    continue
+                try:
+                    result = self._detect_recording_state(_mss, self._scan_state)
+                except Exception as e:
+                    print(f"[capture] mss region grab failed: {e}")
+                    _mss = None
+                    time.sleep(1.0)
+                    continue
+            else:
+                result = detect_game_state(frame_img, scan_mode=self._scan_state)
             if self._running:
-                self._handle_detection(result, frame_img, frame_bytes)
+                self._handle_detection(result, frame_img, frame_bytes, frame_is_full=not self._recording)
 
             # Pace mss checks — 2s is well within the ~3-5s //RUN_COMPLETE window
             if self._recording:
@@ -526,12 +647,19 @@ class AutoCapture:
                     print(f"[capture] Failed to move numbered buffer {i}: {e}")
         return moved
 
-    def _handle_detection(self, result: dict | None, frame_img: "Image.Image | None", frame_bytes: bytes | None):
+    def _handle_detection(
+        self,
+        result: dict | None,
+        frame_img: "Image.Image | None",
+        frame_bytes: bytes | None,
+        frame_is_full: bool = True,
+    ):
         """Process OCR detection result — act on first match, no debounce.
 
-        frame_img: PIL image from the OCR cycle (always present on detection).
+        frame_img: PIL image from the OCR cycle. During recording it can be None
+                   because OCR works from region-only grabs.
         frame_bytes: JPEG bytes if already available (menu path from Rust);
-                     None during recording — encoded lazily below only if a save fires.
+                     None during recording, unless a save fires.
         """
         det_type = result['type'] if result else None
 
@@ -542,13 +670,18 @@ class AutoCapture:
         # ~10ms encode on every OCR cycle during recording when no hit occurs).
         SAVE_TYPES = {'ready_up', 'run', 'deploying', 'deploy', 'endgame', 'exfiltrated', 'eliminated'}
         frame_jpeg: bytes | None = frame_bytes
-        if det_type in SAVE_TYPES and frame_jpeg is None and frame_img is not None:
-            try:
-                buf = io.BytesIO()
-                frame_img.save(buf, format="JPEG", quality=75)
-                frame_jpeg = buf.getvalue()
-            except Exception as e:
-                print(f"[capture] Lazy JPEG encode failed: {e}")
+        if det_type in SAVE_TYPES and frame_jpeg is None:
+            if frame_is_full and frame_img is not None:
+                try:
+                    buf = io.BytesIO()
+                    frame_img.save(buf, format="JPEG", quality=75)
+                    frame_jpeg = buf.getvalue()
+                except Exception as e:
+                    print(f"[capture] Lazy JPEG encode failed: {e}")
+                    return
+            else:
+                frame_jpeg = self._capture_fullscreen_jpeg()
+            if frame_jpeg is None:
                 return
 
         # --- State transitions (simple toggle between 3 OCR regions) ---
@@ -610,30 +743,20 @@ class AutoCapture:
                 self._save_deploy_shot(screenshots_dir, "deploy_1", frame_jpeg)
                 print(f"[capture] Deploy shot 1/3 saved: {map_name}")
 
-                # Shots 2 & 3: wait for genuinely new frames (2s apart like stats)
+                # Shots 2 & 3: one-off full screenshots at delay points.
+                # Rust stops OCR preview frames while recording, so _latest_frame
+                # intentionally does not advance here.
                 def _delayed_deploy_shots():
-                    prev_seq = self._frame_seq
-                    # Shot 2: wait ~2s for a new frame
                     time.sleep(2.0)
-                    for _ in range(10):
-                        if self._frame_seq != prev_seq:
-                            break
-                        time.sleep(0.1)
-                    frame2 = self._latest_frame
+                    frame2 = self._capture_fullscreen_jpeg()
                     if frame2:
                         self._save_deploy_shot(screenshots_dir, "deploy_2", frame2)
-                        print(f"[capture] Deploy shot 2/3 saved (seq {self._frame_seq})")
-                    # Shot 3: wait another ~2s
-                    prev_seq = self._frame_seq
+                        print(f"[capture] Deploy shot 2/3 saved")
                     time.sleep(2.0)
-                    for _ in range(10):
-                        if self._frame_seq != prev_seq:
-                            break
-                        time.sleep(0.1)
-                    frame3 = self._latest_frame
+                    frame3 = self._capture_fullscreen_jpeg()
                     if frame3:
                         self._save_deploy_shot(screenshots_dir, "deploy_3", frame3)
-                        print(f"[capture] Deploy shot 3/3 saved (seq {self._frame_seq})")
+                        print(f"[capture] Deploy shot 3/3 saved")
 
                 threading.Thread(target=_delayed_deploy_shots, daemon=True).start()
 
@@ -677,30 +800,19 @@ class AutoCapture:
                 self._save_stats_shot(screenshots_dir, "stats_1", frame_jpeg)
                 print(f"[capture] Stats shot 1/3 saved ({det_type})")
 
-                # Shots 2 & 3: faster timing to catch stats before player clicks to PROGRESS
+                # Shots 2 & 3: one-off full screenshots timed to catch stats
+                # before the player clicks to PROGRESS.
                 def _delayed_stats_shots():
-                    prev_seq = self._frame_seq
-                    # Shot 2: wait ~1s for stats animation to complete
                     time.sleep(1.0)
-                    for _ in range(10):
-                        if self._frame_seq != prev_seq:
-                            break
-                        time.sleep(0.1)
-                    frame2 = self._latest_frame
+                    frame2 = self._capture_fullscreen_jpeg()
                     if frame2:
                         self._save_stats_shot(screenshots_dir, "stats_2", frame2)
-                        print(f"[capture] Stats shot 2/3 saved (seq {self._frame_seq})")
-                    # Shot 3: wait another ~1.5s
-                    prev_seq = self._frame_seq
+                        print(f"[capture] Stats shot 2/3 saved")
                     time.sleep(1.5)
-                    for _ in range(10):
-                        if self._frame_seq != prev_seq:
-                            break
-                        time.sleep(0.1)
-                    frame3 = self._latest_frame
+                    frame3 = self._capture_fullscreen_jpeg()
                     if frame3:
                         self._save_stats_shot(screenshots_dir, "stats_3", frame3)
-                        print(f"[capture] Stats shot 3/3 saved (seq {self._frame_seq})")
+                        print(f"[capture] Stats shot 3/3 saved")
 
                 threading.Thread(target=_delayed_stats_shots, daemon=True).start()
 
@@ -723,6 +835,7 @@ class AutoCapture:
 
         # Load recording settings from config
         from .api.settings_api import get_config_value
+        quality_preset = get_config_value("quality_preset") or "balanced"
         encoder = get_config_value("encoder") or "hevc"
         bitrate_mbps = get_config_value("bitrate") or 30
         fps = get_config_value("fps") or 60
@@ -740,7 +853,7 @@ class AutoCapture:
             self._recording = True
             self._recording_start = time.time()
             self._recording_path = path
-            print(f"[capture] Recording to: {path} ({encoder.upper()}, {bitrate_mbps}Mbps, {fps}fps)")
+            print(f"[capture] Recording to: {path} ({quality_preset}, {encoder.upper()}, {bitrate_mbps}Mbps, {fps}fps)")
             self._broadcast_status()
         else:
             print("[capture] Recording failed to start")
@@ -756,6 +869,7 @@ class AutoCapture:
         self._recording = False
         self._recording_start = 0
         self._recording_path = None
+        self._last_recording_stopped_at = time.time()
         self._scan_state = 'lobby'
         self._endgame_timestamp = None
 
@@ -797,7 +911,6 @@ class AutoCapture:
 
         # Add to processing queue
         self._add_processing_item(filepath, duration)
-        self._generate_thumbnail(filepath, duration)
         self._process_queue.put(filepath)
         self._broadcast_status()
 
@@ -843,6 +956,8 @@ class AutoCapture:
         run_dir = os.path.dirname(filepath)  # clips/run_XXX/
 
         def _gen_thumb():
+            self._wait_for_processing_window("thumbnail")
+
             thumb_name = filename.replace(".mp4", "_thumb.jpg")
             thumb_path = os.path.join(run_dir, thumb_name)
             if not (os.path.exists(thumb_path) and os.path.getsize(thumb_path) > 5000):
@@ -853,7 +968,7 @@ class AutoCapture:
                 else:
                     try:
                         seek = max(1, int(duration * 0.5))
-                        subprocess.run(
+                        run_media(
                             ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
                              '-ss', str(seek), '-i', filepath,
                              '-vframes', '1', '-vf', 'scale=384:-1',
@@ -939,8 +1054,20 @@ class AutoCapture:
                 self._submit_phase2(filepath, run_id)
                 print(f"[capture] Released held P2 run #{run_id}")
 
+    @staticmethod
+    def _normalize_recording_filename(filename: str) -> str | None:
+        """Return a safe recording basename or None for invalid external input."""
+        safe_name = os.path.basename(filename or "")
+        if not re.fullmatch(r"run_\d{8}_\d{6}\.mp4", safe_name):
+            return None
+        return safe_name
+
     def dismiss_item(self, filename: str):
         """Remove an item from the processing queue entirely without processing it."""
+        filename = self._normalize_recording_filename(filename)
+        if not filename:
+            print("[capture] Ignoring invalid dismiss filename")
+            return
         # Mark for dispatcher to skip if still in _process_queue
         self._dismissed_files.add(filename)
         # Remove from P2 waiting and held lists
@@ -948,7 +1075,7 @@ class AutoCapture:
             self._p2_waiting = [(f, r) for f, r in self._p2_waiting if os.path.basename(f) != filename]
             self._p2_held = [(f, r) for f, r in self._p2_held if os.path.basename(f) != filename]
         # Write persistent .dismissed marker next to the recording
-        run_tag = filename.replace(".mp4", "")
+        run_tag = filename.removesuffix(".mp4")
         run_dir = os.path.join(self.clips_dir, run_tag)
         if os.path.isdir(run_dir):
             try:
@@ -989,7 +1116,8 @@ class AutoCapture:
 
         # Generate thumbnail + sprite sheet
         try:
-            probe = subprocess.run(
+            self._wait_for_processing_window("auto-save")
+            probe = run_media(
                 ['ffprobe', '-v', 'quiet', '-show_entries',
                  'format=duration', '-of', 'csv=p=0', filepath],
                 capture_output=True, text=True, timeout=10
@@ -1003,7 +1131,8 @@ class AutoCapture:
                     shutil.copy2(endgame_jpg, keep_thumb)
                 else:
                     mid = duration * 0.5
-                    subprocess.run(
+                    self._wait_for_processing_window("auto-save")
+                    run_media(
                         ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
                          '-ss', str(mid), '-i', filepath,
                          '-vframes', '1', '-vf', 'scale=384:-1',
@@ -1013,8 +1142,13 @@ class AutoCapture:
 
             sprite_path = filepath.replace(".mp4", "_sprite.jpg")
             if not os.path.exists(sprite_path):
+                self._wait_for_processing_window("auto-save")
                 from .video_processor import _generate_sprite_sheet
-                _generate_sprite_sheet(filepath, duration)
+                _generate_sprite_sheet(
+                    filepath,
+                    duration,
+                    wait_for_processing_window=lambda: self._wait_for_processing_window("auto-save"),
+                )
         except Exception as e:
             print(f"[auto-save] Asset generation failed: {e}")
 
@@ -1028,7 +1162,10 @@ class AutoCapture:
 
     def _resolve_filepath(self, filename: str) -> str:
         """Resolve a recording filename to its full path in clips."""
-        run_tag = filename.replace(".mp4", "")
+        filename = self._normalize_recording_filename(filename) or ""
+        if not filename:
+            return ""
+        run_tag = filename.removesuffix(".mp4")
         return os.path.join(self.clips_dir, run_tag, filename)
 
     def reset_processing_item(self, filename: str):
@@ -1073,17 +1210,61 @@ class AutoCapture:
 
     # -- Processing (dispatcher + workers) -----------------------------
 
+    def _post_recording_grace_seconds(self) -> float:
+        try:
+            from .api.settings_api import get_config_value
+            value = float(get_config_value("post_recording_grace_seconds") or POST_RECORDING_PROCESSING_GRACE_SECONDS)
+            return max(0.0, value)
+        except Exception:
+            return POST_RECORDING_PROCESSING_GRACE_SECONDS
+
+    def _processing_defer_reason(self) -> str | None:
+        """Return why background work should wait, or None when it can run."""
+        if self._recording:
+            return "recording"
+        if self._scan_state in GAMEPLAY_PROCESSING_STATES:
+            if self._scan_state in MATCHMAKING_PROCESSING_STATES:
+                return "matchmaking"
+            return "game_state"
+        if self._last_recording_stopped_at:
+            elapsed = time.time() - self._last_recording_stopped_at
+            if elapsed < self._post_recording_grace_seconds():
+                return "post_recording_grace"
+        return None
+
+    def _should_defer_processing(self) -> bool:
+        """Keep heavy analysis out of the active game path."""
+        return self._processing_defer_reason() is not None
+
+    def _wait_for_processing_window(self, label: str):
+        """Block new heavy work while matchmaking, recording, or cooldown is active."""
+        last_reason = None
+        while self._running:
+            reason = self._processing_defer_reason()
+            if reason is None:
+                return
+            if reason != last_reason:
+                print(f"[{label}] Game-first pause: {reason}")
+                last_reason = reason
+            time.sleep(1.0)
+
     def _dispatcher_loop(self):
         while self._running:
             try:
                 filepath = self._process_queue.get(timeout=1.0)
             except queue.Empty:
+                self._drain_phase2_waiting()
                 continue
             filename = os.path.basename(filepath)
             # Skip dismissed items
             if filename in self._dismissed_files:
                 self._dismissed_files.discard(filename)
                 self._process_queue.task_done()
+                continue
+            if self._should_defer_processing():
+                self._process_queue.put(filepath)
+                self._process_queue.task_done()
+                time.sleep(1.0)
                 continue
             # Hold if auto_p1 is disabled — put back and wait
             if not self._auto_p1:
@@ -1093,10 +1274,24 @@ class AutoCapture:
                 continue
             self._p1_executor.submit(self._process_phase1, filepath)
             self._process_queue.task_done()
+            self._drain_phase2_waiting()
         print("[dispatcher] Stopped.")
+
+    def _drain_phase2_waiting(self):
+        """Submit held Phase 2 jobs once the game-first grace window clears."""
+        if self._should_defer_processing() or not self._p2_executor:
+            return
+        with self._p2_active_lock:
+            while self._p2_waiting and self._p2_active < self._p2_max_workers:
+                filepath, run_id = self._p2_waiting.pop(0)
+                self._p2_active += 1
+                self._update_processing_item(filepath, "analyzing_gameplay", run_id=run_id)
+                self._p2_executor.submit(self._process_phase2, filepath, run_id)
+                print(f"[p2] Game-first grace cleared, submitting run #{run_id} ({self._p2_active}/{self._p2_max_workers} active)")
 
     def _process_phase1(self, filepath: str):
         """Phase 1: stats extraction. Runs in P1 pool."""
+        self._wait_for_processing_window("p1")
         from .video_processor import process_recording
 
         def on_phase(phase, detail=None):
@@ -1117,7 +1312,12 @@ class AutoCapture:
                 os.remove(p1_marker)
 
         try:
-            result = process_recording(filepath, self.clips_dir, on_phase=on_phase)
+            result = process_recording(
+                filepath,
+                self.clips_dir,
+                on_phase=on_phase,
+                wait_for_processing_window=lambda: self._wait_for_processing_window("p1"),
+            )
             with self._processing_lock:
                 self._last_process_result = result
             if result["status"] != "success":
@@ -1179,6 +1379,11 @@ class AutoCapture:
             print(f"[p2] Auto P2 disabled — holding run #{run_id}")
             return
         with self._p2_active_lock:
+            if self._should_defer_processing():
+                self._p2_waiting.append((filepath, run_id))
+                self._update_processing_item(filepath, "queued", run_id=run_id)
+                print(f"[p2] Game-first mode — holding Phase 2 for run #{run_id}")
+                return
             if self._p2_active < self._p2_max_workers:
                 self._p2_active += 1
                 self._update_processing_item(filepath, "analyzing_gameplay", run_id=run_id)
@@ -1193,6 +1398,8 @@ class AutoCapture:
         """Called when a P2 job completes. Drains waiting list if slots available."""
         with self._p2_active_lock:
             self._p2_active = max(0, self._p2_active - 1)
+            if self._should_defer_processing():
+                return
             while self._p2_waiting and self._p2_active < self._p2_max_workers:
                 filepath, run_id = self._p2_waiting.pop(0)
                 self._p2_active += 1
@@ -1206,6 +1413,7 @@ class AutoCapture:
         On success: auto-save → remove from queue (item vanishes).
         On failure: set error status → RETRY available.
         """
+        self._wait_for_processing_window("p2")
         from .video_processor import process_recording_phase2
 
         def on_phase(phase, detail=None):
@@ -1214,7 +1422,11 @@ class AutoCapture:
         try:
             print(f"[p2] Starting Phase 2 for run #{run_id}...")
             p2_result = process_recording_phase2(
-                filepath, self.clips_dir, run_id, on_phase=on_phase
+                filepath,
+                self.clips_dir,
+                run_id,
+                on_phase=on_phase,
+                wait_for_processing_window=lambda: self._wait_for_processing_window("p2"),
             )
 
             # Check if narrative actually made it to the DB
@@ -1345,7 +1557,7 @@ class AutoCapture:
                     else:
                         # Phase 1 done, phase 2 needed
                         try:
-                            probe = subprocess.run(
+                            probe = run_media(
                                 ['ffprobe', '-v', 'quiet', '-show_entries',
                                  'format=duration', '-of', 'csv=p=0', filepath],
                                 capture_output=True, text=True, timeout=10,
@@ -1360,7 +1572,7 @@ class AutoCapture:
                     continue
 
                 try:
-                    probe = subprocess.run(
+                    probe = run_media(
                         ['ffprobe', '-v', 'quiet', '-show_entries',
                          'format=duration', '-of', 'csv=p=0', filepath],
                         capture_output=True, text=True, timeout=10,

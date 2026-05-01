@@ -86,6 +86,7 @@ class Run(Base):
     notes = Column(Text, nullable=True)
     grade = Column(String(2), nullable=True)  # S, A, B, C, D, F
     summary = Column(Text, nullable=True)  # Sonnet's narrative story of the run
+    analysis_meta = Column(JSON, nullable=True)  # Alpha/hybrid confidence and routing metadata
     recording_path = Column(String(500), nullable=True)  # Path to kept full recording
     viewed = Column(Boolean, default=False)  # Whether user has seen this run
     is_favorite = Column(Boolean, default=False)  # User-favorited run

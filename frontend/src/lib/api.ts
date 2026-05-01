@@ -3,7 +3,7 @@ import { getApiBaseUrl } from './electron'
 import type {
   Run, PaginatedRuns, Runner, Loadout, Weapon, ShellStats,
   OverviewStats, MapStats, TrendData, Session, SpawnHeatmap,
-  CaptureStatus, Clip,
+  CaptureStatus, Clip, RunFilters, SquadMateStats,
 } from './types'
 
 const apiBase = getApiBaseUrl()
@@ -12,8 +12,8 @@ const api = axios.create({ baseURL: `${apiBase}/api` })
 export { apiBase }
 
 // Runs
-export async function getRuns(params?: Record<string, any>): Promise<PaginatedRuns> {
-  const { data } = await api.get<PaginatedRuns>('/runs', { params })
+export async function getRuns(params?: RunFilters): Promise<PaginatedRuns> {
+  const { data } = await api.get<PaginatedRuns>('/runs/', { params })
   return data
 }
 
@@ -28,7 +28,7 @@ export async function getRecentRuns(limit = 10): Promise<Run[]> {
 }
 
 export async function createRun(run: Partial<Run>): Promise<Run> {
-  const { data } = await api.post<Run>('/runs', run)
+  const { data } = await api.post<Run>('/runs/', run)
   return data
 }
 
@@ -66,11 +66,14 @@ export interface AppSettings {
   api_key_masked: string
   api_key_source: string
   cli_available: boolean
+  quality_preset: string
   encoder: string
   bitrate: number
   fps: number
   p1_workers: number
   p2_workers: number
+  post_recording_grace_seconds: number
+  post_processing_profile: string
   auto_p1: boolean
   auto_p2: boolean
   processor_mode: string
@@ -82,8 +85,23 @@ export interface AppSettings {
   storage_path_default: string
 }
 
+export interface AlphaHealth {
+  status: 'ready' | 'ready_with_warnings' | 'degraded' | string
+  ready: boolean
+  dependencies: Record<string, boolean>
+  assets: Record<string, boolean | number>
+  blockers: string[]
+  warnings: string[]
+  tesseract_path: string | null
+}
+
 export async function getSettings(): Promise<AppSettings> {
-  const { data } = await api.get('/settings')
+  const { data } = await api.get('/settings/')
+  return data
+}
+
+export async function getAlphaHealth(refresh = false): Promise<AlphaHealth> {
+  const { data } = await api.get<AlphaHealth>('/settings/alpha-health', { params: { refresh } })
   return data
 }
 
@@ -149,36 +167,36 @@ export async function cliUpdate(): Promise<{ status: string; version: string | n
 }
 
 // Squad
-export async function getSquadStats(limit = 7): Promise<any[]> {
-  const { data } = await api.get('/squad/stats', { params: { limit } })
+export async function getSquadStats(limit = 7): Promise<SquadMateStats[]> {
+  const { data } = await api.get<SquadMateStats[]>('/squad/stats', { params: { limit } })
   return data
 }
 
 // Runners
 export async function getRunners(): Promise<Runner[]> {
-  const { data } = await api.get<Runner[]>('/runners')
+  const { data } = await api.get<Runner[]>('/runners/')
   return data
 }
 
 export async function createRunner(runner: Partial<Runner>): Promise<Runner> {
-  const { data } = await api.post<Runner>('/runners', runner)
+  const { data } = await api.post<Runner>('/runners/', runner)
   return data
 }
 
 // Loadouts
 export async function getLoadouts(): Promise<Loadout[]> {
-  const { data } = await api.get<Loadout[]>('/loadouts')
+  const { data } = await api.get<Loadout[]>('/loadouts/')
   return data
 }
 
 export async function createLoadout(loadout: Partial<Loadout>): Promise<Loadout> {
-  const { data } = await api.post<Loadout>('/loadouts', loadout)
+  const { data } = await api.post<Loadout>('/loadouts/', loadout)
   return data
 }
 
 // Weapons
 export async function getWeapons(): Promise<Weapon[]> {
-  const { data } = await api.get<Weapon[]>('/weapons')
+  const { data } = await api.get<Weapon[]>('/weapons/')
   return data
 }
 
@@ -211,12 +229,12 @@ export async function getSpawnHeatmap(): Promise<SpawnHeatmap[]> {
 
 // Sessions
 export async function getSessions(): Promise<Session[]> {
-  const { data } = await api.get<Session[]>('/sessions')
+  const { data } = await api.get<Session[]>('/sessions/')
   return data
 }
 
 export async function createSession(notes?: string): Promise<Session> {
-  const { data } = await api.post<Session>('/sessions', { notes })
+  const { data } = await api.post<Session>('/sessions/', { notes })
   return data
 }
 

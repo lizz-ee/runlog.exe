@@ -63,12 +63,14 @@ cd backend && RUNLOG_DEV=1 python run.py
 cd frontend && npm run electron:dev
 ```
 
-**Build installer:**
+**Build packaged app:**
 
 ```bash
 cd frontend && npm run dist
 # Output in ../release/
 ```
+
+`npm run dist` and `npm run dist:dir` are unsigned local package builds, so they work without Windows Developer Mode/admin symlink privileges. For a signed release build, use `npm run dist:signed` or `npm run dist:dir:signed` from CI/admin/Developer Mode with signing credentials configured.
 
 ---
 
@@ -593,7 +595,7 @@ No personal information, account data, or system data is included.
 ### App won't start
 
 - Make sure no other instance is running (check your system tray).
-- The backend runs on port 8000 — make sure nothing else is using that port.
+- The backend defaults to port 8000. If you set `RUNLOG_API_PORT` or `api_port` in settings, make sure that port is free.
 - For development mode, ensure Python 3.12+ and Node.js 18+ are installed.
 
 ### Database issues

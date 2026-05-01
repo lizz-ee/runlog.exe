@@ -14,8 +14,11 @@ import os
 import subprocess
 import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
+
+from ..media_process import run_media
 
 logger = logging.getLogger(__name__)
 
@@ -35,11 +38,65 @@ class AudioAnalyzer:
     def __init__(self, sample_rate: int = 16000):
         self.sample_rate = sample_rate
 
+    @staticmethod
+    def _candidate_audio_paths(video_path: str) -> list[str]:
+        """Return sidecar audio files written by the recorder, newest preference first."""
+        base = Path(video_path)
+        candidates = [
+            base.with_suffix(".wav"),
+            base.with_name(base.stem.replace("run_", "", 1) + ".wav"),
+        ]
+        return [str(p) for p in candidates if p.exists() and p.stat().st_size > 1000]
+
+    def _read_wav_file(self, wav_path: str) -> np.ndarray | None:
+        """Read a WAV file, convert it to mono float32, and resample if needed."""
+        try:
+            import scipy.io.wavfile as wav
+            sr, audio = wav.read(wav_path)
+        except Exception as e:
+            logger.warning(f"Failed to read WAV audio {wav_path}: {e}")
+            return None
+
+        if len(audio) == 0:
+            return None
+
+        if len(audio.shape) > 1:
+            audio = audio.astype(np.float32).mean(axis=1)
+
+        if audio.dtype == np.int16:
+            audio = audio.astype(np.float32) / 32768.0
+        elif audio.dtype == np.int32:
+            audio = audio.astype(np.float32) / 2147483648.0
+        elif audio.dtype == np.uint8:
+            audio = (audio.astype(np.float32) - 128.0) / 128.0
+        elif audio.dtype != np.float32:
+            audio = audio.astype(np.float32)
+
+        if sr != self.sample_rate:
+            try:
+                from scipy.signal import resample_poly
+                from math import gcd
+                divisor = gcd(sr, self.sample_rate)
+                audio = resample_poly(audio, self.sample_rate // divisor, sr // divisor).astype(np.float32)
+                sr = self.sample_rate
+            except Exception as e:
+                logger.warning(f"Audio resample failed ({sr}Hz -> {self.sample_rate}Hz): {e}")
+                return None
+
+        duration = len(audio) / sr
+        logger.info(f"Audio loaded: {duration:.0f}s, {sr}Hz, {len(audio)} samples from {os.path.basename(wav_path)}")
+        return audio
+
     def extract_audio(self, video_path: str) -> np.ndarray | None:
         """Extract mono audio from video as numpy float32 array.
 
         Returns None if video has no audio data.
         """
+        for wav_path in self._candidate_audio_paths(video_path):
+            audio = self._read_wav_file(wav_path)
+            if audio is not None:
+                return audio
+
         with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
             tmp_path = tmp.name
 
@@ -53,7 +110,7 @@ class AudioAnalyzer:
                 '-c:a', 'pcm_s16le',
                 tmp_path,
             ]
-            result = subprocess.run(cmd, capture_output=True, timeout=120)
+            result = run_media(cmd, capture_output=True, timeout=120)
 
             if result.returncode != 0 or not os.path.exists(tmp_path):
                 logger.info("No audio track available")
@@ -64,23 +121,7 @@ class AudioAnalyzer:
                 logger.info("Audio track is empty (no data)")
                 return None
 
-            # Read WAV data
-            import scipy.io.wavfile as wav
-            sr, audio = wav.read(tmp_path)
-
-            if len(audio) == 0:
-                logger.info("Audio track has zero samples")
-                return None
-
-            # Convert to float32 normalized
-            if audio.dtype == np.int16:
-                audio = audio.astype(np.float32) / 32768.0
-            elif audio.dtype != np.float32:
-                audio = audio.astype(np.float32)
-
-            duration = len(audio) / sr
-            logger.info(f"Audio extracted: {duration:.0f}s, {sr}Hz, {len(audio)} samples")
-            return audio
+            return self._read_wav_file(tmp_path)
 
         except subprocess.TimeoutExpired:
             logger.warning("Audio extraction timed out")

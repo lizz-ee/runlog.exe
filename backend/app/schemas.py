@@ -165,6 +165,7 @@ class RunOut(BaseModel):
     vault_value: Optional[float] = None
     grade: Optional[str] = None
     summary: Optional[str] = None
+    analysis_meta: Optional[dict[str, Any]] = None
     shell_name: Optional[str] = None
     player_gamertag: Optional[str] = None
     recording_path: Optional[str] = None

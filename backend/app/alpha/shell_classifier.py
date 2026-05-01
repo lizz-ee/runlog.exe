@@ -94,6 +94,37 @@ class ShellClassifier:
             num_classes, _MODEL_PATH.name,
         )
 
+    def predict_topk(self, image_path: str | Path, k: int = 3) -> list[tuple[str, float]]:
+        """
+        Return the top-k shell predictions for a crop image.
+
+        The hybrid router uses these candidates to decide when a local shell
+        prediction is strong enough and when it should ask Claude to repair it.
+        """
+        if self._model is None:
+            self._load()
+
+        img = Image.open(image_path).convert("RGB")
+        tensor = _eval_transform(img).unsqueeze(0).to(self._device)
+
+        with torch.no_grad():
+            output = self._model(tensor)
+            probs = torch.softmax(output, dim=1).squeeze(0)
+            top_count = max(1, min(k, probs.numel()))
+            confidences, indices = torch.topk(probs, top_count)
+
+        predictions = [
+            (self._class_names[idx.item()], conf.item())
+            for conf, idx in zip(confidences, indices)
+        ]
+        logger.debug(
+            "Shell top-%d from %s: %s",
+            top_count,
+            Path(image_path).name,
+            [(name, round(conf, 3)) for name, conf in predictions],
+        )
+        return predictions
+
     def predict(self, image_path: str | Path) -> tuple[str, float]:
         """
         Predict shell class from a character crop image.
@@ -106,23 +137,8 @@ class ShellClassifier:
         -------
         (class_name, confidence) — e.g. ("triage", 0.97)
         """
-        # Lazy load
-        if self._model is None:
-            self._load()
-
-        img = Image.open(image_path).convert("RGB")
-        tensor = _eval_transform(img).unsqueeze(0).to(self._device)
-
-        with torch.no_grad():
-            output = self._model(tensor)
-            probs = torch.softmax(output, dim=1)
-            confidence, predicted = probs.max(1)
-
-        class_name = self._class_names[predicted.item()]
-        conf = confidence.item()
-
-        logger.debug("Shell prediction: %s (%.3f) from %s", class_name, conf, Path(image_path).name)
-        return class_name, conf
+        top = self.predict_topk(image_path, k=1)
+        return top[0]
 
 
 # ---------------------------------------------------------------------------

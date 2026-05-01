@@ -13,12 +13,17 @@ Usage:
 
 import asyncio
 import logging
+import os
 import re
+import shutil
 from pathlib import Path
 
 import cv2
 import numpy as np
 from PIL import Image
+
+from backend.app.alpha.digit_reader import read_numeric_crop
+from backend.app.alpha.vocab import normalize_map_name, normalize_weapon_name
 
 logger = logging.getLogger(__name__)
 
@@ -52,19 +57,21 @@ try:
     import pytesseract
     # Find tesseract binary
     for tess_path in [
+        os.environ.get("TESSERACT_CMD"),
         r"C:\Program Files\Tesseract-OCR\tesseract.exe",
         r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
         r"C:\Users\User\AppData\Local\Tesseract-OCR\tesseract.exe",
     ]:
-        if Path(tess_path).exists():
+        if tess_path and Path(tess_path).exists():
             pytesseract.pytesseract.tesseract_cmd = tess_path
             TESSERACT_AVAILABLE = True
             logger.info(f"Tesseract found at {tess_path}")
             break
     if not TESSERACT_AVAILABLE:
         # Try PATH
-        import shutil
-        if shutil.which("tesseract"):
+        tess_path = shutil.which("tesseract")
+        if tess_path:
+            pytesseract.pytesseract.tesseract_cmd = tess_path
             TESSERACT_AVAILABLE = True
             logger.info("Tesseract found in PATH")
 except ImportError:
@@ -274,6 +281,9 @@ class AlphaOCR:
             if name in text_upper:
                 # Return proper case
                 return name.title()
+        matched, _score = normalize_map_name(text)
+        if matched:
+            return matched
         # Fuzzy: check partial matches
         for name, display in [("PERIM", "Perimeter"), ("OUTPO", "Outpost"),
                                ("DIRE", "Dire Marsh"), ("MARSH", "Dire Marsh"),
@@ -294,6 +304,23 @@ class AlphaOCR:
         if len(text) >= 2:
             return text
         return None
+
+    @staticmethod
+    def _clean_weapon_name(text: str) -> str | None:
+        """Normalize a weapon OCR line without pretending low-quality text is valid."""
+        if not text:
+            return None
+        line = text.split("\n")[0].strip()
+        line = re.sub(r'^\(\d+\)\s*', '', line)
+        line = re.sub(r'^[^\w]+', '', line)
+        line = re.sub(r'\s+', ' ', line).strip(" -|")
+        if len(line) < 3:
+            return None
+        # Reject obvious UI labels that can drift into the weapon crop.
+        if line.upper() in {"LOADOUT", "REPORT", "WEAPON", "PRIMARY", "SECONDARY"}:
+            return None
+        matched, _score = normalize_weapon_name(line, min_score=0.80)
+        return matched or line
 
     # =========================================================================
     # High-Level OCR Functions
@@ -390,14 +417,14 @@ class AlphaOCR:
         Hybrid strategy:
         1. OCR the full center column block for text (labels, multi-digit values)
         2. Use per-row OCR for individual stat lines (label + value together)
-        3. Fall back to pixel analysis for single-digit values winocr can't detect
+        3. Fall back to a local numeric crop reader for tiny digits / empty zero
 
         Returns dict with: survived, combatant_eliminations, runner_eliminations,
         crew_revives, loot_value_total (inventory value), duration_seconds,
         player_gamertag, squad_members, kills.
 
         Also includes "_confidence" dict mapping field names to 0.0-1.0 scores.
-        Confidence tiers: tesseract=0.9, easyocr=0.7, pixel=0.4, color_fallback=0.6
+        Confidence tiers: tesseract=0.9, numeric_crop=0.44-0.88, color_fallback=0.6
         """
         result = {
             "survived": None,
@@ -444,8 +471,7 @@ class AlphaOCR:
 
         # --- Step 3: Per-stat extraction using 3-tier OCR ---
         # Tier 1: Tesseract on full row (label + value, best for single digits)
-        # Tier 2: EasyOCR on value-only crop (3x upscale)
-        # Tier 3: Pixel analysis fallback
+        # Tier 2: Numeric value-only crop (Tesseract/EasyOCR/shape fallback)
 
         # Full row regions (label + value together)
         row_regions = {
@@ -486,38 +512,28 @@ class AlphaOCR:
                 except Exception as e:
                     logger.debug(f"Tesseract failed for {field}: {e}")
 
-            # --- Tier 2: EasyOCR on value-only crop ---
-            if EASYOCR_AVAILABLE and result.get(field) is None and field in val_regions:
+            # --- Tier 2: Numeric value-only crop ---
+            if result.get(field) is None and field in val_regions:
                 val_crop = _crop_pil(img, val_regions[field])
-                val_3x = val_crop.resize(
-                    (val_crop.size[0] * 3, val_crop.size[1] * 3), Image.LANCZOS)
                 try:
-                    reader = _get_easyocr()
-                    ocr_results = reader.readtext(np.array(val_3x), detail=1)
-                    # Use EasyOCR's own confidence scores
-                    easyocr_conf = min([c for _, _, c in ocr_results], default=0.5) if ocr_results else 0.5
-                    val_text = " ".join([t for _, t, c in ocr_results]).strip()
-                    if val_text:
-                        num_match = re.search(r'-?\d[\d,]*', val_text)
-                        if num_match:
-                            val = self._parse_number(num_match.group(1))
-                            if val is not None:
-                                result[field] = val
-                                confidence[field] = round(0.7 * easyocr_conf, 2)
-                                continue
-                    else:
-                        result[field] = 0
-                        confidence[field] = 0.5
+                    numeric = read_numeric_crop(val_crop)
+                    if numeric.value is not None:
+                        result[field] = numeric.value
+                        confidence[field] = numeric.confidence
+                        logger.debug(
+                            "Numeric crop %s: %s via %s raw='%s'",
+                            field, numeric.value, numeric.source, numeric.raw_text,
+                        )
                         continue
                 except Exception as e:
-                    logger.debug(f"EasyOCR failed for {field}: {e}")
+                    logger.debug(f"Numeric crop read failed for {field}: {e}")
 
-            # --- Tier 3: Pixel analysis ---
+            # --- Final safety fallback: empty crop only ---
             if result.get(field) is None and field in val_regions:
                 pixel_val = self._read_value_by_pixels(img, val_regions[field])
                 if pixel_val is not None:
                     result[field] = pixel_val
-                    confidence[field] = 0.4
+                    confidence[field] = 0.38
 
         # --- Step 4: Run time (OCR dedicated region) ---
         rt_crop = _crop_pil(img, REGIONS["stats_run_time"])
@@ -534,11 +550,10 @@ class AlphaOCR:
             confidence["duration_seconds"] = 0.85
 
         # --- Step 5: Calculate kills total ---
-        ce = result.get("combatant_eliminations") or 0
-        re_ = result.get("runner_eliminations") or 0
-        result["kills"] = ce + re_
-        # Kills confidence = min of its components
-        if ce or re_:
+        ce = result.get("combatant_eliminations")
+        re_ = result.get("runner_eliminations")
+        if ce is not None and re_ is not None:
+            result["kills"] = ce + re_
             confidence["kills"] = min(
                 confidence.get("combatant_eliminations", 0.0),
                 confidence.get("runner_eliminations", 0.0),
@@ -573,9 +588,9 @@ class AlphaOCR:
         w1_processed = _preprocess_for_ocr(w1_crop)
         w1_text = _ocr_sync(w1_processed)
         if w1_text:
-            # Weapon names are typically ALL CAPS, strip prefixes like "(1)"
-            w1_clean = re.sub(r'^\(\d+\)\s*', '', w1_text.split("\n")[0].strip())
-            if len(w1_clean) >= 3:
+            # Weapon names are typically uppercase, but preserve exact OCR casing.
+            w1_clean = self._clean_weapon_name(w1_text)
+            if w1_clean:
                 result["primary_weapon"] = w1_clean
                 confidence["primary_weapon"] = 0.75
 
@@ -584,8 +599,8 @@ class AlphaOCR:
         w2_processed = _preprocess_for_ocr(w2_crop)
         w2_text = _ocr_sync(w2_processed)
         if w2_text:
-            w2_clean = re.sub(r'^\(\d+\)\s*', '', w2_text.split("\n")[0].strip())
-            if len(w2_clean) >= 3:
+            w2_clean = self._clean_weapon_name(w2_text)
+            if w2_clean:
                 result["secondary_weapon"] = w2_clean
                 confidence["secondary_weapon"] = 0.75
 
@@ -596,6 +611,75 @@ class AlphaOCR:
         result["vault_value"] = self._parse_number(wallet_text)
         if result["vault_value"] is not None:
             confidence["vault_value"] = 0.7
+
+        result["_confidence"] = confidence
+        return result
+
+    def read_damage_widget(self, img: Image.Image) -> dict:
+        """Read the death-screen damage widget from the right side.
+
+        This is intentionally conservative. It captures obvious finisher and
+        damage values locally, then leaves uncertain fields low confidence so
+        hybrid mode can repair them with a targeted Claude call.
+        """
+        result = {
+            "killed_by": None,
+            "killed_by_weapon": None,
+            "killed_by_damage": None,
+            "damage_contributors": None,
+        }
+        confidence = {}
+
+        crop = _crop_pil(img, REGIONS["damage_widget"])
+        processed = _preprocess_for_ocr(crop, min_width=900)
+        text = _ocr_sync(processed)
+        if not text:
+            result["_confidence"] = confidence
+            return result
+
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        joined = "\n".join(lines)
+        logger.debug("Damage widget raw: '%s'", joined)
+
+        gamer_tags = re.findall(r'\b[A-Za-z0-9_][A-Za-z0-9_.-]{1,24}#\d{2,6}\b', joined)
+        if gamer_tags:
+            result["killed_by"] = gamer_tags[0]
+            confidence["killed_by"] = 0.65
+
+        damage_values = []
+        for match in re.finditer(r'(\d{2,4})\s*(?:DMG|DAMAGE)?', joined, re.IGNORECASE):
+            value = self._parse_number(match.group(1))
+            if value is not None:
+                damage_values.append(value)
+
+        if damage_values:
+            result["killed_by_damage"] = damage_values[0]
+            confidence["killed_by_damage"] = 0.55
+
+        weapon_line = None
+        weapon_labels = ("WEAPON", "KILLED BY", "ELIMINATED BY", "FINISHER")
+        for line in lines:
+            upper = line.upper()
+            if any(label in upper for label in weapon_labels):
+                continue
+            if "#" in line or re.search(r'\d{2,4}\s*(DMG|DAMAGE)?$', line, re.IGNORECASE):
+                continue
+            cleaned = self._clean_weapon_name(line)
+            if cleaned:
+                weapon_line = cleaned
+                break
+        if weapon_line:
+            result["killed_by_weapon"] = weapon_line
+            confidence["killed_by_weapon"] = 0.45
+
+        contributors = []
+        for idx, tag in enumerate(gamer_tags):
+            contributor = {"name": tag, "damage": damage_values[idx] if idx < len(damage_values) else None}
+            contributor["finished"] = idx == 0
+            contributors.append(contributor)
+        if contributors:
+            result["damage_contributors"] = contributors
+            confidence["damage_contributors"] = 0.45
 
         result["_confidence"] = confidence
         return result
@@ -668,6 +752,11 @@ class AlphaOCR:
         result["player_level"] = self._parse_number(level_text)
         if result["player_level"] is not None:
             confidence["player_level"] = 0.7
+        else:
+            numeric = read_numeric_crop(level_crop)
+            if numeric.value and 1 <= numeric.value <= 999:
+                result["player_level"] = numeric.value
+                confidence["player_level"] = min(numeric.confidence, 0.72)
 
         vault_crop = _crop_pil(img, REGIONS["top_vault"])
         vault_processed = _preprocess_for_ocr(vault_crop)

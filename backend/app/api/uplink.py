@@ -9,19 +9,15 @@ Provides:
 """
 
 import json
-import os
-import subprocess
-import shutil
 from datetime import datetime, timedelta, timezone
-from typing import Generator
+from typing import Generator, Literal
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
-from sqlalchemy import func
 
-from ..database import get_db, SessionLocal
+from ..database import get_db
 from ..models import Run, Runner, SpawnPoint, Session as SessionModel
 from ..config import settings
 from .. import ai_client
@@ -73,6 +69,29 @@ import threading
 _briefing_cache = {"session_id": None, "run_count": 0, "text": None}
 _briefing_lock = threading.Lock()
 
+MAX_CHAT_MESSAGE_CHARS = 4000
+MAX_CHAT_HISTORY_ITEMS = 30
+MAX_TOOL_ROWS = 50
+TREND_STATS = {"survival", "runner_kills", "pve_kills", "loot", "revives"}
+TREND_RANGES = {"week", "month", "all"}
+TREND_GROUPS = {"session", "run"}
+
+
+def _clamp_int(value, default: int, minimum: int, maximum: int) -> int:
+    """Coerce user/AI supplied integers into a bounded range."""
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, min(parsed, maximum))
+
+
+def _clean_filter(value: str | None, *, limit: int = 80) -> str | None:
+    if not value:
+        return None
+    cleaned = str(value).strip()
+    return cleaned[:limit] or None
+
 
 # ═══════════════════════════════════════════════════════════════
 # TOOL FUNCTIONS — read-only DB queries the AI can call
@@ -105,6 +124,7 @@ def tool_get_overview_stats(db: Session, **kwargs) -> dict:
 
 def tool_get_session_summary(db: Session, session_id: int = None, **kwargs) -> dict:
     """Stats for a specific session (defaults to latest)."""
+    session_id = _clamp_int(session_id, 0, 0, 1_000_000) if session_id is not None else None
     if session_id:
         session = db.query(SessionModel).filter(SessionModel.id == session_id).first()
     else:
@@ -161,6 +181,13 @@ def tool_get_session_summary(db: Session, session_id: int = None, **kwargs) -> d
 def tool_get_runs(db: Session, map: str = None, shell: str = None, outcome: str = None,
                   last_n: int = None, grade: str = None, session_id: int = None, **kwargs) -> list:
     """Filtered list of runs."""
+    map = _clean_filter(map)
+    shell = _clean_filter(shell)
+    outcome = _clean_filter(outcome, limit=20)
+    grade = _clean_filter(grade, limit=2)
+    session_id = _clamp_int(session_id, 0, 0, 1_000_000) if session_id is not None else None
+    last_n = _clamp_int(last_n, 20, 1, MAX_TOOL_ROWS) if last_n is not None else 20
+
     q = db.query(Run)
     if map:
         q = q.filter(Run.map_name.ilike(f"%{map}%"))
@@ -177,8 +204,7 @@ def tool_get_runs(db: Session, map: str = None, shell: str = None, outcome: str 
     if session_id:
         q = q.filter(Run.session_id == session_id)
     q = q.order_by(Run.date.desc())
-    if last_n:
-        q = q.limit(last_n)
+    q = q.limit(last_n)
     runs = q.all()
     return [{
         "run_id": r.id, "date": str(r.date)[:16] if r.date else None,
@@ -194,6 +220,7 @@ def tool_get_runs(db: Session, map: str = None, shell: str = None, outcome: str 
 
 def tool_get_stats_by_map(db: Session, map_name: str, **kwargs) -> dict:
     """Aggregate stats for a specific map."""
+    map_name = _clean_filter(map_name) or ""
     runs = db.query(Run).filter(Run.map_name.ilike(f"%{map_name}%")).all()
     total = len(runs)
     if total == 0:
@@ -229,6 +256,7 @@ def tool_get_stats_by_map(db: Session, map_name: str, **kwargs) -> dict:
 
 def tool_get_stats_by_shell(db: Session, shell_name: str, **kwargs) -> dict:
     """Aggregate stats for a specific shell."""
+    shell_name = _clean_filter(shell_name) or ""
     runner = db.query(Runner).filter(Runner.name.ilike(f"%{shell_name}%")).first()
     if not runner:
         return {"shell": shell_name, "total_runs": 0, "message": "Shell not found."}
@@ -261,6 +289,9 @@ def tool_get_stats_by_shell(db: Session, shell_name: str, **kwargs) -> dict:
 
 def tool_get_death_stats(db: Session, last_n: int = None, map: str = None, shell: str = None, **kwargs) -> dict:
     """Death analysis — who kills the player and how."""
+    last_n = _clamp_int(last_n, 20, 1, MAX_TOOL_ROWS) if last_n is not None else 20
+    map = _clean_filter(map)
+    shell = _clean_filter(shell)
     q = db.query(Run).filter(Run.survived == False)
     if map:
         q = q.filter(Run.map_name.ilike(f"%{map}%"))
@@ -269,8 +300,7 @@ def tool_get_death_stats(db: Session, last_n: int = None, map: str = None, shell
         if runner:
             q = q.filter(Run.runner_id == runner.id)
     q = q.order_by(Run.date.desc())
-    if last_n:
-        q = q.limit(last_n)
+    q = q.limit(last_n)
     deaths = q.all()
     killers = {}
     for r in deaths:
@@ -310,6 +340,13 @@ def tool_get_weapon_stats(db: Session, **kwargs) -> dict:
 def tool_get_performance_trend(db: Session, stat: str = "survival", range: str = "all",
                                 group_by: str = "session", **kwargs) -> list:
     """Time-series performance data."""
+    if stat not in TREND_STATS:
+        stat = "survival"
+    if range not in TREND_RANGES:
+        range = "all"
+    if group_by not in TREND_GROUPS:
+        group_by = "session"
+
     q = db.query(Run)
     if range == "week":
         q = q.filter(Run.date >= datetime.now(timezone.utc) - timedelta(days=7))
@@ -375,6 +412,8 @@ def tool_get_performance_trend(db: Session, stat: str = "survival", range: str =
 
 def tool_get_spawn_stats(db: Session, map: str, spawn: str = None, **kwargs) -> list:
     """Per-spawn performance breakdown."""
+    map = _clean_filter(map) or ""
+    spawn = _clean_filter(spawn)
     spawns = db.query(SpawnPoint).filter(SpawnPoint.map_name.ilike(f"%{map}%")).all()
     result = []
     for sp in spawns:
@@ -437,6 +476,7 @@ def tool_get_squad_stats(db: Session, **kwargs) -> list:
 
 def tool_get_run_detail(db: Session, run_id: int, **kwargs) -> dict:
     """Full detail for a single run."""
+    run_id = _clamp_int(run_id, 0, 0, 1_000_000)
     r = db.query(Run).filter(Run.id == run_id).first()
     if not r:
         return {"error": f"Run #{run_id} not found"}
@@ -469,8 +509,8 @@ TOOLS = {
         "last_n": {"type": "integer", "description": "Return only the last N runs"},
         "grade": {"type": "string", "description": "Filter by grade (S/A/B/C/D/F)"},
     }},
-    "get_stats_by_map": {"fn": tool_get_stats_by_map, "desc": "Get aggregate stats for a specific map", "params": {"map_name": {"type": "string", "description": "Map name (Perimeter, Dire Marsh, Outpost, Cryo Archive)"}}},
-    "get_stats_by_shell": {"fn": tool_get_stats_by_shell, "desc": "Get aggregate stats for a specific shell/runner", "params": {"shell_name": {"type": "string", "description": "Shell name (Triage, Assassin, Vandal, etc.)"}}},
+    "get_stats_by_map": {"fn": tool_get_stats_by_map, "desc": "Get aggregate stats for a specific map", "params": {"map_name": {"type": "string", "description": "Map name (Perimeter, Dire Marsh, Outpost, Cryo Archive)", "required": True}}},
+    "get_stats_by_shell": {"fn": tool_get_stats_by_shell, "desc": "Get aggregate stats for a specific shell/runner", "params": {"shell_name": {"type": "string", "description": "Shell name (Triage, Assassin, Vandal, etc.)", "required": True}}},
     "get_death_stats": {"fn": tool_get_death_stats, "desc": "Get death analysis — who kills the player and patterns", "params": {
         "last_n": {"type": "integer", "description": "Only analyze last N deaths"},
         "map": {"type": "string", "description": "Filter by map"},
@@ -481,9 +521,9 @@ TOOLS = {
         "range": {"type": "string", "enum": ["week", "month", "all"], "description": "Time range"},
         "group_by": {"type": "string", "enum": ["session", "run"], "description": "Group by session or individual run"},
     }},
-    "get_spawn_stats": {"fn": tool_get_spawn_stats, "desc": "Get per-spawn performance breakdown for a map", "params": {"map": {"type": "string", "description": "Map name"}}},
+    "get_spawn_stats": {"fn": tool_get_spawn_stats, "desc": "Get per-spawn performance breakdown for a map", "params": {"map": {"type": "string", "description": "Map name", "required": True}}},
     "get_squad_stats": {"fn": tool_get_squad_stats, "desc": "Get top squad mates with performance data", "params": {}},
-    "get_run_detail": {"fn": tool_get_run_detail, "desc": "Get full detail for a single run including grade, summary, damage", "params": {"run_id": {"type": "integer", "description": "Run ID"}}},
+    "get_run_detail": {"fn": tool_get_run_detail, "desc": "Get full detail for a single run including grade, summary, damage", "params": {"run_id": {"type": "integer", "description": "Run ID", "required": True}}},
 }
 
 # Build Anthropic API tool definitions
@@ -491,14 +531,14 @@ TOOL_DEFS = []
 for name, tool in TOOLS.items():
     props = {}
     for pname, pdef in tool["params"].items():
-        props[pname] = {k: v for k, v in pdef.items()}
+        props[pname] = {k: v for k, v in pdef.items() if k != "required"}
     TOOL_DEFS.append({
         "name": name,
         "description": tool["desc"],
         "input_schema": {
             "type": "object",
             "properties": props,
-            "required": [k for k, v in tool["params"].items() if "description" in v and "optional" not in v.get("description", "").lower()],
+            "required": [k for k, v in tool["params"].items() if v.get("required")],
         },
     })
 
@@ -535,6 +575,18 @@ Identity: Designation ██████-UPLINK. Clearance [REDACTED]. You proce
 def _get_uplink_model():
     """Get configured model for UPLINK."""
     return ai_client.get_model_config("uplink")
+
+
+def _execute_tool(db: Session, tool_name: str, tool_input) -> dict | list:
+    """Execute one model-requested tool without letting bad input break streaming."""
+    if tool_name not in TOOLS:
+        return {"error": f"Unknown tool: {tool_name}"}
+    if not isinstance(tool_input, dict):
+        return {"error": f"Invalid input for tool: {tool_name}"}
+    try:
+        return TOOLS[tool_name]["fn"](db, **tool_input)
+    except Exception as exc:
+        return {"error": f"{tool_name} failed: {type(exc).__name__}"}
 
 
 def _run_ai_with_tools(messages: list, db: Session) -> Generator[str, None, None]:
@@ -575,14 +627,11 @@ def _run_api_path(messages: list, db: Session, model_config: dict) -> Generator[
                 if block.type == "tool_use":
                     tool_name = block.name
                     tool_input = block.input
-                    if tool_name in TOOLS:
-                        result = TOOLS[tool_name]["fn"](db, **tool_input)
-                    else:
-                        result = {"error": f"Unknown tool: {tool_name}"}
+                    result = _execute_tool(db, tool_name, tool_input)
                     tool_results.append({
                         "type": "tool_result",
                         "tool_use_id": block.id,
-                        "content": json.dumps(result),
+                        "content": json.dumps(result, default=str),
                     })
             current_messages.append({"role": "user", "content": tool_results})
         else:
@@ -653,18 +702,35 @@ def get_trends_endpoint(
     return tool_get_performance_trend(db, stat=stat, range=range, group_by=group_by)
 
 
+class ChatHistoryMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=MAX_CHAT_MESSAGE_CHARS)
+
+    @field_validator("content")
+    @classmethod
+    def content_must_have_text(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("content cannot be empty")
+        return value
+
+
 class ChatMessage(BaseModel):
-    message: str
-    history: list = []
+    message: str = Field(min_length=1, max_length=MAX_CHAT_MESSAGE_CHARS)
+    history: list[ChatHistoryMessage] = Field(default_factory=list, max_length=MAX_CHAT_HISTORY_ITEMS)
+
+    @field_validator("message")
+    @classmethod
+    def message_must_have_text(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("message cannot be empty")
+        return value
 
 
 @router.post("/chat")
 def chat_endpoint(body: ChatMessage, db: Session = Depends(get_db)):
     """Send a message to UPLINK. Returns streaming text."""
-    messages = []
-    for msg in body.history:
-        messages.append(msg)
-    messages.append({"role": "user", "content": body.message})
+    messages = [{"role": msg.role, "content": msg.content.strip()} for msg in body.history]
+    messages.append({"role": "user", "content": body.message.strip()})
 
     def generate():
         for chunk in _run_ai_with_tools(messages, db):

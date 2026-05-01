@@ -70,14 +70,21 @@ class HighlightDetector:
         After calling detect(), self.last_audio_segments contains the raw
         AudioSegment list for reuse (avoids double extraction).
         """
-        # Layer 1: HUD frame scanning
-        logger.info("Layer 1: Scanning HUD frames...")
-        hud_events = self.hud.scan_video(video_path, fps=1)
-
         # Layer 2: Audio analysis (gracefully empty if no audio)
-        logger.info("Layer 2: Analyzing audio...")
+        logger.info("Layer 1: Analyzing audio...")
         audio_segments = self.audio.analyze_video(video_path)
         self.last_audio_segments = audio_segments  # Expose for reuse
+
+        # Layer 1 HUD scanning: cheap full-video pass plus higher-FPS windows
+        # only around audio-detected combat. This improves timing without
+        # turning Phase 2 into a full-video OCR grind.
+        logger.info("Layer 2: Scanning HUD frames...")
+        hud_events = self.hud.scan_video(video_path, fps=1)
+        combat_windows = self._audio_windows(audio_segments)
+        if combat_windows:
+            logger.info("Scanning %d targeted HUD windows at 4fps", len(combat_windows))
+            hud_events.extend(self.hud.scan_video(video_path, fps=4, windows=combat_windows))
+            hud_events = self._dedupe_events(hud_events)
 
         # Merge signals into highlights
         logger.info("Merging HUD + Audio signals...")
@@ -93,6 +100,60 @@ class HighlightDetector:
 
         logger.info(f"Detection complete: {len(highlights)} highlights")
         return highlights
+
+    @staticmethod
+    def _audio_windows(audio_segments: list[AudioSegment],
+                       pad_before: int = 4,
+                       pad_after: int = 4) -> list[tuple[float, float]]:
+        """Merge audio combat segments into targeted HUD scan windows."""
+        windows = []
+        for seg in audio_segments:
+            if not seg.is_combat:
+                continue
+            start = max(0, seg.start_sec - pad_before)
+            end = seg.end_sec + pad_after
+            if end <= start:
+                continue
+            windows.append((float(start), float(end)))
+
+        if not windows:
+            return []
+
+        windows.sort()
+        merged = [windows[0]]
+        for start, end in windows[1:]:
+            last_start, last_end = merged[-1]
+            if start <= last_end + 3:
+                merged[-1] = (last_start, max(last_end, end))
+            else:
+                merged.append((start, end))
+        return merged[:12]
+
+    @staticmethod
+    def _dedupe_events(events: list[dict]) -> list[dict]:
+        """Deduplicate events produced by baseline and targeted HUD scans."""
+        priority = {
+            EVENT_PVP_KILL: 0,
+            EVENT_DEATH: 1,
+            EVENT_EXTRACTION: 2,
+            EVENT_REVIVE: 3,
+            EVENT_CLOSE_CALL: 4,
+            EVENT_PVE_KILL: 5,
+            EVENT_COMBAT: 6,
+            EVENT_POSTGAME: 7,
+            EVENT_LOADING: 8,
+            EVENT_IDLE: 9,
+        }
+        by_ts: dict[int, dict] = {}
+        for event in events:
+            ts = int(event.get("timestamp", 0))
+            existing = by_ts.get(ts)
+            if existing is None:
+                by_ts[ts] = event
+                continue
+            if priority.get(event.get("state"), 99) < priority.get(existing.get("state"), 99):
+                by_ts[ts] = event
+        return [by_ts[ts] for ts in sorted(by_ts)]
 
     def _merge_events(self, hud_events: list[dict],
                       audio_segments: list[AudioSegment],

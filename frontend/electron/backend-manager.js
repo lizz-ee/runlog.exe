@@ -9,7 +9,7 @@
  * - User data directory management
  */
 
-const { spawn, execSync } = require('child_process')
+const { spawn, execFileSync } = require('child_process')
 const path = require('path')
 const fs = require('fs')
 const http = require('http')
@@ -91,7 +91,7 @@ class BackendManager {
           const stalePid = parseInt(fs.readFileSync(this._pidFile, 'utf-8').trim(), 10)
           if (stalePid > 0) {
             logToFile(`[backend] Killing stale backend PID ${stalePid}`)
-            execSync(`taskkill /pid ${stalePid} /T /F`, { timeout: 5000 })
+            execFileSync('taskkill', ['/pid', String(stalePid), '/T', '/F'], { timeout: 5000 })
           }
           fs.unlinkSync(this._pidFile)
         }
@@ -139,6 +139,7 @@ class BackendManager {
       DATABASE_URL: `sqlite:///${path.join(this.userDataPath, 'runlog.db').replace(/\\/g, '/')}`,
       MEDIA_UPLOAD_DIR: path.join(this.userDataPath, 'media_uploads'),
       PYTHONUNBUFFERED: '1',
+      RUNLOG_API_PORT: String(API_PORT),
     }
 
     logToFile(`[backend] isDev: ${isDev}`)
@@ -207,7 +208,7 @@ class BackendManager {
     try {
       // Windows: kill entire process tree
       if (process.platform === 'win32') {
-        execSync(`taskkill /pid ${pid} /T /F`, { timeout: 5000 })
+        execFileSync('taskkill', ['/pid', String(pid), '/T', '/F'], { timeout: 5000 })
       } else {
         this.process.kill('SIGTERM')
       }
@@ -260,7 +261,7 @@ class BackendManager {
 
       // 5. py launcher — resolves all install types, returns the real path
       try {
-        const real = execSync('py -3 -c "import sys; print(sys.executable)"', {
+        const real = execFileSync('py', ['-3', '-c', 'import sys; print(sys.executable)'], {
           timeout: 5000,
           stdio: ['pipe', 'pipe', 'pipe'],
         }).toString().trim()
@@ -273,7 +274,7 @@ class BackendManager {
 
     for (const cmd of candidates) {
       try {
-        const result = execSync(`"${cmd}" --version`, {
+        const result = execFileSync(cmd, ['--version'], {
           timeout: 5000,
           stdio: ['pipe', 'pipe', 'pipe'],
         })
@@ -330,4 +331,4 @@ class BackendManager {
   }
 }
 
-module.exports = { BackendManager }
+module.exports = { BackendManager, API_PORT }

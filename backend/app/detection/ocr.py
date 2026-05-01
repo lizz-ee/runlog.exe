@@ -70,6 +70,81 @@ def _crop_region(img: Image.Image, region: tuple) -> Image.Image:
     return img.crop((int(w * x1), int(h * y1), int(w * x2), int(h * y2)))
 
 
+def scan_regions_for_mode(scan_mode: str) -> list[tuple[str, tuple]]:
+    """Return the exact OCR regions used by a scan mode, in priority order."""
+    if scan_mode == "deploy":
+        return [("DEPLOY", DEPLOY_REGION)]
+    if scan_mode == "postgame":
+        return [("POSTGAME", DEPLOY_REGION)]
+    if scan_mode == "endgame":
+        return [("ENDGAME", ENDGAME_REGION), ("ENDGAME_CENTER", DEPLOY_REGION)]
+    return [("LOBBY", LOBBY_REGION)]
+
+
+def _classify_text(text: str, scan_mode: str, label: str) -> dict | None:
+    if not text:
+        return None
+
+    if scan_mode == "deploy":
+        for map_name in MAP_NAMES:
+            if map_name in text:
+                is_ranked = "RANKED" in text or "RANK" in text
+                return {"type": "deploy", "map_name": map_name,
+                        "is_ranked": is_ranked, "text": text}
+        return None
+
+    if scan_mode == "postgame":
+        if "EXFILTRAT" in text:
+            return {"type": "exfiltrated", "map_name": None, "text": text}
+        if "ELIMINATED" in text or "ELIMINAT" in text:
+            return {"type": "eliminated", "map_name": None, "text": text}
+        return None
+
+    if scan_mode == "endgame":
+        if label == "ENDGAME":
+            if "RUN" in text and "COMPLETE" in text:
+                return {"type": "endgame", "map_name": None, "text": text}
+            return None
+
+        # RUN_COMPLETE banner is brief (~2s) and can be missed by the 2s mss interval.
+        # Fall back to checking the center region for ELIMINATED/EXFILTRATED directly.
+        if "EXFILTRAT" in text:
+            return {"type": "exfiltrated", "map_name": None, "text": text}
+        if "ELIMINATED" in text or "ELIMINAT" in text:
+            return {"type": "eliminated", "map_name": None, "text": text}
+        return None
+
+    if "EXFILTRAT" in text:
+        return {"type": "exfiltrated", "map_name": None, "text": text}
+    if "ELIMINATED" in text or "ELIMINAT" in text:
+        return {"type": "eliminated", "map_name": None, "text": text}
+    if "DEPLOYING" in text:
+        return {"type": "deploying", "map_name": None, "text": text}
+    if "RUN" in text and "COMPLETE" not in text and "RUN TIME" not in text and "RUNNER" not in text:
+        return {"type": "run", "map_name": None, "text": text}
+    if "READY UP" in text or "READYUP" in text or "READY_UP" in text:
+        return {"type": "ready_up", "map_name": None, "text": text}
+    if "SELECT ZONE" in text or "SELECT_ZONE" in text or "SELECTZONE" in text:
+        return {"type": "select_zone", "map_name": None, "text": text}
+    if ("PREPARE" in text or "PREPAAE" in text or "PREPAQE" in text or "PREPAPE" in text) \
+            and "PREPARED" not in text:
+        return {"type": "prepare", "map_name": None, "text": text}
+    if "SEARCHING" in text:
+        return {"type": "searching", "map_name": None, "text": text}
+
+    return None
+
+
+def detect_game_state_from_crop(crop: Image.Image, scan_mode: str, label: str) -> dict | None:
+    """Classify one already-cropped OCR region."""
+    try:
+        text = _ocr_pil(crop, label)
+        return _classify_text(text, scan_mode, label)
+    except Exception as e:
+        print(f"[ocr] Error ({label}): {e}")
+        return None
+
+
 def detect_game_state(frame: "Image.Image | bytes", scan_mode: str = "lobby") -> dict | None:
     """Scan ONE OCR region based on current state machine mode.
 
@@ -82,59 +157,10 @@ def detect_game_state(frame: "Image.Image | bytes", scan_mode: str = "lobby") ->
     try:
         img = frame if isinstance(frame, Image.Image) else Image.open(io.BytesIO(frame))
 
-        if scan_mode == "deploy":
-            text = _ocr_pil(_crop_region(img, DEPLOY_REGION), "DEPLOY")
-            if text:
-                for map_name in MAP_NAMES:
-                    if map_name in text:
-                        is_ranked = "RANKED" in text or "RANK" in text
-                        return {"type": "deploy", "map_name": map_name,
-                                "is_ranked": is_ranked, "text": text}
-            return None
-
-        if scan_mode == "postgame":
-            text = _ocr_pil(_crop_region(img, DEPLOY_REGION), "POSTGAME")
-            if text:
-                if "EXFILTRAT" in text:
-                    return {"type": "exfiltrated", "map_name": None, "text": text}
-                if "ELIMINATED" in text or "ELIMINAT" in text:
-                    return {"type": "eliminated", "map_name": None, "text": text}
-            return None
-
-        if scan_mode == "endgame":
-            text = _ocr_pil(_crop_region(img, ENDGAME_REGION), "ENDGAME")
-            if text and "RUN" in text and "COMPLETE" in text:
-                return {"type": "endgame", "map_name": None, "text": text}
-            # RUN_COMPLETE banner is brief (~2s) and can be missed by the 2s mss interval.
-            # Fall back to checking the center region for ELIMINATED/EXFILTRATED directly.
-            text2 = _ocr_pil(_crop_region(img, DEPLOY_REGION), "ENDGAME_CENTER")
-            if text2:
-                if "EXFILTRAT" in text2:
-                    return {"type": "exfiltrated", "map_name": None, "text": text2}
-                if "ELIMINATED" in text2 or "ELIMINAT" in text2:
-                    return {"type": "eliminated", "map_name": None, "text": text2}
-            return None
-
-        # 'lobby' — scan LOBBY region
-        text = _ocr_pil(_crop_region(img, LOBBY_REGION), "LOBBY")
-        if text:
-            if "EXFILTRAT" in text:
-                return {"type": "exfiltrated", "map_name": None, "text": text}
-            if "ELIMINATED" in text or "ELIMINAT" in text:
-                return {"type": "eliminated", "map_name": None, "text": text}
-            if "DEPLOYING" in text:
-                return {"type": "deploying", "map_name": None, "text": text}
-            if "RUN" in text and "COMPLETE" not in text and "RUN TIME" not in text and "RUNNER" not in text:
-                return {"type": "run", "map_name": None, "text": text}
-            if "READY UP" in text or "READYUP" in text or "READY_UP" in text:
-                return {"type": "ready_up", "map_name": None, "text": text}
-            if "SELECT ZONE" in text or "SELECT_ZONE" in text or "SELECTZONE" in text:
-                return {"type": "select_zone", "map_name": None, "text": text}
-            if ("PREPARE" in text or "PREPAAE" in text or "PREPAQE" in text or "PREPAPE" in text) \
-                    and "PREPARED" not in text:
-                return {"type": "prepare", "map_name": None, "text": text}
-            if "SEARCHING" in text:
-                return {"type": "searching", "map_name": None, "text": text}
+        for label, region in scan_regions_for_mode(scan_mode):
+            result = detect_game_state_from_crop(_crop_region(img, region), scan_mode, label)
+            if result:
+                return result
 
         return None
 

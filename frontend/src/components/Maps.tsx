@@ -9,9 +9,9 @@ import type { MapStats, SpawnHeatmap } from '../lib/types'
 import axios from 'axios'
 import { apiBase } from '../lib/api'
 
-import mapDireMarsh from '../assets/map-dire-marsh.png'
-import mapPerimeter from '../assets/map-perimeter.png'
-import mapOutpost from '../assets/map-outpost.png'
+import mapDireMarsh from '../assets/map-dire-marsh.webp'
+import mapPerimeter from '../assets/map-perimeter.webp'
+import mapOutpost from '../assets/map-outpost.webp'
 
 const MAP_IMAGES: Record<string, string> = {
   'dire-marsh': mapDireMarsh,
@@ -56,7 +56,7 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
     const md = MAPS[selectedMap]
     const fallback = md ? md.spawns.map(s => ({ ...s })) : []
 
-    axios.get(`${apiBase}/api/spawns`, { params: { map_name: selectedMap } })
+    axios.get(`${apiBase}/api/spawns/`, { params: { map_name: selectedMap } })
       .then(({ data }) => {
         if (data.length > 0) {
           // Build SpawnRef objects from DB records

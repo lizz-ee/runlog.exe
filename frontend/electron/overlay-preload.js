@@ -1,16 +1,22 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
+function subscribe(channel, callback) {
+  const listener = (_event, ...args) => callback(...args)
+  ipcRenderer.on(channel, listener)
+  return () => ipcRenderer.removeListener(channel, listener)
+}
+
 contextBridge.exposeInMainWorld('overlayBridge', {
   onState: (callback) => {
-    ipcRenderer.on('overlay-state', (_event, state, detail) => callback(state, detail))
+    return subscribe('overlay-state', callback)
   },
   onNotification: (callback) => {
-    ipcRenderer.on('overlay-notification', (_event, message, duration) => callback(message, duration))
+    return subscribe('overlay-notification', callback)
   },
   onAlign: (callback) => {
-    ipcRenderer.on('overlay-align', (_event, corner) => callback(corner))
+    return subscribe('overlay-align', callback)
   },
   onResize: (callback) => {
-    ipcRenderer.on('overlay-resize', (_event, fontSize, height) => callback(fontSize, height))
+    return subscribe('overlay-resize', callback)
   },
 })

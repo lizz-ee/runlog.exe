@@ -23,6 +23,7 @@ router = APIRouter()
 # Simple TTL cache for heatmap — invalidated on spawn/run changes
 _heatmap_cache: dict = {"data": None, "ts": 0}
 _HEATMAP_TTL = 10  # seconds
+MAX_UPLOAD_BYTES = 15 * 1024 * 1024
 
 
 def invalidate_heatmap_cache():
@@ -51,7 +52,9 @@ Return ONLY the JSON object, no markdown, no explanation."""
 
 async def _save_spawn_upload(file: UploadFile) -> str:
     """Save a spawn screenshot and return the path."""
-    contents = await file.read()
+    contents = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(contents) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail=f"Image is too large; max is {MAX_UPLOAD_BYTES // (1024 * 1024)}MB")
 
     try:
         img = Image.open(io.BytesIO(contents))

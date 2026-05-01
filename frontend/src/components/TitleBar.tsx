@@ -1,12 +1,21 @@
+import type { CSSProperties } from 'react'
+
+type DraggableRegionStyle = CSSProperties & {
+  WebkitAppRegion?: 'drag' | 'no-drag'
+}
+
+const dragStyle: DraggableRegionStyle = { WebkitAppRegion: 'drag' }
+const noDragStyle: DraggableRegionStyle = { WebkitAppRegion: 'no-drag' }
+
 export default function TitleBar() {
-  const minimize = () => (window as any).runlog?.windowMinimize?.()
-  const maximize = () => (window as any).runlog?.windowMaximize?.()
-  const close = () => (window as any).runlog?.windowClose?.()
+  const minimize = () => window.runlog?.windowMinimize?.()
+  const maximize = () => window.runlog?.windowMaximize?.()
+  const close = () => window.runlog?.windowClose?.()
 
   return (
-    <div className="h-8 bg-transparent flex items-center shrink-0 relative" style={{ WebkitAppRegion: 'drag' } as any}>
+    <div className="h-8 bg-transparent flex items-center shrink-0 relative" style={dragStyle}>
       {/* Window controls — floating top-right */}
-      <div className="absolute right-0 top-0 flex" style={{ WebkitAppRegion: 'no-drag' } as any}>
+      <div className="absolute right-0 top-0 flex" style={noDragStyle}>
         <button
           onClick={minimize}
           aria-label="Minimize window"

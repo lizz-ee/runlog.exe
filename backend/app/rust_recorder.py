@@ -80,16 +80,16 @@ class RustRecorder:
             return False
 
         try:
-            import sys
-            # Launch recorder with above-normal priority on Windows
-            creation_flags = 0x00008000 if sys.platform == 'win32' else 0  # ABOVE_NORMAL_PRIORITY_CLASS
+            env = os.environ.copy()
+            env.setdefault("RUNLOG_GPU_PRIORITY", "normal")
             self._proc = subprocess.Popen(
                 [exe],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=False,  # binary mode for stdout (JSON lines)
-                creationflags=creation_flags,
+                env=env,
+                creationflags=0,
             )
             self._running = True
 

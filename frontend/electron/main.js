@@ -1,11 +1,9 @@
-const { app, BrowserWindow, Tray, Menu, Notification, nativeImage, ipcMain, dialog, powerSaveBlocker } = require('electron')
+const { app, BrowserWindow, Tray, Menu, Notification, nativeImage, ipcMain, dialog, powerSaveBlocker, shell } = require('electron')
 const path = require('path')
 const fs = require('fs')
 
-// Prevent Windows from throttling/suspending this app when backgrounded
-const powerBlockerId = powerSaveBlocker.start('prevent-app-suspension')
 const http = require('http')
-const { BackendManager } = require('./backend-manager')
+const { BackendManager, API_PORT } = require('./backend-manager')
 const { RecordingManager } = require('./recording-manager')
 
 // Auto-updater — uncomment when code signing + GitHub releases are configured
@@ -34,8 +32,68 @@ let overlayWindow = null
 let tray = null
 let backendManager = null
 let recordingManager = null
+let powerBlockerId = null
 
 // ── Helpers ────────────────────────────────────────────────────────
+
+function isTrustedAppUrl(rawUrl) {
+  try {
+    const url = new URL(rawUrl)
+    if (isDev) {
+      return (
+        (url.hostname === 'localhost' || url.hostname === '127.0.0.1') &&
+        url.port === '5173'
+      )
+    }
+    return url.protocol === 'file:' || url.protocol === 'data:'
+  } catch {
+    return false
+  }
+}
+
+function isSafeExternalUrl(rawUrl) {
+  try {
+    return new URL(rawUrl).protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+function clampNumber(value, min, max, fallback) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) return fallback
+  return Math.min(max, Math.max(min, number))
+}
+
+function hardenWindowNavigation(win) {
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (isSafeExternalUrl(url)) {
+      shell.openExternal(url).catch(() => {})
+    }
+    return { action: 'deny' }
+  })
+
+  win.webContents.on('will-navigate', (event, url) => {
+    if (isTrustedAppUrl(url)) return
+    event.preventDefault()
+    if (isSafeExternalUrl(url)) {
+      shell.openExternal(url).catch(() => {})
+    }
+  })
+}
+
+function setRecordingPowerBlocker(active) {
+  if (active) {
+    if (powerBlockerId == null) {
+      powerBlockerId = powerSaveBlocker.start('prevent-app-suspension')
+    }
+    return
+  }
+  if (powerBlockerId != null && powerSaveBlocker.isStarted(powerBlockerId)) {
+    powerSaveBlocker.stop(powerBlockerId)
+  }
+  powerBlockerId = null
+}
 
 // ── Overlay settings ──────────────────────────────────────────────
 const overlaySettingsFile = path.join(app.getPath('userData'), 'overlay-settings.json')
@@ -46,14 +104,48 @@ const OVERLAY_SIZES = {
   large: { width: 360, height: 38, fontSize: 14 },
 }
 
+const OVERLAY_CORNERS = new Set([
+  'top-left',
+  'top-center',
+  'top-right',
+  'bottom-left',
+  'bottom-center',
+  'bottom-right',
+])
+
+function hasOverlaySize(size) {
+  return Object.prototype.hasOwnProperty.call(OVERLAY_SIZES, size)
+}
+
+function normalizeOverlaySettings(rawSettings) {
+  const source = rawSettings && typeof rawSettings === 'object' ? rawSettings : {}
+  const settings = { ...source }
+  settings.enabled = settings.enabled !== false
+  settings.corner = OVERLAY_CORNERS.has(settings.corner) || settings.corner === 'custom'
+    ? settings.corner
+    : 'top-left'
+  settings.opacity = clampNumber(settings.opacity, 40, 100, 88)
+  settings.size = hasOverlaySize(settings.size) ? settings.size : 'medium'
+
+  if (settings.corner === 'custom') {
+    settings.customX = clampNumber(settings.customX, 0, 100, 0)
+    settings.customY = clampNumber(settings.customY, 0, 100, 0)
+  } else {
+    delete settings.customX
+    delete settings.customY
+  }
+
+  return settings
+}
+
 function loadOverlaySettings() {
   try {
-    return JSON.parse(fs.readFileSync(overlaySettingsFile, 'utf-8'))
-  } catch { return { enabled: true, corner: 'top-left' } }
+    return normalizeOverlaySettings(JSON.parse(fs.readFileSync(overlaySettingsFile, 'utf-8')))
+  } catch { return normalizeOverlaySettings({ enabled: true, corner: 'top-left' }) }
 }
 
 function saveOverlaySettings(settings) {
-  try { fs.writeFileSync(overlaySettingsFile, JSON.stringify(settings)) } catch {}
+  try { fs.writeFileSync(overlaySettingsFile, JSON.stringify(normalizeOverlaySettings(settings))) } catch {}
 }
 
 function getOverlayDims() {
@@ -79,6 +171,12 @@ function getOverlayPosition(corner) {
   }
 }
 
+function getAutoOverlayCorner(xPercent, yPercent) {
+  const x = clampNumber(xPercent, 0, 100, 0)
+  const y = clampNumber(yPercent, 0, 100, 0)
+  return (y < 50 ? 'top' : 'bottom') + '-' + (x > 66 ? 'right' : x > 33 ? 'center' : 'left')
+}
+
 function setOverlayAlign(corner) {
   if (!overlayWindow) return
   overlayWindow.webContents.send('overlay-align', corner)
@@ -91,6 +189,9 @@ function createOverlay() {
   const dims = getOverlayDims()
   const overlayHeight = dims.height + 28
   const corner = settings.corner || 'top-left'
+  const alignCorner = corner === 'custom'
+    ? getAutoOverlayCorner(settings.customX, settings.customY)
+    : corner
   let pos
   if (settings.customX != null && settings.customY != null && settings.corner === 'custom') {
     const { screen } = require('electron')
@@ -125,6 +226,8 @@ function createOverlay() {
       preload: path.join(__dirname, 'overlay-preload.js'),
     },
   })
+  overlayWindow.setOpacity(settings.opacity / 100)
+  hardenWindowNavigation(overlayWindow)
   overlayWindow.setIgnoreMouseEvents(true)
   overlayWindow.setAlwaysOnTop(true, 'screen-saver')  // Highest z-level — stays above fullscreen games
   overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
@@ -151,7 +254,6 @@ function createOverlay() {
 
   const overlayHTML = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { width: 100%; height: 100%; }
 body { background: transparent; overflow: hidden; user-select: none; -webkit-app-region: no-drag;
@@ -212,13 +314,13 @@ function updateOverlayState(s, d) {
   var aux = document.getElementById('aux');
   if (s === 'recording') {
     bar.className = 'rec';
-    sym.innerHTML = '&#x25A0;';
+    sym.textContent = '\u25A0';
     var parts = (d||'').split('|');
     main.textContent = 'REC ' + parts[0];
     aux.textContent = parts[1] ? parts[1] + ' — WGC' : 'WGC';
   } else {
     bar.className = '';
-    sym.innerHTML = '&#x25C8;';
+    sym.textContent = '\u25C8';
     if (d && d !== 'WATCHING') {
       main.textContent = 'DET: ' + d;
       aux.textContent = 'WGC';
@@ -253,7 +355,7 @@ if (window.overlayBridge) {
 
   overlayWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(overlayHTML))
   overlayWindow.webContents.on('did-finish-load', () => {
-    setOverlayAlign(corner)
+    setOverlayAlign(alignCorner)
   })
 }
 
@@ -268,7 +370,7 @@ function showNotification(title, body) {
 
 function checkProcessingActive() {
   return new Promise((resolve) => {
-    const req = http.get('http://127.0.0.1:8000/api/capture/status', (res) => {
+    const req = http.get(`http://127.0.0.1:${API_PORT}/api/capture/status`, (res) => {
       let data = ''
       res.on('data', (chunk) => { data += chunk })
       res.on('end', () => {
@@ -329,9 +431,10 @@ function createWindow() {
       contextIsolation: true,
       webSecurity: true,
       preload: path.join(__dirname, 'preload.js'),
-      backgroundThrottling: false,  // Keep OCR/detection running at full speed when alt-tabbed
+      backgroundThrottling: true,
     },
   })
+  hardenWindowNavigation(mainWindow)
   if (saved?.isMaximized) mainWindow.maximize()
 
   // Overlay is created lazily — only when Marathon is first detected
@@ -518,16 +621,24 @@ app.whenReady().then(async () => {
               const p = document.createElement('p');
               p.className = 'boot-line';
               p.style.animationDelay = l.delay + 'ms';
-              p.innerHTML = '> ' + l.text;
+              p.textContent = '> ' + l.text;
               boot.appendChild(p);
               setTimeout(() => {
-                p.innerHTML = '> ' + l.text + ' <span class="ok">[OK]</span>';
+                p.textContent = '> ' + l.text + ' ';
+                const ok = document.createElement('span');
+                ok.className = 'ok';
+                ok.textContent = '[OK]';
+                p.appendChild(ok);
               }, l.delay + l.okDelay);
             });
             const standby = document.createElement('p');
             standby.className = 'boot-line active';
             standby.style.animationDelay = '3100ms';
-            standby.innerHTML = '> STANDING BY<span class="blink">_</span>';
+            standby.textContent = '> STANDING BY';
+            const cursor = document.createElement('span');
+            cursor.className = 'blink';
+            cursor.textContent = '_';
+            standby.appendChild(cursor);
             boot.appendChild(standby);
           </script>
         </div>
@@ -567,8 +678,10 @@ app.whenReady().then(async () => {
 
       // Update overlay for key events
       if (status === 'recording_started') {
+        setRecordingPowerBlocker(true)
         updateOverlay('recording', '')
       } else if (status === 'recording_stopped') {
+        setRecordingPowerBlocker(false)
         // Let App.tsx control overlay via last_detection state
       } else if (status === 'run_processed') {
         // Let App.tsx control overlay via last_detection state
@@ -576,7 +689,7 @@ app.whenReady().then(async () => {
         createOverlay()
         updateOverlay('active', 'WATCHING')
       }
-    })
+    }, API_PORT)
     recordingManager.start()
     console.log('=== runlog.exe ===')
     console.log('  Auto-capture active')
@@ -599,6 +712,7 @@ app.whenReady().then(async () => {
 app.on('will-quit', () => {
   if (recordingManager) recordingManager.stop()
   if (backendManager) backendManager.stop()
+  setRecordingPowerBlocker(false)
 })
 
 app.on('window-all-closed', () => {})
@@ -640,18 +754,18 @@ ipcMain.on('window-close', async () => {
   }
 })
 ipcMain.on('get-api-base-url', (event) => {
-  event.returnValue = isDev ? '' : 'http://127.0.0.1:8000'
+  event.returnValue = isDev ? '' : `http://127.0.0.1:${API_PORT}`
 })
 ipcMain.on('overlay-update', (_event, state, detail) => {
   updateOverlay(state, detail)
 })
 ipcMain.on('overlay-notify', (_event, message, duration) => {
   if (!overlayWindow) return
-  overlayWindow.webContents.send('overlay-notification', (message || '').toString(), duration || 4000)
+  overlayWindow.webContents.send('overlay-notification', (message || '').toString(), clampNumber(duration, 1000, 15000, 4000))
 })
 ipcMain.on('overlay-toggle', (_event, enabled) => {
   const settings = loadOverlaySettings()
-  settings.enabled = enabled
+  settings.enabled = enabled === true
   saveOverlaySettings(settings)
   if (enabled) {
     createOverlay()
@@ -671,6 +785,7 @@ ipcMain.on('overlay-preview', () => {
   }
 })
 ipcMain.on('overlay-set-corner', (_event, corner) => {
+  if (!OVERLAY_CORNERS.has(corner)) return
   const settings = loadOverlaySettings()
   settings.corner = corner
   delete settings.customX
@@ -685,6 +800,7 @@ ipcMain.on('overlay-set-corner', (_event, corner) => {
 })
 ipcMain.on('overlay-nudge', (_event, direction) => {
   if (!overlayWindow) return
+  if (!['up', 'down', 'left', 'right'].includes(direction)) return
   const { screen } = require('electron')
   const display = screen.getPrimaryDisplay()
   const wa = display.workArea
@@ -697,28 +813,31 @@ ipcMain.on('overlay-nudge', (_event, direction) => {
   if (direction === 'right') x = Math.min(wa.x + wa.width - bounds.width, x + step)
   overlayWindow.setBounds({ x, y, width: bounds.width, height: bounds.height })
   // Auto-align based on position
-  const xPct = (x - wa.x) / (wa.width - bounds.width) * 100
-  const yPct = (y - wa.y) / (wa.height - bounds.height) * 100
-  const autoCorner = (yPct < 50 ? 'top' : 'bottom') + '-' + (xPct > 66 ? 'right' : xPct > 33 ? 'center' : 'left')
+  const xPct = clampNumber((x - wa.x) / (wa.width - bounds.width) * 100, 0, 100, 0)
+  const yPct = clampNumber((y - wa.y) / (wa.height - bounds.height) * 100, 0, 100, 0)
+  const autoCorner = getAutoOverlayCorner(xPct, yPct)
   setOverlayAlign(autoCorner)
   // Save custom position
   const settings = loadOverlaySettings()
-  settings.customX = x
-  settings.customY = y
+  settings.customX = xPct
+  settings.customY = yPct
+  settings.corner = 'custom'
   saveOverlaySettings(settings)
 })
 ipcMain.handle('overlay-get-settings', () => loadOverlaySettings())
 
 ipcMain.on('overlay-set-opacity', (_event, opacity) => {
+  const safeOpacity = clampNumber(opacity, 40, 100, 88)
   const settings = loadOverlaySettings()
-  settings.opacity = opacity
+  settings.opacity = safeOpacity
   saveOverlaySettings(settings)
   if (overlayWindow) {
-    overlayWindow.setOpacity(opacity / 100)
+    overlayWindow.setOpacity(safeOpacity / 100)
   }
 })
 
 ipcMain.on('overlay-set-size', (_event, size) => {
+  if (!hasOverlaySize(size)) return
   const settings = loadOverlaySettings()
   settings.size = size
   saveOverlaySettings(settings)
@@ -735,6 +854,8 @@ ipcMain.on('overlay-set-size', (_event, size) => {
 
 let _overlayPosTimeout = null
 ipcMain.on('overlay-set-position', (_event, xPercent, yPercent) => {
+  const safeXPercent = clampNumber(xPercent, 0, 100, 0)
+  const safeYPercent = clampNumber(yPercent, 0, 100, 0)
   // Move overlay window if it exists
   if (overlayWindow) {
     const { screen } = require('electron')
@@ -743,34 +864,26 @@ ipcMain.on('overlay-set-position', (_event, xPercent, yPercent) => {
     const dims = getOverlayDims()
     const w = OVERLAY_WIN_WIDTH
     const h = dims.height + 28
-    const x = wa.x + Math.max(0, Math.min(wa.width - w, Math.round(xPercent / 100 * (wa.width - w))))
-    const y = wa.y + Math.max(0, Math.min(wa.height - h, Math.round(yPercent / 100 * (wa.height - h))))
+    const x = wa.x + Math.max(0, Math.min(wa.width - w, Math.round(safeXPercent / 100 * (wa.width - w))))
+    const y = wa.y + Math.max(0, Math.min(wa.height - h, Math.round(safeYPercent / 100 * (wa.height - h))))
     overlayWindow.setBounds({ x, y, width: w, height: h })
     // Auto-align content based on position
-    const autoCorner = (yPercent < 50 ? 'top' : 'bottom') + '-' + (xPercent > 66 ? 'right' : xPercent > 33 ? 'center' : 'left')
+    const autoCorner = getAutoOverlayCorner(safeXPercent, safeYPercent)
     setOverlayAlign(autoCorner)
   }
   // Always save position — even if overlay isn't active
   if (_overlayPosTimeout) clearTimeout(_overlayPosTimeout)
   _overlayPosTimeout = setTimeout(() => {
     const settings = loadOverlaySettings()
-    settings.customX = xPercent
-    settings.customY = yPercent
+    settings.customX = safeXPercent
+    settings.customY = safeYPercent
     settings.corner = 'custom'
     saveOverlaySettings(settings)
   }, 500)
 })
 
-ipcMain.on('open-file', (_event, filePath) => {
-  const { shell } = require('electron')
-  if (filePath && fs.existsSync(filePath)) {
-    shell.openPath(filePath)
-  }
-})
-
 ipcMain.on('open-url', (_event, url) => {
-  const { shell } = require('electron')
-  if (url && (url.startsWith('https://') || url.startsWith('http://'))) {
-    shell.openExternal(url)
+  if (isSafeExternalUrl(url)) {
+    shell.openExternal(url).catch(() => {})
   }
 })

@@ -1,235 +1,392 @@
 """
-Alpha Validation Suite — Test OCR + template accuracy against DB ground truth.
+Alpha Validation Suite.
 
-Loads all runs with screenshots, runs the alpha detection pipeline,
-and compares results to database values. Reports per-field accuracy.
+Runs the real alpha or hybrid processor end to end against previously captured
+runs and compares output to the database/Claude-proven run records. This is the
+scorecard for moving alpha from demo to production.
 
 Usage:
     python -m backend.app.alpha.validate
+    python -m backend.app.alpha.validate --mode hybrid --limit 20
+    python -m backend.app.alpha.validate --json alpha_report.json
 """
 
-import json
-import os
-import sqlite3
-import sys
-from datetime import datetime
-from pathlib import Path
+from __future__ import annotations
 
-import cv2
-import numpy as np
-from PIL import Image
+import argparse
+import json
+import sqlite3
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 from backend.app.alpha.data_prep import (
-    CLIPS_DIR, DB_PATH, folder_timestamp_to_db_date, get_db_runs, match_folder_to_run,
+    CLIPS_DIR,
+    DB_PATH,
+    get_db_runs,
+    match_folder_to_run,
 )
-from backend.app.alpha.grading import calculate_grade, generate_summary
-from backend.app.alpha.ocr_pipeline import AlphaOCR
-from backend.app.alpha.templates import TemplateEngine
+from backend.app.alpha.health import alpha_health
+from backend.app.alpha.hybrid_router import HybridRouter
+from backend.app.alpha.processor import AlphaProcessor
 
 
-def validate_all():
-    """Run full validation against all available data."""
-    print("=" * 70)
-    print("ALPHA VALIDATION SUITE")
-    print("=" * 70)
+TRAINING_STATS_DIR = Path(__file__).resolve().parent / "training_data" / "stats"
 
-    runs = get_db_runs()
-    engine = TemplateEngine()
-    ocr = AlphaOCR()
 
-    # Track results per field
-    fields = [
-        "game_state", "survived", "map_name",
-        "combatant_eliminations", "runner_eliminations", "crew_revives",
-        "loot_value_total", "duration_seconds", "grade",
-    ]
-    field_results = {f: {"correct": 0, "wrong": 0, "missing": 0, "total": 0}
-                     for f in fields}
+@dataclass
+class FieldResult:
+    correct: int = 0
+    wrong: int = 0
+    missing: int = 0
+    skipped: int = 0
 
-    run_count = 0
+    @property
+    def total(self) -> int:
+        return self.correct + self.wrong + self.missing
 
+    @property
+    def accuracy(self) -> float:
+        return (self.correct / self.total * 100.0) if self.total else 0.0
+
+
+FIELD_ORDER = [
+    "map_name",
+    "shell_name",
+    "survived",
+    "kills",
+    "combatant_eliminations",
+    "runner_eliminations",
+    "crew_revives",
+    "loot_value_total",
+    "duration_seconds",
+    "primary_weapon",
+    "secondary_weapon",
+    "player_gamertag",
+    "player_level",
+    "vault_value",
+    "spawn_coordinates",
+    "killed_by",
+    "killed_by_weapon",
+    "killed_by_damage",
+    "damage_contributors",
+    "grade",
+]
+
+INT_FIELDS = {
+    "kills", "combatant_eliminations", "runner_eliminations", "crew_revives",
+    "duration_seconds", "player_level", "killed_by_damage",
+}
+FLOAT_FIELDS = {"loot_value_total", "vault_value"}
+STRING_FIELDS = {
+    "map_name", "shell_name", "primary_weapon", "secondary_weapon",
+    "player_gamertag", "killed_by", "killed_by_weapon", "grade",
+}
+TRAINING_SCREEN_UNAVAILABLE_FIELDS = {"map_name", "shell_name", "spawn_coordinates"}
+
+
+def _expected_spawn_coords() -> dict[int, list[float]]:
+    if not DB_PATH.exists():
+        return {}
+    db = sqlite3.connect(str(DB_PATH))
+    db.row_factory = sqlite3.Row
+    try:
+        rows = db.execute(
+            """
+            SELECT r.id, sp.game_coord_x, sp.game_coord_y
+            FROM runs r
+            LEFT JOIN spawn_points sp ON r.spawn_point_id = sp.id
+            WHERE sp.game_coord_x IS NOT NULL AND sp.game_coord_y IS NOT NULL
+            """
+        ).fetchall()
+        return {row["id"]: [row["game_coord_x"], row["game_coord_y"]] for row in rows}
+    finally:
+        db.close()
+
+
+def _expected_value(run: dict, field: str, spawn_coords: dict[int, list[float]]) -> Any:
+    if field == "spawn_coordinates":
+        return spawn_coords.get(run["id"])
+    return run.get(field)
+
+
+def _normalize_string(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    return " ".join(text.split()) or None
+
+
+def _normalize_contributors(value: Any) -> list[dict]:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return []
+    return value if isinstance(value, list) else []
+
+
+def _compare(field: str, expected: Any, actual: Any) -> tuple[str, str]:
+    """Return (status, detail): ok, wrong, missing, or skipped."""
+    if expected is None or expected == "":
+        return "skipped", "no ground truth"
+    if actual is None or actual == "":
+        return "missing", f"expected={expected}"
+
+    if field == "survived":
+        return ("ok", "") if bool(actual) == bool(expected) else ("wrong", f"got={actual} expected={bool(expected)}")
+
+    if field in INT_FIELDS:
+        try:
+            got_i = int(actual)
+            exp_i = int(expected)
+        except (TypeError, ValueError):
+            return "wrong", f"got={actual} expected={expected}"
+        if field == "duration_seconds":
+            tolerance = max(30, int(exp_i * 0.10))
+            return ("ok", "") if abs(got_i - exp_i) <= tolerance else ("wrong", f"got={got_i} expected={exp_i}")
+        return ("ok", "") if got_i == exp_i else ("wrong", f"got={got_i} expected={exp_i}")
+
+    if field in FLOAT_FIELDS:
+        try:
+            got_f = float(actual)
+            exp_f = float(expected)
+        except (TypeError, ValueError):
+            return "wrong", f"got={actual} expected={expected}"
+        tolerance = 50.0 if field == "loot_value_total" else max(50.0, abs(exp_f) * 0.02)
+        return ("ok", "") if abs(got_f - exp_f) <= tolerance else ("wrong", f"got={got_f} expected={exp_f}")
+
+    if field == "spawn_coordinates":
+        if not isinstance(actual, list) or len(actual) != 2:
+            return "wrong", f"got={actual} expected={expected}"
+        try:
+            dist = ((float(actual[0]) - float(expected[0])) ** 2 + (float(actual[1]) - float(expected[1])) ** 2) ** 0.5
+        except (TypeError, ValueError):
+            return "wrong", f"got={actual} expected={expected}"
+        return ("ok", "") if dist <= 10.0 else ("wrong", f"got={actual} expected={expected} dist={dist:.1f}")
+
+    if field == "damage_contributors":
+        expected_list = _normalize_contributors(expected)
+        actual_list = _normalize_contributors(actual)
+        if not expected_list:
+            return "skipped", "no ground truth"
+        if not actual_list:
+            return "missing", f"expected={expected}"
+        return ("ok", "") if len(actual_list) == len(expected_list) else (
+            "wrong", f"got={len(actual_list)} contributors expected={len(expected_list)}"
+        )
+
+    if field in STRING_FIELDS:
+        got = _normalize_string(actual)
+        exp = _normalize_string(expected)
+        return ("ok", "") if got == exp else ("wrong", f"got={actual} expected={expected}")
+
+    return ("ok", "") if actual == expected else ("wrong", f"got={actual} expected={expected}")
+
+
+def _iter_run_folders(limit: int | None = None):
+    count = 0
+    if not CLIPS_DIR.exists():
+        return
     for folder in sorted(CLIPS_DIR.iterdir()):
         if not folder.name.startswith("run_"):
             continue
         ss_dir = folder / "screenshots"
         if not ss_dir.exists():
             continue
+        yield folder, ss_dir
+        count += 1
+        if limit is not None and count >= limit:
+            break
 
-        run = match_folder_to_run(folder.name, runs)
-        if not run:
+
+def _iter_training_folders():
+    if not TRAINING_STATS_DIR.exists():
+        return
+    for folder in sorted(TRAINING_STATS_DIR.iterdir()):
+        if not folder.is_dir():
             continue
+        if (folder / "ground_truth.json").exists() or (folder / "damage_ground_truth.json").exists():
+            yield folder
 
-        # --- Find screenshots ---
-        stats_files = sorted([f for f in ss_dir.iterdir()
-                              if f.name.startswith("stats_") and "crop" not in f.name])
-        deploy_files = sorted([f for f in ss_dir.iterdir()
-                               if f.name.startswith("deploy") and "crop" not in f.name])
-        endgame_file = ss_dir / "endgame.jpg"
-        readyup_file = ss_dir / "readyup.jpg"
 
-        if not stats_files and not deploy_files:
+def _load_training_truth(folder: Path) -> dict:
+    truth = {}
+    for name in ("ground_truth.json", "damage_ground_truth.json"):
+        path = folder / name
+        if not path.exists():
             continue
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                truth.update(data)
+        except (OSError, json.JSONDecodeError):
+            pass
+    return truth
 
-        run_count += 1
-        print(f"\n--- {folder.name} (run #{run['id']}) ---")
 
-        # === Test Game State Detection ===
-        for ss_file in list(stats_files[:1]) + list(deploy_files[:1]):
-            frame = cv2.imread(str(ss_file))
-            if frame is None:
+def run_validation(mode: str = "alpha", limit: int | None = None, source: str = "all") -> dict:
+    runs = get_db_runs()
+    spawn_coords = _expected_spawn_coords()
+    processor = AlphaProcessor() if mode == "alpha" else HybridRouter(mode=mode)
+    field_results = {field: FieldResult() for field in FIELD_ORDER}
+    run_reports = []
+
+    def record_result(folder: Path, ss_dir: Path, expected_record: dict, report_source: str) -> None:
+        result = processor.process_run(ss_dir, video_path=None)
+
+        misses: list[dict] = []
+        for field in FIELD_ORDER:
+            if report_source == "training" and field in TRAINING_SCREEN_UNAVAILABLE_FIELDS:
+                field_results[field].skipped += 1
                 continue
-            detected_state = engine.detect_game_state(frame)
-
-            expected_state = "stats" if "stats" in ss_file.name else "deploy"
-            field_results["game_state"]["total"] += 1
-            if detected_state == expected_state:
-                field_results["game_state"]["correct"] += 1
-            else:
-                field_results["game_state"]["wrong"] += 1
-                print(f"  [state MISS] {ss_file.name}: got={detected_state} expected={expected_state}")
-
-        # === Test Map Name (deploy screenshots) ===
-        if deploy_files:
-            for deploy_file in deploy_files[:1]:
-                frame = cv2.imread(str(deploy_file))
-                if frame is None:
-                    continue
-
-                # Template-based map detection
-                tmpl_map = engine.detect_map_name(frame)
-
-                # OCR-based map detection
-                deploy_img = Image.open(deploy_file)
-                ocr_map_data = ocr.read_map_name(deploy_img)
-                ocr_map = ocr_map_data.get("map_name") if isinstance(ocr_map_data, dict) else ocr_map_data
-
-                # Use best result
-                detected_map = tmpl_map or ocr_map
-                expected_map = run.get("map_name")
-
-                if expected_map:
-                    field_results["map_name"]["total"] += 1
-                    if detected_map and detected_map.lower() == expected_map.lower():
-                        field_results["map_name"]["correct"] += 1
-                    elif detected_map is None:
-                        field_results["map_name"]["missing"] += 1
-                        print(f"  [map MISS] no detection (expected={expected_map})")
-                    else:
-                        field_results["map_name"]["wrong"] += 1
-                        print(f"  [map WRONG] got={detected_map} expected={expected_map}")
-
-        # === Test Stats Tab OCR ===
-        if stats_files:
-            # Use stats_2 (usually best — UI settled) or stats_1
-            best_stats = stats_files[1] if len(stats_files) > 1 else stats_files[0]
-            stats_img = Image.open(best_stats)
-
-            # Run OCR
-            ocr_result = ocr.read_stats_tab(stats_img)
-
-            # Compare each field
-            stat_fields = {
-                "survived": ("survived", lambda x: bool(x)),
-                "combatant_eliminations": ("combatant_eliminations", lambda x: int(x) if x is not None else None),
-                "runner_eliminations": ("runner_eliminations", lambda x: int(x) if x is not None else None),
-                "crew_revives": ("crew_revives", lambda x: int(x) if x is not None else None),
-                "loot_value_total": ("loot_value_total", lambda x: int(float(x)) if x is not None else None),
-                "duration_seconds": ("duration_seconds", lambda x: int(x) if x is not None else None),
-            }
-
-            for field, (db_field, normalize) in stat_fields.items():
-                expected = run.get(db_field)
-                if expected is None:
-                    continue
-
-                expected_norm = normalize(expected)
-                actual = ocr_result.get(field)
-
-                field_results[field]["total"] += 1
-
-                if actual is None:
-                    field_results[field]["missing"] += 1
-                elif field == "survived":
-                    if actual == expected_norm:
-                        field_results[field]["correct"] += 1
-                    else:
-                        field_results[field]["wrong"] += 1
-                        print(f"  [{field} WRONG] got={actual} expected={expected_norm}")
-                elif field == "duration_seconds":
-                    # Allow 10% tolerance for duration
-                    if expected_norm and abs(actual - expected_norm) < max(30, expected_norm * 0.1):
-                        field_results[field]["correct"] += 1
-                    else:
-                        field_results[field]["wrong"] += 1
-                        print(f"  [{field} WRONG] got={actual} expected={expected_norm}")
-                elif field == "loot_value_total":
-                    # Allow small tolerance for loot
-                    if abs(actual - expected_norm) < 50:
-                        field_results[field]["correct"] += 1
-                    else:
-                        field_results[field]["wrong"] += 1
-                        print(f"  [{field} WRONG] got={actual} expected={expected_norm}")
-                else:
-                    if actual == expected_norm:
-                        field_results[field]["correct"] += 1
-                    else:
-                        field_results[field]["wrong"] += 1
-                        print(f"  [{field} WRONG] got={actual} expected={expected_norm}")
-
-        # === Test Grade Calculation ===
-        if run.get("grade"):
-            alpha_grade = calculate_grade(
-                survived=bool(run["survived"]),
-                runner_kills=run.get("runner_eliminations") or 0,
-                combatant_kills=run.get("combatant_eliminations") or 0,
-                loot_value=run.get("loot_value_total") or 0,
-                crew_revives=run.get("crew_revives") or 0,
-                duration_seconds=run.get("duration_seconds") or 0,
+            expected = (
+                _expected_value(expected_record, field, spawn_coords)
+                if report_source == "appdata"
+                else expected_record.get(field)
             )
-            grade_order = {"S": 6, "A": 5, "B": 4, "C": 3, "D": 2, "F": 1}
-            expected_grade = run["grade"].strip().upper()
-
-            field_results["grade"]["total"] += 1
-            if alpha_grade == expected_grade:
-                field_results["grade"]["correct"] += 1
-            elif abs(grade_order.get(alpha_grade, 0) - grade_order.get(expected_grade, 0)) <= 1:
-                field_results["grade"]["correct"] += 1  # Count within-1 as correct
+            actual = result.get(field)
+            status, detail = _compare(field, expected, actual)
+            bucket = field_results[field]
+            if status == "ok":
+                bucket.correct += 1
+            elif status == "wrong":
+                bucket.wrong += 1
+                misses.append({"field": field, "detail": detail})
+            elif status == "missing":
+                bucket.missing += 1
+                misses.append({"field": field, "detail": detail})
             else:
-                field_results["grade"]["wrong"] += 1
-                print(f"  [grade WRONG] got={alpha_grade} expected={expected_grade}")
+                bucket.skipped += 1
 
-    # === Print Summary ===
-    print("\n" + "=" * 70)
-    print("VALIDATION RESULTS")
-    print("=" * 70)
-    print(f"\nRuns tested: {run_count}")
-    print(f"\n{'Field':<28} {'Correct':>8} {'Wrong':>8} {'Missing':>8} {'Total':>8} {'Accuracy':>10}")
-    print("-" * 70)
+        run_reports.append({
+            "source": report_source,
+            "folder": folder.name,
+            "run_id": expected_record.get("id") or expected_record.get("run_id"),
+            "routing": result.get("_routing", "alpha"),
+            "low_confidence_fields": [
+                field for field in result.get("_low_confidence_fields", [])
+                if field in expected_record and not (
+                    report_source == "training" and field in TRAINING_SCREEN_UNAVAILABLE_FIELDS
+                )
+            ],
+            "claude_fields": result.get("_claude_fields", []),
+            "misses": misses,
+        })
 
+    if source in ("all", "appdata"):
+        for folder, ss_dir in _iter_run_folders(limit):
+            if limit is not None and len(run_reports) >= limit:
+                break
+            run = match_folder_to_run(folder.name, runs)
+            if not run:
+                continue
+            record_result(folder, ss_dir, run, "appdata")
+
+    if source in ("all", "training"):
+        for folder in _iter_training_folders():
+            if limit is not None and len(run_reports) >= limit:
+                break
+            truth = _load_training_truth(folder)
+            if not truth:
+                continue
+            record_result(folder, folder, truth, "training")
+
+    summary = {
+        field: {
+            "correct": r.correct,
+            "wrong": r.wrong,
+            "missing": r.missing,
+            "skipped": r.skipped,
+            "total": r.total,
+            "accuracy": round(r.accuracy, 1),
+        }
+        for field, r in field_results.items()
+    }
+    return {
+        "mode": mode,
+        "source": source,
+        "runs_tested": len(run_reports),
+        "alpha_health": alpha_health(),
+        "fields": summary,
+        "runs": run_reports,
+    }
+
+
+def _print_report(report: dict) -> None:
+    print("=" * 82)
+    print(
+        f"ALPHA VALIDATION SUITE | mode={report['mode']} | "
+        f"source={report.get('source', 'all')} | runs={report['runs_tested']}"
+    )
+    print("=" * 82)
+    health = report.get("alpha_health", {})
+    blockers = health.get("blockers") or []
+    warnings = health.get("warnings") or []
+    print(
+        f"Capability: {str(health.get('status', 'unknown')).upper()} "
+        f"| blockers={len(blockers)} | warnings={len(warnings)}"
+    )
+    if blockers:
+        for item in blockers[:3]:
+            print(f"  BLOCKER: {item}")
+    if warnings:
+        for item in warnings[:3]:
+            print(f"  WARN: {item}")
+    print("-" * 82)
+    print(f"{'Field':<28} {'Correct':>8} {'Wrong':>8} {'Missing':>8} {'Total':>8} {'Accuracy':>10}")
+    print("-" * 82)
     total_correct = 0
     total_total = 0
-
-    for field in fields:
-        r = field_results[field]
-        if r["total"] == 0:
+    for field in FIELD_ORDER:
+        row = report["fields"][field]
+        if row["total"] == 0 and row["skipped"] == 0:
             continue
-        acc = r["correct"] / r["total"] * 100 if r["total"] > 0 else 0
-        total_correct += r["correct"]
-        total_total += r["total"]
-        print(f"  {field:<26} {r['correct']:>8} {r['wrong']:>8} {r['missing']:>8} {r['total']:>8} {acc:>9.0f}%")
+        total_correct += row["correct"]
+        total_total += row["total"]
+        print(
+            f"{field:<28} {row['correct']:>8} {row['wrong']:>8} "
+            f"{row['missing']:>8} {row['total']:>8} {row['accuracy']:>9.1f}%"
+        )
+    overall = (total_correct / total_total * 100.0) if total_total else 0.0
+    print("-" * 82)
+    print(f"{'OVERALL':<28} {total_correct:>8} {'':>8} {'':>8} {total_total:>8} {overall:>9.1f}%")
 
-    if total_total > 0:
-        overall = total_correct / total_total * 100
-        print("-" * 70)
-        print(f"  {'OVERALL':<26} {total_correct:>8} {'':>8} {'':>8} {total_total:>8} {overall:>9.0f}%")
+    noisy_runs = [r for r in report["runs"] if r["misses"] or r["low_confidence_fields"]]
+    if noisy_runs:
+        print("\nRuns needing attention:")
+        for run in noisy_runs[:20]:
+            miss_fields = ", ".join(m["field"] for m in run["misses"]) or "none"
+            low = ", ".join(run["low_confidence_fields"]) or "none"
+            print(
+                f"  [{run.get('source', '?')}] {run['folder']} #{run['run_id']} "
+                f"routing={run['routing']} misses={miss_fields} low={low}"
+            )
 
-    # === Known Limitations ===
-    print("\n--- Known Limitations ---")
-    print("  - Single-digit stat values (0-9) undetectable by winocr")
-    print("  - Tesseract not installed (would fix single-digit detection)")
-    print("  - Coordinate OCR works only when coords are large enough text")
-    print("  - Stats crop regions calibrated for trio layout at 3840x2160")
+
+def validate_all():
+    """Backwards-compatible entry point used by older scripts."""
+    report = run_validation(mode="alpha")
+    _print_report(report)
+    return report
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--mode", choices=["alpha", "hybrid"], default="alpha")
+    parser.add_argument("--source", choices=["all", "appdata", "training"], default="all")
+    parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--json", dest="json_path", default=None)
+    args = parser.parse_args()
+
+    report = run_validation(mode=args.mode, limit=args.limit, source=args.source)
+    _print_report(report)
+    if args.json_path:
+        out = Path(args.json_path)
+        out.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        print(f"\nWrote JSON report: {out}")
 
 
 if __name__ == "__main__":
-    validate_all()
+    main()

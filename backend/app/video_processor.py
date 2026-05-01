@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 
 from .config import settings
 from . import ai_client
+from .media_process import popen_background, run_media
 
 
 def _check_ffmpeg():
@@ -44,11 +45,56 @@ FRAME_DURATION_START = 90     # seconds from start (loading screen can be 0-90s 
 FRAME_FPS_START = 0.5         # deployment loading screen — static, 0.5fps is plenty (~45 frames)
 FRAME_FPS_END = 5             # post-match tabs — flip fast, need higher fps
 
+PROCESSING_PROFILES = {
+    "light": {
+        "fallback_start_duration": 60,
+        "fallback_start_fps": 0.33,
+        "fallback_end_duration": 30,
+        "fallback_end_fps": 3,
+        "screenshot_end_cap": 60,
+        "screenshot_end_fps": 1,
+        "frame_quality": 3,
+        "stats_fps_escalation": [8, 12, 20],
+    },
+    "balanced": {
+        "fallback_start_duration": FRAME_DURATION_START,
+        "fallback_start_fps": FRAME_FPS_START,
+        "fallback_end_duration": 30,
+        "fallback_end_fps": FRAME_FPS_END,
+        "screenshot_end_cap": 90,
+        "screenshot_end_fps": 1,
+        "frame_quality": 2,
+        "stats_fps_escalation": [10, 15, 20, 30],
+    },
+    "archive": {
+        "fallback_start_duration": 120,
+        "fallback_start_fps": 1,
+        "fallback_end_duration": 45,
+        "fallback_end_fps": 8,
+        "screenshot_end_cap": 120,
+        "screenshot_end_fps": 2,
+        "frame_quality": 2,
+        "stats_fps_escalation": [12, 20, 30],
+    },
+}
+
+
+def _processing_profile() -> dict:
+    """Return the post-processing profile derived from the selected quality preset."""
+    try:
+        from .api.settings_api import get_config_value
+        profile_name = get_config_value("post_processing_profile") or "balanced"
+    except Exception:
+        profile_name = "balanced"
+    profile = PROCESSING_PROFILES.get(profile_name, PROCESSING_PROFILES["balanced"]).copy()
+    profile["name"] = profile_name if profile_name in PROCESSING_PROFILES else "balanced"
+    return profile
+
 
 def _get_video_resolution(video_path: str) -> int | None:
     """Get video width in pixels using ffprobe."""
     try:
-        probe = subprocess.run(
+        probe = run_media(
             ['ffprobe', '-v', 'quiet', '-select_streams', 'v:0',
              '-show_entries', 'stream=width',
              '-of', 'csv=p=0', video_path],
@@ -304,7 +350,7 @@ def _extract_json(text: str) -> dict:
 def _get_video_duration(video_path: str) -> float | None:
     """Get video duration in seconds using ffprobe."""
     try:
-        probe = subprocess.run(
+        probe = run_media(
             ['ffprobe', '-v', 'quiet', '-show_entries', 'format=duration',
              '-of', 'csv=p=0', video_path],
             capture_output=True, text=True, timeout=10,
@@ -320,41 +366,51 @@ def _get_video_duration(video_path: str) -> float | None:
 def extract_key_frames(video_path: str, frames_dir: str, video_duration: float) -> str:
     """Extract key frames from start and end of video for Phase 1 analysis.
 
-    Start window: first FRAME_DURATION_START seconds at FRAME_FPS_START -- deployment loading screen
-    End window: last 30s at FRAME_FPS_END -- STATS, PROGRESS, LOADOUT tabs
+    Start window: deployment loading screen.
+    End window: STATS, PROGRESS, LOADOUT tabs.
     Resolution: native (never upscale)
     """
     os.makedirs(frames_dir, exist_ok=True)
     res = _frame_resolution(video_path)
+    profile = _processing_profile()
+    start_duration = profile["fallback_start_duration"]
+    start_fps = profile["fallback_start_fps"]
+    end_duration = profile["fallback_end_duration"]
+    end_fps = profile["fallback_end_fps"]
+    frame_quality = str(profile["frame_quality"])
+    print(
+        f"[processor] Frame profile={profile['name']} "
+        f"start={start_duration}s@{start_fps}fps end={end_duration}s@{end_fps}fps"
+    )
 
-    # Start frames: first 60s at 0.5fps (~30 frames, just need the loading screen)
+    # Start frames: deployment loading screen
     # -ss BEFORE -i = fast input seeking (doesn't decode everything before the seek point)
     start_cmd = [
         'ffmpeg', '-y', '-hide_banner', '-loglevel', 'warning',
         '-ss', '0',
         '-i', video_path,
-        '-t', str(FRAME_DURATION_START),
-        '-vf', f'scale={res}:-2,fps={FRAME_FPS_START}',
-        '-q:v', '3',
+        '-t', str(start_duration),
+        '-vf', f'scale={res}:-2,fps={start_fps}',
+        '-q:v', frame_quality,
         os.path.join(frames_dir, 'start_%04d.jpg'),
     ]
-    result = subprocess.run(start_cmd, capture_output=True, text=True, timeout=180)
+    result = run_media(start_cmd, capture_output=True, text=True, timeout=180)
     if result.returncode != 0:
         raise RuntimeError(f"Start frame extraction failed: {result.stderr[:200]}")
 
     # End frames: last 30s (higher fps — tabs flip fast)
     # -ss BEFORE -i for fast seeking
-    end_start = max(0, video_duration - 30)
+    end_start = max(0, video_duration - end_duration)
     end_cmd = [
         'ffmpeg', '-y', '-hide_banner', '-loglevel', 'warning',
         '-ss', str(end_start),
         '-i', video_path,
-        '-t', '30',
-        '-vf', f'scale={res}:-2,fps={FRAME_FPS_END}',
-        '-q:v', '3',
+        '-t', str(end_duration),
+        '-vf', f'scale={res}:-2,fps={end_fps}',
+        '-q:v', frame_quality,
         os.path.join(frames_dir, 'end_%04d.jpg'),
     ]
-    result = subprocess.run(end_cmd, capture_output=True, text=True, timeout=180)
+    result = run_media(end_cmd, capture_output=True, text=True, timeout=180)
     if result.returncode != 0:
         raise RuntimeError(f"End frame extraction failed: {result.stderr[:200]}")
 
@@ -411,7 +467,7 @@ Read ALL of these images, then analyze them and follow these instructions:
            "--dangerously-skip-permissions", "--add-dir", frames_dir]
 
     print(f"[processor] Sending {len(frame_paths)} frames to CLI...")
-    proc = subprocess.Popen(
+    proc = popen_background(
         cmd, stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=ai_client.cli_env(),
     )
@@ -459,7 +515,7 @@ def _analyze_with_screenshots(deploy_jpg: str, readyup_jpg: str, frames_dir: str
         cmd = [claude_bin, "-p", prompt, "--model", model,
                "--dangerously-skip-permissions", "--add-dir", work_dir]
         try:
-            proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL,
+            proc = popen_background(cmd, stdin=subprocess.DEVNULL,
                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=ai_client.cli_env())
             output = []
             for line in iter(proc.stdout.readline, b''):
@@ -680,7 +736,7 @@ These are from the END of a Marathon run — stats screens, death screen, loadou
                     "--dangerously-skip-permissions", "--add-dir", frames_parent]
 
             print(f"[processor] CLI Call 2 batch {batch_idx + 1}/{len(batches)}: {len(batch)} frames...")
-            proc2 = subprocess.Popen(cmd2, stdin=subprocess.DEVNULL,
+            proc2 = popen_background(cmd2, stdin=subprocess.DEVNULL,
                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=ai_client.cli_env())
             output2 = []
             try:
@@ -779,7 +835,6 @@ def analyze_frames_phase1(frames_dir: str) -> dict:
 
 SPAWN_RETRY_CHUNK = 45        # seconds per retry chunk when searching for loading screen
 STATS_RETRY_CHUNK = 30        # seconds per retry chunk when searching backwards for stats
-STATS_FPS_ESCALATION = [10, 15, 20, 30]  # fps escalation when Sonnet needs more frames (30 cap)
 
 
 def _merge_analysis(base: dict, retry: dict) -> None:
@@ -789,7 +844,14 @@ def _merge_analysis(base: dict, retry: dict) -> None:
             base[key] = value
 
 
-def _extract_end_frames(video_path: str, frames_dir: str, start_sec: float, duration: float, fps: float) -> bool:
+def _extract_end_frames(
+    video_path: str,
+    frames_dir: str,
+    start_sec: float,
+    duration: float,
+    fps: float,
+    quality: int | str = 3,
+) -> bool:
     """Extract end frames from a specific window. Returns True on success."""
     res = _frame_resolution(video_path)
     for f in glob_mod.glob(os.path.join(frames_dir, 'end_*.jpg')):
@@ -799,10 +861,10 @@ def _extract_end_frames(video_path: str, frames_dir: str, start_sec: float, dura
         '-ss', str(start_sec), '-t', str(duration),
         '-i', video_path,
         '-vf', f'scale={res}:-2,fps={fps}',
-        '-q:v', '3',
+        '-q:v', str(quality),
         os.path.join(frames_dir, 'end_%04d.jpg'),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    result = run_media(cmd, capture_output=True, text=True, timeout=60)
     if result.returncode != 0:
         print(f"[processor] FFmpeg end frame extraction failed: {result.stderr[:200]}")
         return False
@@ -823,6 +885,12 @@ def _maybe_expand_and_retry(
     loading_found = analysis.get("loading_screen_found", True)
     stats_found = analysis.get("stats_tab_found", True)
     needs_more_frames = analysis.get("stats_tab_needs_more_frames", False)
+    profile = _processing_profile()
+    stats_fps_escalation = profile["stats_fps_escalation"]
+    fallback_end_fps = profile["fallback_end_fps"]
+    fallback_start_fps = profile["fallback_start_fps"]
+    fallback_start_duration = profile["fallback_start_duration"]
+    frame_quality = str(profile["frame_quality"])
 
     if loading_found and stats_found:
         return analysis
@@ -830,9 +898,9 @@ def _maybe_expand_and_retry(
     # -- Stats: adaptive fps escalation if Sonnet sees tabs but can't read them --
     if needs_more_frames and not stats_found:
         end_window_start = max(0, video_duration - 30)
-        for boost_fps in STATS_FPS_ESCALATION:
+        for boost_fps in stats_fps_escalation:
             print(f"[processor] Stats tab seen but frames too fast, re-extracting at {boost_fps}fps...")
-            if _extract_end_frames(video_path, frames_dir, end_window_start, 30, boost_fps):
+            if _extract_end_frames(video_path, frames_dir, end_window_start, 30, boost_fps, frame_quality):
                 try:
                     retry = analyze_frames_phase1(frames_dir)
                     _merge_analysis(analysis, retry)
@@ -858,7 +926,7 @@ def _maybe_expand_and_retry(
             window_duration = search_end - window_start
             print(f"[processor] Stats not found, searching {window_start:.0f}-{search_end:.0f}s...")
 
-            if _extract_end_frames(video_path, frames_dir, window_start, window_duration, FRAME_FPS_END):
+            if _extract_end_frames(video_path, frames_dir, window_start, window_duration, fallback_end_fps, frame_quality):
                 try:
                     retry = analyze_frames_phase1(frames_dir)
                     stats_found = retry.get("stats_tab_found", False)
@@ -872,9 +940,9 @@ def _maybe_expand_and_retry(
 
                     # Check if it needs more frames in this window — escalate fps
                     if retry.get("stats_tab_needs_more_frames"):
-                        for boost_fps in STATS_FPS_ESCALATION:
+                        for boost_fps in stats_fps_escalation:
                             print(f"[processor] Stats seen at {window_start:.0f}-{search_end:.0f}s, trying {boost_fps}fps...")
-                            if _extract_end_frames(video_path, frames_dir, window_start, window_duration, boost_fps):
+                            if _extract_end_frames(video_path, frames_dir, window_start, window_duration, boost_fps, frame_quality):
                                 try:
                                     boost_retry = analyze_frames_phase1(frames_dir)
                                     stats_found = boost_retry.get("stats_tab_found", False)
@@ -902,7 +970,7 @@ def _maybe_expand_and_retry(
             print(f"[processor] Stats tab not found after searching entire video")
 
     # -- Spawn: iterate forward through video in chunks --
-    search_offset = FRAME_DURATION_START
+    search_offset = fallback_start_duration
 
     while not loading_found and search_offset < video_duration:
         chunk_end = min(search_offset + SPAWN_RETRY_CHUNK, video_duration)
@@ -916,11 +984,11 @@ def _maybe_expand_and_retry(
             'ffmpeg', '-y', '-hide_banner', '-loglevel', 'warning',
             '-ss', str(search_offset), '-t', str(chunk_duration),
             '-i', video_path,
-            '-vf', f'scale={res}:-2,fps={FRAME_FPS_START}',
-            '-q:v', '3',
+            '-vf', f'scale={res}:-2,fps={fallback_start_fps}',
+            '-q:v', frame_quality,
             os.path.join(frames_dir, 'start_%04d.jpg'),
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        result = run_media(cmd, capture_output=True, text=True, timeout=60)
         if result.returncode != 0:
             print(f"[processor] FFmpeg start frame chunk failed: {result.stderr[:200]}")
             break
@@ -1066,7 +1134,7 @@ def _verify_hud_events(raw_analysis: str, video_path: str, phase1_context: str) 
             '-vframes', '1', '-q:v', '3', frame_path,
         ]
         try:
-            subprocess.run(cmd, capture_output=True, timeout=15)
+            run_media(cmd, capture_output=True, timeout=15)
         except Exception as e:
             print(f"[processor-p2] HUD frame extract failed at {ts}s: {e}")
             continue
@@ -1113,7 +1181,7 @@ Be precise — "RUNNER ELIM" means a runner (human player with #tag) was killed.
     cmd = [claude_bin, "-p", verify_prompt, "--model", "haiku",
            "--dangerously-skip-permissions", "--add-dir", hud_crops_dir]
 
-    proc = subprocess.Popen(
+    proc = popen_background(
         cmd, stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=ai_client.cli_env(),
     )
@@ -1209,7 +1277,7 @@ Convert timestamps like "0:05:30" or "5:30" to seconds (e.g. 330). Output ONLY t
                "--dangerously-skip-permissions"]
         print(f"[processor-p2] Formatter call {attempt + 1}/{max_retries + 1}...")
 
-        proc = subprocess.Popen(
+        proc = popen_background(
             cmd, stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=ai_client.cli_env(),
         )
@@ -1308,7 +1376,7 @@ Output all three steps as plain text. Do NOT output JSON."""
            "--dangerously-skip-permissions", "--add-dir", video_dir]
     print(f"[processor-p2] Call 1: Analyst — watching video...")
 
-    proc = subprocess.Popen(
+    proc = popen_background(
         cmd, stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=ai_client.cli_env(),
     )
@@ -1395,11 +1463,13 @@ def analyze_video_phase2(video_path: str, run_id: int | None = None) -> dict:
 
 # -- Clip cutting -----------------------------------------------------------
 
-def _generate_sprite_sheet(video_path: str, duration: float):
+def _generate_sprite_sheet(video_path: str, duration: float, wait_for_processing_window=None):
     """Generate a sprite sheet (thumbnail grid) for hover scrub preview."""
     import math
     sprite_path = video_path.replace(".mp4", "_sprite.jpg")
     try:
+        if wait_for_processing_window:
+            wait_for_processing_window()
         # Frame count: 3 frames per second of clip, minimum 30, cap at 300
         total_frames = min(300, max(30, int(duration * 3)))
         fps = total_frames / max(1, duration)
@@ -1409,7 +1479,7 @@ def _generate_sprite_sheet(video_path: str, duration: float):
         # Timeout scales with duration: at least 30s, up to 10min for long recordings
         timeout = max(30, min(600, int(duration * 1.2)))
 
-        result = subprocess.run(
+        result = run_media(
             ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'warning',
              '-i', video_path,
              '-vf', f'fps={fps},scale=384:-1,tile={cols}x{rows}',
@@ -1433,7 +1503,13 @@ def _generate_sprite_sheet(video_path: str, duration: float):
         print(f"[processor] Sprite error: {e}")
 
 
-def cut_clips(source_path: str, clips_dir: str, highlights: list[dict], run_timestamp: str | None = None) -> list[str]:
+def cut_clips(
+    source_path: str,
+    clips_dir: str,
+    highlights: list[dict],
+    run_timestamp: str | None = None,
+    wait_for_processing_window=None,
+) -> list[str]:
     """Cut highlight clips from the original recording using stream copy.
 
     No re-encoding — instant cuts from the H.264 source at native resolution (4K).
@@ -1475,7 +1551,9 @@ def cut_clips(source_path: str, clips_dir: str, highlights: list[dict], run_time
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            if wait_for_processing_window:
+                wait_for_processing_window()
+            result = run_media(cmd, capture_output=True, text=True, timeout=120)
             if result.returncode != 0:
                 print(f"[processor] Clip encode failed: {result.stderr[:200]}")
                 continue
@@ -1487,7 +1565,9 @@ def cut_clips(source_path: str, clips_dir: str, highlights: list[dict], run_time
                 # Generate thumbnail at the action point (3s into clip = where the tagged moment is)
                 thumb_path = clip_path.replace(".mp4", "_thumb.jpg")
                 try:
-                    subprocess.run(
+                    if wait_for_processing_window:
+                        wait_for_processing_window()
+                    run_media(
                         ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
                          '-ss', str(min(4, dur - 1)), '-i', clip_path,
                          '-vframes', '1', '-vf', 'scale=384:-1',
@@ -1498,7 +1578,7 @@ def cut_clips(source_path: str, clips_dir: str, highlights: list[dict], run_time
                     print(f"[video_processor] Thumbnail generation failed for clip: {e}")
 
                 # Generate sprite sheet for hover scrub
-                _generate_sprite_sheet(clip_path, dur)
+                _generate_sprite_sheet(clip_path, dur, wait_for_processing_window=wait_for_processing_window)
             else:
                 print(f"[processor] Clip failed (empty): {filename}")
         except Exception as e:
@@ -1536,6 +1616,24 @@ def _build_notes(analysis: dict) -> str | None:
     elif killed_by:
         parts.append(f"Killed by {killed_by}")
     return " | ".join(parts) if parts else None
+
+
+def _build_analysis_meta(analysis: dict) -> dict | None:
+    """Persist alpha/hybrid health without mixing it into user-facing notes."""
+    keys = [
+        "_routing", "_confidence", "_low_confidence_fields", "_sources",
+        "_claude_fields", "_claude_deltas", "_alpha_health",
+        "_tab_classification", "_shell_candidates",
+    ]
+    meta = {}
+    for key in keys:
+        value = analysis.get(key)
+        if value not in (None, {}, []):
+            meta[key.lstrip("_")] = value
+    if not meta:
+        return None
+    meta["processor"] = meta.get("routing") or analysis.get("_routing") or "unknown"
+    return meta
 
 
 def save_run_to_db(analysis: dict, run_date: datetime | None = None) -> int | None:
@@ -1673,6 +1771,7 @@ def save_run_to_db(analysis: dict, run_date: datetime | None = None) -> int | No
             runner_id=runner_id,
             grade=analysis.get("grade"),
             summary=analysis.get("summary"),
+            analysis_meta=_build_analysis_meta(analysis),
             notes=_build_notes(analysis),
             is_ranked=analysis.get("is_ranked", False),
         )
@@ -1754,7 +1853,7 @@ def _save_metrics(metrics: dict):
 
 # -- Main pipelines --------------------------------------------------------
 
-def process_recording(recording_path: str, clips_dir: str, on_phase=None) -> dict:
+def process_recording(recording_path: str, clips_dir: str, on_phase=None, wait_for_processing_window=None) -> dict:
     """Phase 1 pipeline: extract frames -> analyze stats -> save to DB.
 
     Returns a result dict with status and run_id.
@@ -1763,6 +1862,10 @@ def process_recording(recording_path: str, clips_dir: str, on_phase=None) -> dic
     def phase(name, detail=None):
         if on_phase:
             on_phase(name, detail=detail)
+
+    def wait_window():
+        if wait_for_processing_window:
+            wait_for_processing_window()
 
     result = {
         "status": "error",
@@ -1776,6 +1879,7 @@ def process_recording(recording_path: str, clips_dir: str, on_phase=None) -> dic
         print(f"[processor] File not found: {recording_path}")
         return result
 
+    wait_window()
     file_size_mb = os.path.getsize(recording_path) / (1024 * 1024)
     print(f"[processor] Processing: {recording_path} ({file_size_mb:.0f}MB)")
 
@@ -1791,10 +1895,12 @@ def process_recording(recording_path: str, clips_dir: str, on_phase=None) -> dic
     video_duration = _get_video_duration(recording_path)
     if video_duration:
         metrics["video_duration_seconds"] = round(video_duration, 1)
+    processing_profile = _processing_profile()
+    metrics["post_processing_profile"] = processing_profile["name"]
 
     # Get resolution
     try:
-        probe = subprocess.run(
+        probe = run_media(
             ['ffprobe', '-v', 'quiet', '-show_entries', 'stream=width,height',
              '-of', 'csv=p=0', recording_path],
             capture_output=True, text=True, timeout=10,
@@ -1854,28 +1960,34 @@ def process_recording(recording_path: str, clips_dir: str, on_phase=None) -> dic
         frames_dir = recording_path.replace(".mp4", "_frames")
         try:
             phase("extracting_frames")
+            wait_window()
             t0 = time.time()
 
             if has_screenshots:
                 # NEW PIPELINE: screenshots + targeted end frame extraction
-                end_start = endgame_ts if endgame_ts else max(0, video_duration - 60)
+                end_cap = processing_profile["screenshot_end_cap"]
+                end_fps = processing_profile["screenshot_end_fps"]
+                frame_quality = str(processing_profile["frame_quality"])
+                end_start = endgame_ts if endgame_ts else max(0, video_duration - end_cap)
+                endgame_label = "%.1fs" % endgame_ts if endgame_ts else f"N/A (using last {end_cap}s)"
                 print(f"[processor] Screenshot pipeline: deploy={'Y' if os.path.exists(deploy_jpg) else 'N'} "
                       f"readyup={'Y' if os.path.exists(readyup_jpg) else 'N'} "
-                      f"endgame={'%.1fs' % endgame_ts if endgame_ts else 'N/A (using last 60s)'}")
+                      f"endgame={endgame_label} "
+                      f"profile={processing_profile['name']} {end_fps}fps")
                 os.makedirs(frames_dir, exist_ok=True)
-                # Extract end frames at native 4K resolution, 1fps for manageable count
+                # Extract end frames at native resolution; preset controls depth.
                 end_duration = video_duration - end_start
                 if end_duration > 0:
                     end_cmd = [
                         'ffmpeg', '-y', '-hide_banner', '-loglevel', 'warning',
                         '-ss', str(end_start),
                         '-i', recording_path,
-                        '-t', str(min(end_duration, 90)),  # Cap at 90s
-                        '-vf', 'fps=1',  # 1fps at native 4K — ~90 frames max
-                        '-q:v', '2',
+                        '-t', str(min(end_duration, end_cap)),
+                        '-vf', f'fps={end_fps}',
+                        '-q:v', frame_quality,
                         os.path.join(frames_dir, 'end_%04d.jpg'),
                     ]
-                    subprocess.run(end_cmd, capture_output=True, text=True, timeout=180)
+                    run_media(end_cmd, capture_output=True, text=True, timeout=180)
                 metrics["frame_extraction_seconds"] = round(time.time() - t0, 1)
             else:
                 # FALLBACK: full frame extraction (no screenshots available)
@@ -1884,6 +1996,7 @@ def process_recording(recording_path: str, clips_dir: str, on_phase=None) -> dic
                 metrics["frame_extraction_seconds"] = round(time.time() - t0, 1)
 
             phase("analyzing_stats")
+            wait_window()
             t0 = time.time()
 
             # Determine processor mode (alpha / hybrid / claude)
@@ -1993,6 +2106,7 @@ def process_recording(recording_path: str, clips_dir: str, on_phase=None) -> dic
 
     # -- Save to database --------------------------------------------------
     phase("saving")
+    wait_window()
     run_id = save_run_to_db(analysis, run_date=run_date)
     result["run_id"] = run_id
 
@@ -2010,7 +2124,11 @@ def process_recording(recording_path: str, clips_dir: str, on_phase=None) -> dic
 
 
 def process_recording_phase2(
-    recording_path: str, clips_dir: str, run_id: int, on_phase=None
+    recording_path: str,
+    clips_dir: str,
+    run_id: int,
+    on_phase=None,
+    wait_for_processing_window=None,
 ) -> dict:
     """Phase 2 pipeline: narrative analysis -> update run -> cut clips.
 
@@ -2022,6 +2140,10 @@ def process_recording_phase2(
         if on_phase:
             on_phase(name, detail=detail)
 
+    def wait_window():
+        if wait_for_processing_window:
+            wait_for_processing_window()
+
     result = {
         "status": "error",
         "clips": [],
@@ -2032,6 +2154,7 @@ def process_recording_phase2(
 
     # Analyze video for narrative
     phase("analyzing_gameplay")
+    wait_window()
     t0 = time.time()
     phase2_data = None
 
@@ -2101,14 +2224,20 @@ def process_recording_phase2(
             return result
 
     # Update run with narrative data (never overwrites stats)
+    wait_window()
     update_run_phase2(run_id, phase2_data)
 
     # Step 4: Cut clips from original 4K
     phase("cutting_clips")
+    wait_window()
     highlights = phase2_data.get("highlights", [])
     if highlights:
         result["clips"] = cut_clips(
-            recording_path, clips_dir, highlights, run_timestamp=rec_basename
+            recording_path,
+            clips_dir,
+            highlights,
+            run_timestamp=rec_basename,
+            wait_for_processing_window=wait_for_processing_window,
         )
         print(f"[processor-p2] Created {len(result['clips'])} clips")
         # Invalidate clips cache so new clips show up immediately

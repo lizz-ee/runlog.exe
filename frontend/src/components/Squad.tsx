@@ -3,13 +3,13 @@ import { getSquadStats } from '../lib/api'
 import { useStore } from '../lib/store'
 import { formatTime, formatDuration } from '../lib/utils'
 
-import runner1Img from '../assets/runners/runner1.png'
-import runner2Img from '../assets/runners/runner2.png'
-import runner3Img from '../assets/runners/runner3.png'
-import runner4Img from '../assets/runners/runner4.png'
-import runner5Img from '../assets/runners/runner5.png'
-import runner6Img from '../assets/runners/runner6.png'
-import runner7Img from '../assets/runners/runner7.png'
+import runner1Img from '../assets/runners/runner1.webp'
+import runner2Img from '../assets/runners/runner2.webp'
+import runner3Img from '../assets/runners/runner3.webp'
+import runner4Img from '../assets/runners/runner4.webp'
+import runner5Img from '../assets/runners/runner5.webp'
+import runner6Img from '../assets/runners/runner6.webp'
+import runner7Img from '../assets/runners/runner7.webp'
 
 const RUNNER_IMAGES = [runner1Img, runner2Img, runner3Img, runner4Img, runner5Img, runner6Img, runner7Img]
 

@@ -17,6 +17,9 @@ from .. import ai_client
 
 router = APIRouter()
 
+MAX_UPLOAD_BYTES = 15 * 1024 * 1024
+ALLOWED_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
+
 PARSE_PROMPT = """Analyze these Marathon (Bungie 2026 extraction shooter) end-of-match screenshots.
 
 The Marathon post-match screen has 3 tabs — you may see one or more of them:
@@ -75,7 +78,9 @@ Return ONLY the JSON object, no markdown, no explanation."""
 
 async def _save_upload(file: UploadFile) -> str:
     """Save an uploaded file and return the path."""
-    contents = await file.read()
+    contents = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(contents) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail=f"Image is too large; max is {MAX_UPLOAD_BYTES // (1024 * 1024)}MB")
 
     try:
         img = Image.open(io.BytesIO(contents))
@@ -85,7 +90,9 @@ async def _save_upload(file: UploadFile) -> str:
 
     upload_dir = os.path.abspath(settings.media_upload_dir)
     os.makedirs(upload_dir, exist_ok=True)
-    ext = file.filename.split(".")[-1] if file.filename and "." in file.filename else "png"
+    ext = file.filename.rsplit(".", 1)[-1].lower() if file.filename and "." in file.filename else "png"
+    if ext not in ALLOWED_IMAGE_EXTENSIONS:
+        ext = "png"
     filename = f"{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}.{ext}"
     filepath = os.path.join(upload_dir, filename)
 

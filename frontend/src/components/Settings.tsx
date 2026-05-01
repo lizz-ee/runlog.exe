@@ -1,9 +1,10 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { getSettings, setApiKey, testApiKey, removeApiKey, updateConfig, migrateStorage, browseFolder, getCliStatus, cliLogin, cliLogout, getCliLatestVersion, cliUpdate, setAutoPhase } from '../lib/api'
-import type { AppSettings } from '../lib/api'
+import { getSettings, setApiKey, testApiKey, removeApiKey, updateConfig, migrateStorage, browseFolder, getCliStatus, cliLogin, cliLogout, getCliLatestVersion, cliUpdate, getAlphaHealth } from '../lib/api'
+import type { AppSettings, AlphaHealth } from '../lib/api'
 import type { OverlaySettings } from '../lib/types'
 
 type KeyStatus = 'idle' | 'testing' | 'valid' | 'invalid' | 'saving' | 'saved' | 'error'
+type QualityPreset = 'zero_impact' | 'balanced' | 'archive'
 
 const CORNERS = [
   { value: 'top-left', label: 'TL' },
@@ -13,6 +14,66 @@ const CORNERS = [
   { value: 'bottom-center', label: 'BC' },
   { value: 'bottom-right', label: 'BR' },
 ] as const
+
+const QUALITY_PRESETS: Array<{
+  value: QualityPreset
+  label: string
+  tag: string
+  desc: string
+}> = [
+  {
+    value: 'zero_impact',
+    label: 'ZERO IMPACT',
+    tag: 'GAME-FIRST',
+    desc: 'LOWER BITRATE // LONGER GRACE // LIGHT ANALYSIS',
+  },
+  {
+    value: 'balanced',
+    label: 'BALANCED',
+    tag: 'DEFAULT',
+    desc: 'CURRENT CAPTURE DEFAULTS // STANDARD ANALYSIS',
+  },
+  {
+    value: 'archive',
+    label: 'ARCHIVE',
+    tag: 'QUALITY',
+    desc: 'HIGHER BITRATE // DEEPER POST-PROCESSING',
+  },
+]
+
+function presetBitrate(preset: string, fps: number) {
+  if (preset === 'zero_impact') return fps === 30 ? 18 : 28
+  if (preset === 'archive') return fps === 30 ? 60 : 85
+  return fps === 30 ? 35 : 50
+}
+
+function presetWorkers(preset: string) {
+  return preset === 'archive'
+    ? { p1_workers: 2, p2_workers: 2, auto_p1: true, auto_p2: true }
+    : { p1_workers: 1, p2_workers: 1, auto_p1: true, auto_p2: true }
+}
+
+function presetProfile(preset: string) {
+  if (preset === 'zero_impact') return { post_processing_profile: 'light', post_recording_grace_seconds: 30 }
+  if (preset === 'archive') return { post_processing_profile: 'archive', post_recording_grace_seconds: 10 }
+  return { post_processing_profile: 'balanced', post_recording_grace_seconds: 20 }
+}
+
+function isQualityPreset(value: string): value is QualityPreset {
+  return value === 'zero_impact' || value === 'balanced' || value === 'archive'
+}
+
+function alphaStatusLabel(status: string) {
+  if (status === 'ready') return 'READY'
+  if (status === 'ready_with_warnings') return 'READY / WARN'
+  return 'DEGRADED'
+}
+
+function alphaStatusClass(status: string) {
+  if (status === 'ready') return 'text-m-green'
+  if (status === 'ready_with_warnings') return 'text-m-yellow'
+  return 'text-m-red'
+}
 
 function SectionHeader({ tag, title: _title, desc }: { tag: string; title: string; desc: string }) {
   return (
@@ -87,6 +148,7 @@ function Slider({ min, max, step, value, onChange, unit, marks: _marks }: {
 
 export default function Settings() {
   const [config, setConfig] = useState<AppSettings | null>(null)
+  const [alphaHealth, setAlphaHealth] = useState<AlphaHealth | null>(null)
   const [keyInput, setKeyInput] = useState('')
   const [status, setStatus] = useState<KeyStatus>('idle')
   const [statusMsg, setStatusMsg] = useState('')
@@ -105,7 +167,7 @@ export default function Settings() {
     const now = Date.now()
     if (now - lastSendRef.current < 33) return  // throttle IPC to 30fps
     lastSendRef.current = now;
-    (window as any).runlog?.setOverlayPosition?.(xPct, yPct)
+    window.runlog?.setOverlayPosition?.(xPct, yPct)
   }, [])
 
   // CLI status
@@ -118,9 +180,10 @@ export default function Settings() {
 
   useEffect(() => {
     getSettings().then(setConfig).catch((e) => console.error('[Settings] fetch settings failed:', e))
+    getAlphaHealth().then(setAlphaHealth).catch((e) => console.error('[Settings] fetch alpha health failed:', e))
     checkCli()
 
-    const runlog = (window as any).runlog
+    const runlog = window.runlog
     if (runlog?.getOverlaySettings) {
       runlog.getOverlaySettings().then((s: OverlaySettings) => {
         setOverlayEnabled(s.enabled ?? true)
@@ -143,9 +206,27 @@ export default function Settings() {
     }
   }, [])
 
-  function saveConfig(key: string, value: any) {
-    updateConfig(key, value).catch((e) => console.error('[Settings] save config failed:', e))
-    setConfig(prev => prev ? { ...prev, [key]: value } : prev)
+  function saveConfig(key: keyof AppSettings, value: string | number | boolean) {
+    updateConfig(key, value)
+      .then(() => {
+        if (key === 'quality_preset' || key === 'fps') {
+          getSettings().then(setConfig).catch((e) => console.error('[Settings] refresh settings failed:', e))
+        }
+      })
+      .catch((e) => console.error('[Settings] save config failed:', e))
+
+    setConfig(prev => {
+      if (!prev) return prev
+      const next = { ...prev, [key]: value }
+      if (key === 'quality_preset' || key === 'fps') {
+        const preset = String(next.quality_preset || 'balanced')
+        const fps = Number(next.fps || 60)
+        Object.assign(next, presetWorkers(preset), presetProfile(preset), {
+          bitrate: presetBitrate(preset, fps),
+        })
+      }
+      return next
+    })
   }
 
   async function handleTestAndSave() {
@@ -266,6 +347,17 @@ export default function Settings() {
 
   if (!config) return null
 
+  const activePreset = isQualityPreset(config.quality_preset) ? config.quality_preset : 'balanced'
+  const alphaNotes = alphaHealth
+    ? (alphaHealth.blockers.length ? alphaHealth.blockers : alphaHealth.warnings).slice(0, 2)
+    : []
+  const alphaDeps = alphaHealth ? [
+    ['WINOCR', alphaHealth.dependencies.winocr],
+    ['TESS', alphaHealth.dependencies.tesseract_binary && alphaHealth.dependencies.pytesseract],
+    ['EASY', alphaHealth.dependencies.easyocr],
+    ['SHELL', Boolean(alphaHealth.assets.shell_model && alphaHealth.assets.shell_classes)],
+  ] as const : []
+
   return (
     <div className="max-w-7xl mx-auto space-y-5">
       {/* Page header */}
@@ -276,11 +368,40 @@ export default function Settings() {
         </h2>
       </div>
 
-      {/* ═══ RECORDING + PROCESSING — side by side ═══ */}
+      {/* ═══ QUALITY + RECORDING ═══ */}
       <div className="flex gap-5">
-        {/* Recording */}
         <div className="flex-1 border border-m-border bg-m-card">
-          <SectionHeader tag="REC.CONFIG" title="RECORDING" desc="Video capture format, quality, and performance." />
+          <SectionHeader tag="CAPTURE.PROFILE" title="QUALITY" desc="Capture and analysis preset." />
+          <div className="px-5 py-4 space-y-3">
+            {QUALITY_PRESETS.map((preset) => {
+              const selected = activePreset === preset.value
+              return (
+                <button
+                  key={preset.value}
+                  onClick={() => saveConfig('quality_preset', preset.value)}
+                  className={`w-full text-left px-4 py-3 border transition-all ${
+                    selected
+                      ? 'border-m-green/50 bg-m-green/10 text-m-text'
+                      : 'border-m-border bg-m-surface text-m-text-muted hover:text-m-text hover:border-m-border/80'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-display font-black tracking-wider">{preset.label}</p>
+                      <p className="text-[8px] font-mono tracking-wider mt-1">{preset.desc}</p>
+                    </div>
+                    <span className={`text-[9px] font-mono tracking-widest ${selected ? 'text-m-green' : 'text-m-text-muted'}`}>
+                      {preset.tag}
+                    </span>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        <div className="flex-1 border border-m-border bg-m-card">
+          <SectionHeader tag="REC.CONFIG" title="RECORDING" desc="Effective capture settings for the next run." />
           <div className="px-5 py-4 space-y-4">
             <SettingRow label="ENCODER">
               <ToggleButton
@@ -288,11 +409,6 @@ export default function Settings() {
                 value={config.encoder}
                 onChange={v => saveConfig('encoder', v)}
               />
-            </SettingRow>
-
-            <SettingRow label="BITRATE">
-              <Slider min={10} max={100} step={5} value={config.bitrate} unit=" MBPS"
-                onChange={v => saveConfig('bitrate', v)} />
             </SettingRow>
 
             <SettingRow label="FRAMERATE">
@@ -303,57 +419,20 @@ export default function Settings() {
               />
             </SettingRow>
 
-            <div className="pt-1 border-t border-m-border/30">
-              <p className="text-[9px] font-mono text-m-text-muted tracking-wider">
-                NATIVE WINDOW — NEXT RECORDING
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Processing */}
-        <div className="flex-1 border border-m-border bg-m-card">
-          <SectionHeader tag="PROC.CONFIG" title="PROCESSING" desc="Concurrent analysis worker limits." />
-          <div className="px-5 py-4 space-y-4">
-            <SettingRow label="P1 // STATS">
-              <Slider min={1} max={8} step={1} value={config.p1_workers}
-                onChange={v => saveConfig('p1_workers', v)} />
+            <SettingRow label="BITRATE">
+              <span className="text-2xs font-mono text-m-green w-16 text-right">{config.bitrate} MBPS</span>
             </SettingRow>
 
-            <SettingRow label="P2 // NARRATIVE">
-              <Slider min={1} max={4} step={1} value={config.p2_workers}
-                onChange={v => saveConfig('p2_workers', v)} />
+            <SettingRow label="ANALYSIS">
+              <span className="text-2xs font-mono text-m-green w-24 text-right">
+                P1:{config.p1_workers} / P2:{config.p2_workers}
+              </span>
             </SettingRow>
-
-            <div className="pt-2 border-t border-m-border/30 space-y-3">
-              <SettingRow label="AUTO-RUN P1">
-                <ToggleButton
-                  options={[{ value: 'on', label: 'ON' }, { value: 'off', label: 'OFF' }]}
-                  value={config.auto_p1 ? 'on' : 'off'}
-                  onChange={v => {
-                    const enabled = v === 'on'
-                    saveConfig('auto_p1', enabled)
-                    setAutoPhase(1, enabled).catch(console.error)
-                  }}
-                />
-              </SettingRow>
-              <SettingRow label="AUTO-RUN P2">
-                <ToggleButton
-                  options={[{ value: 'on', label: 'ON' }, { value: 'off', label: 'OFF' }]}
-                  value={config.auto_p2 ? 'on' : 'off'}
-                  onChange={v => {
-                    const enabled = v === 'on'
-                    saveConfig('auto_p2', enabled)
-                    setAutoPhase(2, enabled).catch(console.error)
-                  }}
-                />
-              </SettingRow>
-            </div>
 
             <div className="pt-1 border-t border-m-border/30">
               <p className="text-[9px] font-mono text-m-text-muted tracking-wider">
-                P1 = FRAMES + STATS — P2 = NARRATIVE + CLIPS<br/>
-                <span className="text-m-yellow/40">WORKERS RESTART REQUIRED — AUTO-RUN TAKES EFFECT IMMEDIATELY</span>
+                {(config.post_processing_profile || 'balanced').toUpperCase()} POST-PROCESS // {config.post_recording_grace_seconds || 20}s GRACE<br/>
+                <span className="text-m-green">P1/P2 HOLD DURING MATCHMAKING, RECORDING, AND POSTGAME</span>
               </p>
             </div>
           </div>
@@ -413,8 +492,9 @@ export default function Settings() {
                       if (res.db_paths_updated > 0) parts.push(`${res.db_paths_updated} DB paths updated`)
                       if (res.errors?.length) parts.push(`${res.errors.length} errors`)
                       setMigrateResult(parts.join(' · '))
-                    } catch (e: any) {
-                      setMigrateResult(`ERROR: ${e?.response?.data?.detail || e.message}`)
+                    } catch (err: unknown) {
+                      const migrateErr = err as { response?: { data?: { detail?: string } }; message?: string }
+                      setMigrateResult(`ERROR: ${migrateErr.response?.data?.detail || migrateErr.message || 'Migration failed'}`)
                     } finally {
                       setMigrating(false)
                     }
@@ -456,6 +536,42 @@ export default function Settings() {
               />
             </SettingRow>
 
+            {alphaHealth && (
+              <div className="border border-m-border/40 bg-m-surface px-3 py-2 space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="label-tag text-m-text-muted">ALPHA.HEALTH</span>
+                  <span className={`text-[9px] font-mono tracking-widest ${alphaStatusClass(alphaHealth.status)}`}>
+                    {alphaStatusLabel(alphaHealth.status)}
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap gap-1.5">
+                  {alphaDeps.map(([label, ok]) => (
+                    <span
+                      key={label}
+                      className={`px-1.5 py-0.5 text-[8px] font-mono tracking-widest border ${
+                        ok
+                          ? 'border-m-green/30 text-m-green/80 bg-m-green/5'
+                          : 'border-m-red/30 text-m-red/80 bg-m-red/5'
+                      }`}
+                    >
+                      {label}
+                    </span>
+                  ))}
+                </div>
+
+                {alphaNotes.length > 0 && (
+                  <div className="space-y-1">
+                    {alphaNotes.map((note) => (
+                      <p key={note} className="text-[8px] font-mono text-m-text-muted tracking-wider leading-relaxed">
+                        {note.toUpperCase()}
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="pt-1 border-t border-m-border/30">
               <p className="text-[9px] font-mono text-m-text-muted tracking-wider">
                 ALPHA = LOCAL OCR + ML (FREE, OFFLINE, &lt;2s)<br/>
@@ -481,7 +597,7 @@ export default function Settings() {
                   onClick={() => {
                     const next = !overlayEnabled
                     setOverlayEnabled(next)
-                    const runlog = (window as any).runlog
+                    const runlog = window.runlog
                     runlog?.toggleOverlay?.(next)
                   }}
                   className={`px-3 py-1 text-2xs font-mono tracking-widest border transition-all ${
@@ -494,7 +610,7 @@ export default function Settings() {
                 </button>
                 <button
                   aria-label="Preview overlay position"
-                  onClick={() => (window as any).runlog?.previewOverlay?.()}
+                  onClick={() => window.runlog?.previewOverlay?.()}
                   className="px-3 py-1 text-2xs font-mono tracking-widest border border-m-border text-m-text-muted bg-m-surface hover:text-m-text transition-all"
                 >
                   PREVIEW
@@ -520,7 +636,7 @@ export default function Settings() {
                 <Slider min={40} max={100} step={5} value={overlayOpacity} unit="%"
                   onChange={v => {
                     setOverlayOpacity(v);
-                    (window as any).runlog?.setOverlayOpacity?.(v)
+                    window.runlog?.setOverlayOpacity?.(v)
                   }}
                 />
               </SettingRow>
@@ -542,7 +658,7 @@ export default function Settings() {
                           setOverlayCorner(c.value)
                           const pos = posMap[c.value]
                           setOverlayPos(pos);
-                          (window as any).runlog?.setOverlayCorner?.(c.value)
+                          window.runlog?.setOverlayCorner?.(c.value)
                         }}
                         className={`px-2 py-1 text-2xs font-mono tracking-widest border transition-all ${
                           col > 0 ? '-ml-px' : ''
@@ -599,7 +715,7 @@ export default function Settings() {
                 onPointerUp={() => {
                   if (draggingOverlay) {
                     setDraggingOverlay(false)
-                    ;(window as any).runlog?.setOverlayPosition?.(overlayPos.x, overlayPos.y)
+                    ;window.runlog?.setOverlayPosition?.(overlayPos.x, overlayPos.y)
                   }
                 }}
               >
@@ -853,7 +969,7 @@ export default function Settings() {
 
                 <div className="pt-1 border-t border-m-border/20">
                   <p className="text-[8px] font-mono text-m-text-muted tracking-wider leading-relaxed">
-                    01 — <span className="text-m-cyan cursor-pointer hover:underline" onClick={() => (window as any).runlog?.openUrl?.('https://docs.anthropic.com/en/docs/claude-code/overview')}>INSTALL CLAUDE CODE CLI</span><br/>
+                    01 — <span className="text-m-cyan cursor-pointer hover:underline" onClick={() => window.runlog?.openUrl?.('https://docs.anthropic.com/en/docs/claude-code/overview')}>INSTALL CLAUDE CODE CLI</span><br/>
                     02 — RUN LOGIN ABOVE OR <span className="text-m-cyan">claude login</span> IN TERMINAL<br/>
                     03 — USES YOUR CLAUDE SUBSCRIPTION<br/>
                     <span className="text-m-text-muted">NO API TOKENS REQUIRED</span>

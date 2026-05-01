@@ -6,14 +6,16 @@ Provides start/stop/status/frame endpoints for the singleton capture engine.
 """
 
 import os
+import re
 import subprocess
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response, JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..capture import AutoCapture
 from ..config import _STORAGE_DIR
+from ..media_process import run_media
 
 router = APIRouter()
 
@@ -41,10 +43,48 @@ def invalidate_clips_cache():
 
 def _safe_path(base_dir: str, user_path: str) -> str:
     """Resolve user_path under base_dir, rejecting traversal attempts."""
-    resolved = os.path.normpath(os.path.join(base_dir, user_path))
-    if not resolved.startswith(os.path.normpath(base_dir) + os.sep) and resolved != os.path.normpath(base_dir):
+    base_abs = os.path.abspath(base_dir)
+    resolved = os.path.abspath(os.path.join(base_abs, user_path))
+    try:
+        common = os.path.commonpath([os.path.normcase(base_abs), os.path.normcase(resolved)])
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid path")
+    if common != os.path.normcase(base_abs):
         raise HTTPException(status_code=400, detail="Invalid path")
     return resolved
+
+
+def _safe_recording_filename(filename: str) -> str:
+    """Validate recording filenames before mapping them to run folders."""
+    if not filename:
+        raise HTTPException(status_code=400, detail="filename required")
+    if os.path.basename(filename) != filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    if not re.fullmatch(r"run_\d{8}_\d{6}\.mp4", filename):
+        raise HTTPException(status_code=400, detail="Invalid recording filename")
+    return filename
+
+
+def _recording_paths(filename: str) -> tuple[str, str]:
+    safe_filename = _safe_recording_filename(filename)
+    run_tag = safe_filename.removesuffix(".mp4")
+    run_dir = _safe_path(CLIPS_DIR, run_tag)
+    return run_dir, _safe_path(run_dir, safe_filename)
+
+
+def _safe_stored_media_path(media_path: str) -> str:
+    """Allow DB-stored media deletes only within RunLog's media roots."""
+    if not media_path:
+        raise HTTPException(status_code=400, detail="Invalid media path")
+    resolved = os.path.abspath(media_path)
+    for root in (os.path.abspath(CLIPS_DIR), os.path.abspath(RECORDINGS_DIR)):
+        try:
+            common = os.path.commonpath([os.path.normcase(root), os.path.normcase(resolved)])
+        except ValueError:
+            continue
+        if common == os.path.normcase(root):
+            return resolved
+    raise HTTPException(status_code=400, detail="Recording path is outside RunLog storage")
 
 
 def _get_engine() -> AutoCapture:
@@ -55,6 +95,12 @@ def _get_engine() -> AutoCapture:
             detail="Capture engine not started. POST /api/capture/start first.",
         )
     return _engine
+
+
+def apply_runtime_config() -> None:
+    """Refresh capture processing settings after SYS.CONFIG changes."""
+    if _engine is not None:
+        _engine.reload_processing_config()
 
 
 # -- Endpoints ---------------------------------------------------------
@@ -99,6 +145,8 @@ def capture_status():
             "recording_path": None,
             "queue_size": 0,
             "processing_phase": None,
+            "processing_paused": False,
+            "processing_pause_reason": None,
             "processing_items": [],
             "status_counts": {},
             "resumed_count": 0,
@@ -217,7 +265,7 @@ def _add_clip_entry(clips: list, folder: str, filename: str, run_folder: str | N
         except (FileNotFoundError, KeyError, ValueError, _json.JSONDecodeError):
             # Fallback: generate sidecar from ffprobe (one-time migration)
             try:
-                probe = subprocess.run(
+                probe = run_media(
                     ['ffprobe', '-v', 'quiet', '-show_entries', 'format=duration', '-of', 'csv=p=0', filepath],
                     capture_output=True, text=True, timeout=5
                 )
@@ -272,8 +320,13 @@ def serve_clip(filepath: str, request: Request):
     if range_header:
         range_spec = range_header.replace("bytes=", "")
         parts = range_spec.split("-")
-        start = int(parts[0]) if parts[0] else 0
-        end = int(parts[1]) if parts[1] else file_size - 1
+        if len(parts) != 2:
+            raise HTTPException(status_code=416, detail="Invalid range")
+        try:
+            start = int(parts[0]) if parts[0] else 0
+            end = int(parts[1]) if parts[1] else file_size - 1
+        except ValueError:
+            raise HTTPException(status_code=416, detail="Invalid range")
         end = min(end, file_size - 1)
         if start > end or start < 0:
             raise HTTPException(status_code=416, detail="Invalid range")
@@ -306,19 +359,15 @@ def serve_clip(filepath: str, request: Request):
 
 
 class RecordingAction(BaseModel):
-    filename: str
-    run_id: int | None = None
+    filename: str = Field(min_length=1, max_length=64)
+    run_id: int | None = Field(default=None, ge=1)
 
 
 @router.post("/recording/keep")
 def keep_recording(body: RecordingAction):
     """Mark a recording to be kept (already in clips folder — just links to run)."""
-    filename = body.filename
-    if not filename:
-        raise HTTPException(status_code=400, detail="filename required")
-
-    run_tag = filename.replace(".mp4", "")
-    filepath = os.path.join(CLIPS_DIR, run_tag, filename)
+    filename = _safe_recording_filename(body.filename)
+    _, filepath = _recording_paths(filename)
     if not os.path.exists(filepath):
         raise HTTPException(status_code=404, detail="Recording not found")
 
@@ -346,13 +395,9 @@ def keep_recording(body: RecordingAction):
 @router.post("/recording/delete")
 def delete_recording(body: RecordingAction):
     """Delete a recording permanently."""
-    filename = body.filename
-    if not filename:
-        raise HTTPException(status_code=400, detail="filename required")
-
     import shutil
-    run_tag = filename.replace(".mp4", "")
-    run_dir = os.path.join(CLIPS_DIR, run_tag)
+    filename = _safe_recording_filename(body.filename)
+    run_dir, _ = _recording_paths(filename)
 
     # Remove the entire run folder (recording, screenshots, clips, markers)
     if os.path.isdir(run_dir):
@@ -362,15 +407,14 @@ def delete_recording(body: RecordingAction):
     if _engine:
         _engine.remove_processing_item(filename)
 
+    invalidate_clips_cache()
     return JSONResponse(content={"status": "deleted"})
 
 
 @router.post("/recording/retry")
 def retry_recording(body: RecordingAction):
     """Retry a failed recording. Resumes from where it left off (skips Phase 1 if already done)."""
-    filename = body.filename
-    if not filename:
-        raise HTTPException(status_code=400, detail="filename required")
+    filename = _safe_recording_filename(body.filename)
     if _engine:
         success = _engine.retry_processing(filename)
         if success:
@@ -381,9 +425,7 @@ def retry_recording(body: RecordingAction):
 @router.post("/recording/dismiss")
 def dismiss_recording(body: RecordingAction):
     """Remove an item from the processing queue without running any processing."""
-    filename = body.filename
-    if not filename:
-        raise HTTPException(status_code=400, detail="filename required")
+    filename = _safe_recording_filename(body.filename)
     if _engine:
         _engine.dismiss_item(filename)
     return JSONResponse(content={"status": "dismissed"})
@@ -398,7 +440,7 @@ def dismiss_all_failed():
 
 
 class AutoPhaseUpdate(BaseModel):
-    phase: int   # 1 or 2
+    phase: int = Field(ge=1, le=2)
     enabled: bool
 
 
@@ -412,17 +454,20 @@ def set_auto_phase(body: AutoPhaseUpdate):
     return JSONResponse(content={"status": "ok", "phase": body.phase, "enabled": body.enabled})
 
 
+class OpenFolderRequest(BaseModel):
+    folder: str | None = Field(default=None, max_length=128)
+
+
 @router.post("/open-folder")
-def open_run_folder(body: dict):
+def open_run_folder(body: OpenFolderRequest):
     """Open a run's clips folder in the system file explorer."""
     import subprocess
-    folder = body.get("folder")
-    if folder:
-        folder_path = _safe_path(CLIPS_DIR, folder)
+    if body.folder:
+        folder_path = _safe_path(CLIPS_DIR, body.folder)
+        if not os.path.isdir(folder_path):
+            raise HTTPException(status_code=404, detail="Folder not found")
     else:
         folder_path = CLIPS_DIR
-
-    if not os.path.isdir(folder_path):
         os.makedirs(folder_path, exist_ok=True)
 
     # Open in Windows Explorer
@@ -444,21 +489,23 @@ def get_folder_size(folder: str):
     return JSONResponse(content={"size_mb": round(total / (1024 * 1024), 1)})
 
 
+class DeleteClipRequest(BaseModel):
+    filename: str = Field(min_length=1, max_length=260)
+
+
 @router.post("/clip/delete")
-def delete_clip(body: dict):
+def delete_clip(body: DeleteClipRequest):
     """Delete a single clip file and its thumbnail."""
-    filename = body.get("filename")
-    if not filename:
-        raise HTTPException(status_code=400, detail="filename required")
+    filename = body.filename
 
     filepath = _safe_path(CLIPS_DIR, filename)
-    if not os.path.exists(filepath):
+    if not filepath.lower().endswith(".mp4") or not os.path.isfile(filepath):
         raise HTTPException(status_code=404, detail="Clip not found")
 
     os.remove(filepath)
 
     # Also remove thumbnail, sprite, and any related assets
-    for suffix in ("_thumb.jpg", "_sprite.jpg"):
+    for suffix in ("_thumb.jpg", "_sprite.jpg", "_sprite.json"):
         asset_path = filepath.replace(".mp4", suffix)
         if os.path.exists(asset_path):
             os.remove(asset_path)
@@ -467,12 +514,14 @@ def delete_clip(body: dict):
     return JSONResponse(content={"status": "deleted", "filename": filename})
 
 
+class DeleteKeptRecordingRequest(BaseModel):
+    run_id: int = Field(ge=1)
+
+
 @router.post("/recording/delete-kept")
-def delete_kept_recording(body: dict):
+def delete_kept_recording(body: DeleteKeptRecordingRequest):
     """Delete a kept full recording and clear recording_path on the run."""
-    run_id = body.get("run_id")
-    if not run_id:
-        raise HTTPException(status_code=400, detail="run_id required")
+    run_id = body.run_id
 
     from ..database import SessionLocal
     from ..models import Run
@@ -484,12 +533,12 @@ def delete_kept_recording(body: dict):
         if not run.recording_path:
             raise HTTPException(status_code=404, detail="No recording to delete")
 
-        recording_path = run.recording_path
+        recording_path = _safe_stored_media_path(run.recording_path)
 
-        # Delete mp4, thumbnail, and sprite sheet
+        # Delete mp4, sidecar wav, thumbnail, and sprite sheet
         if os.path.exists(recording_path):
             os.remove(recording_path)
-        for suffix in ("_thumb.jpg", "_sprite.jpg"):
+        for suffix in (".wav", "_thumb.jpg", "_sprite.jpg", "_sprite.json"):
             asset_path = recording_path.replace(".mp4", suffix)
             if os.path.exists(asset_path):
                 os.remove(asset_path)
@@ -505,10 +554,10 @@ def delete_kept_recording(body: dict):
 
 
 class ClipCutRequest(BaseModel):
-    source: str
-    in_point: float
-    out_point: float
-    name: str = "custom"
+    source: str = Field(min_length=1, max_length=260)
+    in_point: float = Field(ge=0)
+    out_point: float = Field(gt=0)
+    name: str = Field(default="custom", min_length=1, max_length=48)
 
 
 @router.post("/clip/cut")
@@ -516,8 +565,6 @@ def cut_custom_clip(body: ClipCutRequest):
     """Create a custom clip from a video using IN/OUT points. Stream copy, no re-encode."""
     import re
 
-    if body.in_point < 0:
-        raise HTTPException(status_code=400, detail="IN point must be >= 0")
     if body.out_point <= body.in_point:
         raise HTTPException(status_code=400, detail="OUT point must be after IN point")
     if body.out_point > 86400:
@@ -527,7 +574,7 @@ def cut_custom_clip(body: ClipCutRequest):
         raise HTTPException(status_code=400, detail="Clip must be at least 1 second")
 
     source_path = _safe_path(CLIPS_DIR, body.source)
-    if not os.path.exists(source_path):
+    if not source_path.lower().endswith(".mp4") or not os.path.isfile(source_path):
         raise HTTPException(status_code=404, detail="Source video not found")
 
     source_dir = os.path.dirname(source_path)
@@ -567,7 +614,7 @@ def cut_custom_clip(body: ClipCutRequest):
     ]
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        result = run_media(cmd, capture_output=True, text=True, timeout=120)
         if result.returncode != 0:
             raise HTTPException(status_code=500, detail=f"ffmpeg failed: {result.stderr[:200]}")
     except subprocess.TimeoutExpired:
@@ -580,7 +627,7 @@ def cut_custom_clip(body: ClipCutRequest):
     thumb_path = clip_path.replace(".mp4", "_thumb.jpg")
     mid = duration * 0.5
     try:
-        subprocess.run(
+        run_media(
             ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
              '-ss', str(mid), '-i', clip_path,
              '-vframes', '1', '-vf', 'scale=384:-1',

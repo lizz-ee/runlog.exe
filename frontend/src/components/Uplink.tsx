@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
+import type { KeyboardEvent } from 'react'
 import axios from 'axios'
 import { apiBase } from '../lib/api'
 import { useStore } from '../lib/store'
@@ -26,6 +27,46 @@ interface TrendPoint {
   value: number
   run_count?: number
   date?: string
+}
+
+async function readEventStream(response: Response, onText: (text: string) => void) {
+  if (!response.ok) {
+    throw new Error(`UPLINK request failed with HTTP ${response.status}`)
+  }
+
+  const reader = response.body?.getReader()
+  if (!reader) {
+    throw new Error('UPLINK response did not include a stream')
+  }
+
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  const processLine = (line: string) => {
+    if (!line.startsWith('data: ')) return
+    const payload = line.slice(6).trim()
+    if (payload === '[DONE]') return
+
+    try {
+      const parsed = JSON.parse(payload) as { text?: string }
+      if (parsed.text) onText(parsed.text)
+    } catch (e) {
+      console.error('[Uplink] invalid stream payload:', e)
+    }
+  }
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    lines.forEach(processLine)
+  }
+
+  buffer += decoder.decode()
+  if (buffer) processLine(buffer)
 }
 
 // ═══════════════════════════════════════════════════════
@@ -74,24 +115,14 @@ export default function Uplink() {
 
     fetch(`${apiBase}/api/uplink/briefing`, { method: 'POST' })
       .then(async (response) => {
-        const reader = response.body?.getReader()
-        if (!reader) return
-        const decoder = new TextDecoder()
         let fullText = ''
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-          const chunk = decoder.decode(value)
-          for (const line of chunk.split('\n')) {
-            if (line.startsWith('data: ')) {
-              const payload = line.slice(6)
-              if (payload === '[DONE]') continue
-              try { fullText += JSON.parse(payload).text || ''; setBriefing(fullText) } catch {}
-            }
-          }
-        }
-        setBriefingLoading(false)
-      }).catch(() => setBriefingLoading(false))
+        await readEventStream(response, text => {
+          fullText += text
+          setBriefing(fullText)
+        })
+      }).catch((e) => {
+        console.error('[Uplink] fetch briefing failed:', e)
+      }).finally(() => setBriefingLoading(false))
   }, [summary?.run_count])
 
   const sendMessage = useCallback(async () => {
@@ -109,26 +140,29 @@ export default function Uplink() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: userMsg, history: currentMessages.map(m => ({ role: m.role, content: m.content })) }),
       })
-      const reader = response.body?.getReader()
-      if (!reader) return
-      const decoder = new TextDecoder()
       let aiText = ''
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        const chunk = decoder.decode(value)
-        for (const line of chunk.split('\n')) {
-          if (line.startsWith('data: ')) {
-            const payload = line.slice(6)
-            if (payload === '[DONE]') continue
-            try { aiText += JSON.parse(payload).text || ''; setMessages([...newMessages, { role: 'assistant', content: aiText }]) } catch {}
-          }
-        }
-      }
-    } catch { setMessages([...newMessages, { role: 'assistant', content: 'SIGNAL LOST — RECONNECTING...' }]) }
-    setStreaming(false)
-    setTimeout(() => inputRef.current?.focus(), 50)
-  }, [input, streaming])
+      await readEventStream(response, text => {
+        aiText += text
+        setMessages([...newMessages, { role: 'assistant', content: aiText }])
+      })
+    } catch (e) {
+      console.error('[Uplink] chat failed:', e)
+      setMessages([...newMessages, { role: 'assistant', content: 'SIGNAL LOST — RECONNECTING...' }])
+    } finally {
+      setStreaming(false)
+      setTimeout(() => inputRef.current?.focus(), 50)
+    }
+  }, [input, setMessages, streaming])
+
+  const handleChatKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      void sendMessage()
+    }
+  }
+
+  const handleSendClick = () => {
+    void sendMessage()
+  }
 
   useEffect(() => { chatRef.current && (chatRef.current.scrollTop = chatRef.current.scrollHeight) }, [messages])
 
@@ -303,13 +337,13 @@ export default function Uplink() {
                 ref={inputRef}
                 value={input}
                 onChange={e => setInput(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && sendMessage()}
+                onKeyDown={handleChatKeyDown}
                 placeholder="query uplink..."
                 disabled={streaming}
                 className="flex-1 bg-transparent text-[11px] font-mono text-m-text placeholder:text-m-text-muted/30 focus:outline-none disabled:opacity-30"
                 style={{ caretColor: '#c8ff00' }}
               />
-              <button onClick={sendMessage} disabled={streaming || !input.trim()}
+              <button onClick={handleSendClick} disabled={streaming || !input.trim()}
                 className="text-[9px] font-mono tracking-[0.2em] disabled:opacity-15 hover:text-m-green transition-all"
                 style={{ color: 'rgba(200,255,0,0.4)' }}>
                 SEND
