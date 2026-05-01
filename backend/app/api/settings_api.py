@@ -38,6 +38,7 @@ DEFAULTS = {
     "encoder": "hevc",
     "bitrate": 50,         # Mbps
     "fps": 60,
+    "resolution": "native",  # native | 1440p | 1080p | 720p
     "p1_workers": 4,
     "p2_workers": 1,
     "auto_p1": True,       # Auto-run Phase 1 (stats extraction) when recording finishes
@@ -76,6 +77,7 @@ def get_settings():
         "encoder": saved.get("encoder", DEFAULTS["encoder"]),
         "bitrate": saved.get("bitrate", DEFAULTS["bitrate"]),
         "fps": saved.get("fps", DEFAULTS["fps"]),
+        "resolution": saved.get("resolution", DEFAULTS["resolution"]),
         "p1_workers": saved.get("p1_workers", DEFAULTS["p1_workers"]),
         "p2_workers": saved.get("p2_workers", DEFAULTS["p2_workers"]),
         "auto_p1": saved.get("auto_p1", DEFAULTS["auto_p1"]),
@@ -143,6 +145,8 @@ def update_config(body: ConfigUpdate):
         raise HTTPException(status_code=400, detail=f"Invalid model: {body.value}. Must be 'sonnet' or 'haiku'")
     if body.key == "encoder" and body.value not in ("hevc", "h264"):
         raise HTTPException(status_code=400, detail=f"Invalid encoder: {body.value}. Must be 'hevc' or 'h264'")
+    if body.key == "resolution" and body.value not in ("native", "1440p", "1080p", "720p"):
+        raise HTTPException(status_code=400, detail=f"Invalid resolution: {body.value}. Must be 'native', '1440p', '1080p', or '720p'")
     if body.key == "processor_mode" and body.value not in ("alpha", "hybrid", "claude"):
         raise HTTPException(status_code=400, detail=f"Invalid processor_mode: {body.value}. Must be 'alpha', 'hybrid', or 'claude'")
 
@@ -171,8 +175,29 @@ def update_config(body: ConfigUpdate):
         except Exception:
             pass
 
-    return {"status": "saved", "key": body.key, "value": body.value,
-            "note": "Restart the app for storage_path changes to take effect." if body.key == "storage_path" else None}
+    # The recorder's WGC capture rate cap is set at process startup from the
+    # fps env var, so an fps change has to bounce the recorder to take effect.
+    # Skip the bounce while a recording is in progress — would cut the run.
+    # Instead flag a deferred restart that the capture engine performs in
+    # _stop_recording() once the in-flight run is finalized.
+    note = None
+    if body.key == "fps":
+        try:
+            from . import capture_api
+            engine = capture_api._engine
+            if engine is not None and engine._recorder.is_running:
+                if engine._recording or engine._recorder.recording:
+                    engine._recorder.fps_restart_pending = True
+                    note = "FPS change saved — the recorder will restart automatically after the current recording finishes."
+                else:
+                    engine._recorder.stop()
+                    engine._recorder.start()
+        except Exception as e:
+            print(f"[settings] Recorder restart on fps change failed: {e}")
+    elif body.key == "storage_path":
+        note = "Restart the app for storage_path changes to take effect."
+
+    return {"status": "saved", "key": body.key, "value": body.value, "note": note}
 
 
 @router.get("/browse-folder")

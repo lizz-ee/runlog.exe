@@ -773,3 +773,15 @@ ipcMain.on('open-url', (_event, url) => {
     shell.openExternal(url)
   }
 })
+
+ipcMain.on('app-relaunch', async () => {
+  // Restart the app — used by SYS.CONFIG when a setting requires a process bounce
+  // (P1/P2 worker counts and storage_path are set at engine startup).
+  const canQuit = await confirmQuitIfProcessing()
+  if (!canQuit) return
+  app.isQuitting = true
+  if (recordingManager) recordingManager.stop()
+  if (backendManager) backendManager.stop()
+  app.relaunch()
+  app.quit()
+})

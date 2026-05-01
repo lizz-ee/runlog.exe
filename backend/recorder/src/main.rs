@@ -1,7 +1,7 @@
 use std::io::{self, BufRead, Write};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use windows_capture::capture::{Context, GraphicsCaptureApiHandler};
@@ -43,7 +43,15 @@ const JPEG_QUALITY: u8 = 85;
 #[serde(tag = "cmd")]
 enum Command {
     #[serde(rename = "start")]
-    Start { path: String, bitrate: Option<u32>, encoder: Option<String>, fps: Option<u32> },
+    Start {
+        path: String,
+        bitrate: Option<u32>,
+        encoder: Option<String>,
+        fps: Option<u32>,
+        /// When set, downscale to this height during encode. Width is derived
+        /// from the live capture aspect ratio so ultrawide stays correct.
+        target_height: Option<u32>,
+    },
     #[serde(rename = "stop")]
     Stop,
     #[serde(rename = "screenshot")]
@@ -111,6 +119,9 @@ struct SharedState {
     record_bitrate: Mutex<Option<u32>>,
     record_encoder: Mutex<Option<String>>,
     record_fps: Mutex<Option<u32>>,
+    /// Target output height (encoder downscales to this, width derived from
+    /// live aspect ratio). None = encode at native capture resolution.
+    record_target_height: Mutex<Option<u32>>,
     should_quit: AtomicBool,
     screenshot_path: Mutex<Option<String>>,
     encoded_frames: AtomicU64,
@@ -369,6 +380,7 @@ impl GraphicsCaptureApiHandler for Recorder {
             let bitrate = self.state.record_bitrate.lock().unwrap().take();
             let encoder_type = self.state.record_encoder.lock().unwrap().take();
             let fps = self.state.record_fps.lock().unwrap().take();
+            let target_h = self.state.record_target_height.lock().unwrap().take();
             if let Some(path) = path {
                 let br = bitrate.unwrap_or(30_000_000).clamp(1_000_000, 300_000_000);
                 let sub_type = match encoder_type.as_deref() {
@@ -377,8 +389,20 @@ impl GraphicsCaptureApiHandler for Recorder {
                 };
                 let frame_rate = fps.unwrap_or(60).clamp(1, 240);
 
+                // Compute encode dims. If a target height is requested and is
+                // smaller than the live capture, MF will downscale during encode
+                // and we preserve aspect ratio (rounded to even pixels — the H.264
+                // / HEVC encoders require even dimensions).
+                let (out_w, out_h) = match target_h {
+                    Some(th) if th > 0 && th < self.height && self.height > 0 => {
+                        let scaled_w = (self.width as u64 * th as u64 / self.height as u64) as u32;
+                        ((scaled_w + 1) & !1, th & !1)
+                    }
+                    _ => (self.width, self.height),
+                };
+
                 match VideoEncoder::new(
-                    VideoSettingsBuilder::new(self.width, self.height)
+                    VideoSettingsBuilder::new(out_w, out_h)
                         .sub_type(sub_type)
                         .bitrate(br)
                         .frame_rate(frame_rate),
@@ -387,8 +411,8 @@ impl GraphicsCaptureApiHandler for Recorder {
                     &path,
                 ) {
                     Ok(enc) => {
-                        eprintln!("[recorder] Encoder created: {}x{} {:?} {}bps {}fps",
-                            self.width, self.height, sub_type, br, frame_rate);
+                        eprintln!("[recorder] Encoder created: capture={}x{} encode={}x{} {:?} {}bps {}fps",
+                            self.width, self.height, out_w, out_h, sub_type, br, frame_rate);
                         self.encoder = Some(enc);
                         self.recording_path = Some(path.clone());
                         self.recording_start = Some(Instant::now());
@@ -397,8 +421,8 @@ impl GraphicsCaptureApiHandler for Recorder {
                         emit(&Event::RecordingStarted { path });
                     }
                     Err(e) => {
-                        eprintln!("[recorder] ENCODER INIT FAILED: {} ({}x{} {:?} {}bps {}fps)",
-                            e, self.width, self.height, sub_type, br, frame_rate);
+                        eprintln!("[recorder] ENCODER INIT FAILED: {} (capture={}x{} encode={}x{} {:?} {}bps {}fps)",
+                            e, self.width, self.height, out_w, out_h, sub_type, br, frame_rate);
                         emit(&Event::Error {
                             message: format!("Encoder init failed: {}", e),
                         });
@@ -599,41 +623,10 @@ fn set_high_priority() {
     }
 }
 
-fn set_gpu_priority() {
-    #[link(name = "gdi32")]
-    extern "system" {
-        fn D3DKMTSetProcessSchedulingPriorityClass(
-            hProcess: *mut std::ffi::c_void,
-            priority: u32,
-        ) -> i32;
-    }
-
-    #[link(name = "kernel32")]
-    extern "system" {
-        fn GetCurrentProcess() -> *mut std::ffi::c_void;
-    }
-
-    const D3DKMT_SCHEDULINGPRIORITYCLASS_REALTIME: u32 = 5;
-
-    unsafe {
-        let process = GetCurrentProcess();
-        let result = D3DKMTSetProcessSchedulingPriorityClass(
-            process,
-            D3DKMT_SCHEDULINGPRIORITYCLASS_REALTIME,
-        );
-        if result == 0 {
-            eprintln!("[recorder] GPU priority: REALTIME");
-        } else {
-            eprintln!("[recorder] GPU priority: failed (code {})", result);
-        }
-    }
-}
-
 fn main() {
     eprintln!("[recorder] runlog-recorder starting...");
 
     set_high_priority();
-    set_gpu_priority();
 
     let window = loop {
         if let Some(w) = find_marathon_window() {
@@ -658,6 +651,17 @@ fn main() {
         .unwrap_or(JPEG_QUALITY);
     eprintln!("[recorder] OCR config: interval={} frames, jpeg_quality={}", ocr_interval_cfg, ocr_jpeg_quality);
 
+    // Cap WGC delivery rate so we don't capture/encode more frames than we keep.
+    // Without this, a 90fps game produces 90 captures/sec even though we only
+    // write a 60fps file — wasted GPU work that competes with the game.
+    let capture_fps: u32 = std::env::var("RUNLOG_CAPTURE_FPS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .map(|n: u32| n.clamp(15, 240))
+        .unwrap_or(60);
+    let min_update_interval = Duration::from_micros(1_000_000 / capture_fps as u64);
+    eprintln!("[recorder] Capture rate cap: {}fps ({}us min interval)", capture_fps, min_update_interval.as_micros());
+
     let state = Arc::new(SharedState {
         window_title: Mutex::new(title.clone()),
         should_record: AtomicBool::new(false),
@@ -665,6 +669,7 @@ fn main() {
         record_bitrate: Mutex::new(None),
         record_encoder: Mutex::new(None),
         record_fps: Mutex::new(None),
+        record_target_height: Mutex::new(None),
         should_quit: AtomicBool::new(false),
         screenshot_path: Mutex::new(None),
         encoded_frames: AtomicU64::new(0),
@@ -745,11 +750,12 @@ fn main() {
                 continue;
             }
             match serde_json::from_str::<Command>(&line) {
-                Ok(Command::Start { path, bitrate, encoder, fps }) => {
+                Ok(Command::Start { path, bitrate, encoder, fps, target_height }) => {
                     *ipc_state.record_path.lock().unwrap() = Some(path);
                     *ipc_state.record_bitrate.lock().unwrap() = bitrate;
                     *ipc_state.record_encoder.lock().unwrap() = encoder;
                     *ipc_state.record_fps.lock().unwrap() = fps;
+                    *ipc_state.record_target_height.lock().unwrap() = target_height;
                     ipc_state.should_record.store(true, Ordering::Release);
                 }
                 Ok(Command::Stop) => {
@@ -780,7 +786,7 @@ fn main() {
         CursorCaptureSettings::WithoutCursor,
         DrawBorderSettings::WithoutBorder,
         SecondaryWindowSettings::Default,
-        MinimumUpdateIntervalSettings::Default,
+        MinimumUpdateIntervalSettings::Custom(min_update_interval),
         DirtyRegionSettings::Default,
         ColorFormat::Bgra8,
         Arc::clone(&state),

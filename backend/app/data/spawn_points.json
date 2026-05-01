@@ -89,6 +89,14 @@
   },
   {
     "map_name": "Dire Marsh",
+    "spawn_location": "Intersection",
+    "x": 33.4,
+    "y": 52.8,
+    "game_coord_x": 263.661346,
+    "game_coord_y": 23.828489
+  },
+  {
+    "map_name": "Dire Marsh",
     "spawn_location": "Maintenance S",
     "x": 22.6,
     "y": 89.8,
@@ -121,6 +129,22 @@
   },
   {
     "map_name": "Outpost",
+    "spawn_location": "Airfield E",
+    "x": 46.9,
+    "y": 20.5,
+    "game_coord_x": 177.364822,
+    "game_coord_y": -199.120239
+  },
+  {
+    "map_name": "Outpost",
+    "spawn_location": "Airfield N",
+    "x": 38.8,
+    "y": 13.2,
+    "game_coord_x": 248.4734528,
+    "game_coord_y": -247.2351686
+  },
+  {
+    "map_name": "Outpost",
     "spawn_location": "Airfield W",
     "x": 31.9,
     "y": 26.3,
@@ -137,6 +161,22 @@
   },
   {
     "map_name": "Outpost",
+    "spawn_location": "Loading Bay",
+    "x": 22.8,
+    "y": 61.7,
+    "game_coord_x": 380.028687,
+    "game_coord_y": 46.006775
+  },
+  {
+    "map_name": "Outpost",
+    "spawn_location": "Orientation",
+    "x": 54.0,
+    "y": 38.0,
+    "game_coord_x": 146.614899,
+    "game_coord_y": -102.992081
+  },
+  {
+    "map_name": "Outpost",
     "spawn_location": "Orientation N",
     "x": 56.0,
     "y": 30.0,
@@ -145,11 +185,35 @@
   },
   {
     "map_name": "Outpost",
-    "spawn_location": "Processing SE",
+    "spawn_location": "Processing",
+    "x": 38.4,
+    "y": 81.1,
+    "game_coord_x": 68.863327,
+    "game_coord_y": 116.505896
+  },
+  {
+    "map_name": "Outpost",
+    "spawn_location": "Processing E",
     "x": 49.7,
     "y": 92.3,
-    "game_coord_x": 154.862401,
-    "game_coord_y": 235.85068
+    "game_coord_x": 155.6518535,
+    "game_coord_y": 235.85748
+  },
+  {
+    "map_name": "Outpost",
+    "spawn_location": "Processing S",
+    "x": 31.3,
+    "y": 84.0,
+    "game_coord_x": 322.115051,
+    "game_coord_y": 189.204041
+  },
+  {
+    "map_name": "Outpost",
+    "spawn_location": "Processing W",
+    "x": 33.4,
+    "y": 72.0,
+    "game_coord_x": 298.673553,
+    "game_coord_y": 109.832825
   },
   {
     "map_name": "Outpost",
@@ -166,14 +230,6 @@
     "y": 22.0,
     "game_coord_x": -90.208244,
     "game_coord_y": -369.487468
-  },
-  {
-    "map_name": "Perimeter",
-    "spawn_location": "Columns",
-    "x": 46.5,
-    "y": 78.4,
-    "game_coord_x": null,
-    "game_coord_y": null
   },
   {
     "map_name": "Perimeter",
@@ -241,6 +297,14 @@
   },
   {
     "map_name": "Perimeter",
+    "spawn_location": "Station",
+    "x": 67.5,
+    "y": 34.0,
+    "game_coord_x": -199.839737,
+    "game_coord_y": -234.724472
+  },
+  {
+    "map_name": "Perimeter",
     "spawn_location": "Station E",
     "x": 74.1,
     "y": 41.1,
@@ -254,13 +318,5 @@
     "y": 29.5,
     "game_coord_x": -267.710872,
     "game_coord_y": -262.627502
-  },
-  {
-    "map_name": "Perimeter",
-    "spawn_location": "Tunnels",
-    "x": 57.5,
-    "y": 54.6,
-    "game_coord_x": null,
-    "game_coord_y": null
   }
 ]
