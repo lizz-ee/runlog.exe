@@ -287,7 +287,11 @@ if exist "%RECORDER%\target\release\runlog-recorder.exe" (
 :: --- Node.js deps ---
 echo  [3/3] Node.js packages...
 cd /d "%FRONTEND%"
-call npm install --loglevel=error 2>&1
+if exist package-lock.json (
+    call npm ci --loglevel=error 2>&1
+) else (
+    call npm install --loglevel=error 2>&1
+)
 if %errorlevel% equ 0 (
     echo        Node packages installed.
 ) else (
@@ -308,13 +312,14 @@ echo.
 cd /d "%FRONTEND%"
 :: Skip code signing (no certificate)
 set CSC_IDENTITY_AUTO_DISCOVERY=false
-echo  Building frontend + packaging installer...
+echo  Building frontend + packaging app...
 call npm run dist 2>&1
 if exist "%ROOT%release\win-unpacked\runlog.exe" (
     echo.
     echo  Build complete.
     :: Set icon on exe using rcedit
     echo  Setting icon on exe...
+    if not exist "%TOOLS%" mkdir "%TOOLS%"
     if not exist "%TOOLS%\rcedit-x64.exe" (
         powershell -Command "Invoke-WebRequest -Uri 'https://github.com/electron/rcedit/releases/download/v2.0.0/rcedit-x64.exe' -OutFile '%TOOLS%\rcedit-x64.exe'; Unblock-File -Path '%TOOLS%\rcedit-x64.exe'" 2>nul
     )
@@ -365,7 +370,7 @@ if %ERRORS% gtr 0 (
 ) else (
     echo  INSTALL COMPLETE
     echo.
-    echo  Double-click runlog.lnk to launch the app.
+    echo  Double-click runlog.exe.lnk to launch the app.
     echo.
     echo  Or run directly from source:
     echo    Terminal 1:  cd backend ^& python run.py
