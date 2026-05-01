@@ -2,7 +2,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import desc, distinct, func
 
 from ..database import get_db
@@ -24,7 +24,7 @@ def list_runs(
     is_ranked: Optional[bool] = None,
     db: Session = Depends(get_db),
 ):
-    q = db.query(Run)
+    q = db.query(Run).options(joinedload(Run.runner), joinedload(Run.spawn_point))
     if map_name:
         q = q.filter(Run.map_name == map_name)
     if survived is not None:
@@ -33,8 +33,8 @@ def list_runs(
         q = q.filter(Run.runner_id == runner_id)
     if grade:
         q = q.filter(Run.grade == grade)
-    if is_favorite:
-        q = q.filter(Run.is_favorite == True)
+    if is_favorite is not None:
+        q = q.filter(Run.is_favorite == is_favorite)
     if is_ranked is not None:
         q = q.filter(Run.is_ranked == is_ranked)
 
@@ -50,7 +50,13 @@ def list_runs(
 
 @router.get("/recent", response_model=list[RunOut])
 def recent_runs(limit: int = Query(10, ge=1, le=50), db: Session = Depends(get_db)):
-    return db.query(Run).order_by(desc(Run.date)).limit(limit).all()
+    return (
+        db.query(Run)
+        .options(joinedload(Run.runner), joinedload(Run.spawn_point))
+        .order_by(desc(Run.date))
+        .limit(limit)
+        .all()
+    )
 
 
 @router.get("/vault-values")

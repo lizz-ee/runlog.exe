@@ -84,12 +84,12 @@ class Run(Base):
     vault_value = Column(Float, nullable=True)  # Total vault value from HUD (gear icon, top-left)
     player_gamertag = Column(String(100), nullable=True)  # Local player's gamertag (center of squad UI)
     notes = Column(Text, nullable=True)
-    grade = Column(String(2), nullable=True)  # S, A, B, C, D, F
+    grade = Column(String(2), nullable=True, index=True)  # S, A, B, C, D, F
     summary = Column(Text, nullable=True)  # Sonnet's narrative story of the run
     recording_path = Column(String(500), nullable=True)  # Path to kept full recording
-    viewed = Column(Boolean, default=False)  # Whether user has seen this run
-    is_favorite = Column(Boolean, default=False)  # User-favorited run
-    is_ranked = Column(Boolean, default=False)  # Ranked mode run
+    viewed = Column(Boolean, default=False, index=True)  # Whether user has seen this run
+    is_favorite = Column(Boolean, default=False, index=True)  # User-favorited run
+    is_ranked = Column(Boolean, default=False, index=True)  # Ranked mode run
     session_id = Column(Integer, ForeignKey("sessions.id"), nullable=True, index=True)
     spawn_point_id = Column(Integer, ForeignKey("spawn_points.id"), nullable=True, index=True)
     created_at = Column(DateTime, default=_utcnow)

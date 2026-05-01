@@ -363,9 +363,9 @@ export default function Live() {
                 </p>
                 {!(status?.capture_mode === 'wgc' && status?.window_found) && (
                   <p className="text-m-text-muted text-[10px] font-mono tracking-wider">
-                    {status?.capture_mode === 'unavailable'
+                    {status?.capture_error || (status?.capture_mode === 'unavailable'
                       ? 'Rust recorder binary not found — build with cargo or download from releases'
-                      : 'Launch Marathon to begin detection'}
+                      : 'Launch Marathon to begin detection')}
                   </p>
                 )}
               </div>
@@ -379,6 +379,7 @@ export default function Live() {
         <div className="flex items-center justify-between mb-3">
           <p className="label-tag text-m-text-muted">PIPELINE.STATUS</p>
           <div className="flex items-center gap-3 text-[10px] font-mono text-m-text-muted">
+            {status?.processing_paused_for_game && <span className="text-m-yellow">GAME GUARD</span>}
             <span>{processingItems.length} TOTAL</span>
             {(counts.done || 0) > 0 && <span className="text-m-green">{counts.done} DONE</span>}
             {(counts.error || 0) > 0 && (

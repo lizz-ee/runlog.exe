@@ -287,7 +287,11 @@ if exist "%RECORDER%\target\release\runlog-recorder.exe" (
 :: --- Node.js deps ---
 echo  [3/3] Node.js packages...
 cd /d "%FRONTEND%"
-call npm install --loglevel=error 2>&1
+if exist package-lock.json (
+    call npm ci --loglevel=error 2>&1
+) else (
+    call npm install --loglevel=error 2>&1
+)
 if %errorlevel% equ 0 (
     call npm update --loglevel=error 2>&1
     if %errorlevel% equ 0 (
@@ -332,6 +336,7 @@ if exist "%ROOT%release\win-unpacked\runlog.exe" (
     echo  Build complete.
     :: Set icon on exe using rcedit
     echo  Setting icon on exe...
+    if not exist "%TOOLS%" mkdir "%TOOLS%"
     if not exist "%TOOLS%\rcedit-x64.exe" (
         powershell -Command "Invoke-WebRequest -Uri 'https://github.com/electron/rcedit/releases/download/v2.0.0/rcedit-x64.exe' -OutFile '%TOOLS%\rcedit-x64.exe'; Unblock-File -Path '%TOOLS%\rcedit-x64.exe'" 2>nul
     )

@@ -216,6 +216,7 @@ export interface CaptureStatus {
   status_counts: Record<string, number>
   resumed_count: number
   capture_mode: string | null
+  capture_error: string | null
   capture_resolution: string | null
   has_frame: boolean
   window_found: boolean
@@ -224,6 +225,8 @@ export interface CaptureStatus {
   last_result: ProcessResult | null
   auto_p1: boolean
   auto_p2: boolean
+  pause_processing_while_game_running: boolean
+  processing_paused_for_game: boolean
 }
 
 export interface ProcessingItem {

@@ -348,6 +348,13 @@ export default function Settings() {
                   }}
                 />
               </SettingRow>
+              <SettingRow label="GAME GUARD">
+                <ToggleButton
+                  options={[{ value: 'on', label: 'ON' }, { value: 'off', label: 'OFF' }]}
+                  value={config.pause_processing_while_game_running ? 'on' : 'off'}
+                  onChange={v => saveConfig('pause_processing_while_game_running', v === 'on')}
+                />
+              </SettingRow>
             </div>
 
             <div className="pt-1 border-t border-m-border/30">

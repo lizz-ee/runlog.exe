@@ -39,9 +39,10 @@ DEFAULTS = {
     "bitrate": 50,         # Mbps
     "fps": 60,
     "p1_workers": 4,
-    "p2_workers": 2,
+    "p2_workers": 1,
     "auto_p1": True,       # Auto-run Phase 1 (stats extraction) when recording finishes
     "auto_p2": True,       # Auto-run Phase 2 (narrative + clips) when Phase 1 finishes
+    "pause_processing_while_game_running": True,
     "processor_mode": "alpha",  # "alpha" (local), "hybrid" (local + Claude fallback), "claude" (API/CLI only)
     "auth_mode": "api",    # "api" or "cli"
     "model": "sonnet",     # "sonnet" or "haiku"
@@ -79,6 +80,7 @@ def get_settings():
         "p2_workers": saved.get("p2_workers", DEFAULTS["p2_workers"]),
         "auto_p1": saved.get("auto_p1", DEFAULTS["auto_p1"]),
         "auto_p2": saved.get("auto_p2", DEFAULTS["auto_p2"]),
+        "pause_processing_while_game_running": saved.get("pause_processing_while_game_running", DEFAULTS["pause_processing_while_game_running"]),
         "processor_mode": saved.get("processor_mode", DEFAULTS["processor_mode"]),
         "auth_mode": saved.get("auth_mode", DEFAULTS["auth_mode"]),
         "model": saved.get("model", DEFAULTS["model"]),
@@ -158,6 +160,17 @@ def update_config(body: ConfigUpdate):
     saved = _load_settings()
     saved[body.key] = body.value
     _save_settings(saved)
+
+    # Capture engine settings that do not require recreating worker pools can
+    # take effect immediately when the engine is already running.
+    if body.key == "pause_processing_while_game_running":
+        try:
+            from . import capture_api
+            if capture_api._engine is not None:
+                capture_api._engine.set_pause_processing_while_game_running(bool(body.value))
+        except Exception:
+            pass
+
     return {"status": "saved", "key": body.key, "value": body.value,
             "note": "Restart the app for storage_path changes to take effect." if body.key == "storage_path" else None}
 

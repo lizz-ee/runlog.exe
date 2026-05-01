@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from ..database import get_db
 from ..models import Run
@@ -11,7 +11,12 @@ router = APIRouter()
 @router.get("/stats")
 def get_squad_stats(limit: int = Query(7, ge=1, le=7), db: Session = Depends(get_db)):
     """Top squad mates by runs together, with per-mate stats."""
-    runs = db.query(Run).all()
+    runs = db.query(Run).options(load_only(
+        Run.player_gamertag, Run.squad_members, Run.survived,
+        Run.combatant_eliminations, Run.runner_eliminations,
+        Run.deaths, Run.crew_revives, Run.loot_value_total,
+        Run.duration_seconds,
+    )).all()
     if not runs:
         return []
 

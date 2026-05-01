@@ -3,7 +3,6 @@
 ## Features
 
 ### Maps
-- [ ] Get Cryo Archive map image (currently marked REDACTED in sidebar)
 - [ ] Add Cryo Archive spawn point data as games are played
 
 ### Stats & Charts

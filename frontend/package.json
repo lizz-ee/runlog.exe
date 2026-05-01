@@ -5,8 +5,8 @@
   "author": "Jamie Ballard",
   "description": "Local-first desktop companion for Marathon — AI-powered stats, narratives, and highlight clips",
   "scripts": {
-    "dev": "RUNLOG_DEV=1 vite",
-    "build": "npx tsc && npx vite build",
+    "dev": "cross-env RUNLOG_DEV=1 vite",
+    "build": "cross-env NODE_ENV=production tsc && cross-env NODE_ENV=production vite build",
     "preview": "vite preview",
     "electron": "electron .",
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
@@ -29,6 +29,7 @@
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^6.0.1",
     "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
     "electron": "^41.4.0",
     "electron-builder": "^26.8.1",
     "tailwindcss": "^4.2.4",
