@@ -151,7 +151,6 @@ function createOverlay() {
 
   const overlayHTML = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { width: 100%; height: 100%; }
 body { background: transparent; overflow: hidden; user-select: none; -webkit-app-region: no-drag;

@@ -63,6 +63,10 @@ with engine.connect() as conn:
         "CREATE INDEX IF NOT EXISTS ix_runs_runner_id ON runs (runner_id)",
         "CREATE INDEX IF NOT EXISTS ix_runs_session_id ON runs (session_id)",
         "CREATE INDEX IF NOT EXISTS ix_runs_spawn_point_id ON runs (spawn_point_id)",
+        "CREATE INDEX IF NOT EXISTS ix_runs_grade ON runs (grade)",
+        "CREATE INDEX IF NOT EXISTS ix_runs_viewed ON runs (viewed)",
+        "CREATE INDEX IF NOT EXISTS ix_runs_is_favorite ON runs (is_favorite)",
+        "CREATE INDEX IF NOT EXISTS ix_runs_is_ranked ON runs (is_ranked)",
     ]
     idx_applied = 0
     for ddl in _indexes:

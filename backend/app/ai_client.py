@@ -262,21 +262,21 @@ def run_cli_prompt(
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=cli_env(),
     )
 
-    output_lines = []
     try:
-        for line in iter(proc.stdout.readline, b''):
-            decoded = line.decode("utf-8", errors="replace").rstrip()
-            if decoded:
-                output_lines.append(decoded)
-        proc.wait(timeout=timeout)
+        stdout, stderr = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
         proc.kill()
+        proc.communicate()
         raise RuntimeError(f"CLI timed out after {timeout}s")
 
-    result = "\n".join(output_lines).strip()
+    result = stdout.decode("utf-8", errors="replace").strip() if stdout else ""
+    error_text = stderr.decode("utf-8", errors="replace").strip() if stderr else ""
 
-    if is_auth_failure(result):
+    if is_auth_failure(result) or is_auth_failure(error_text):
         raise RuntimeError("Claude CLI is not authenticated. Go to SYS.CONFIG and click LOGIN, or run `claude auth login` in your terminal.")
+    if proc.returncode != 0:
+        detail = error_text or result or f"exit code {proc.returncode}"
+        raise RuntimeError(f"Claude CLI failed: {detail[:500]}")
 
     return result
 

@@ -13,6 +13,7 @@ import logging
 import os
 import subprocess
 import tempfile
+import wave
 from dataclasses import dataclass
 
 import numpy as np
@@ -64,19 +65,25 @@ class AudioAnalyzer:
                 logger.info("Audio track is empty (no data)")
                 return None
 
-            # Read WAV data
-            import scipy.io.wavfile as wav
-            sr, audio = wav.read(tmp_path)
+            # Read WAV data without scipy; ffmpeg writes mono pcm_s16le.
+            with wave.open(tmp_path, "rb") as wav:
+                sr = wav.getframerate()
+                sample_width = wav.getsampwidth()
+                n_frames = wav.getnframes()
+                raw = wav.readframes(n_frames)
+
+            if sample_width != 2:
+                logger.info("Unsupported audio sample width: %s bytes", sample_width)
+                return None
+
+            audio = np.frombuffer(raw, dtype=np.int16)
 
             if len(audio) == 0:
                 logger.info("Audio track has zero samples")
                 return None
 
             # Convert to float32 normalized
-            if audio.dtype == np.int16:
-                audio = audio.astype(np.float32) / 32768.0
-            elif audio.dtype != np.float32:
-                audio = audio.astype(np.float32)
+            audio = audio.astype(np.float32) / 32768.0
 
             duration = len(audio) / sr
             logger.info(f"Audio extracted: {duration:.0f}s, {sr}Hz, {len(audio)} samples")
@@ -116,8 +123,6 @@ class AudioAnalyzer:
         Gunfire and combat sounds have more high-frequency content than
         ambient/dialogue. Returns ratio of high-freq to total energy per window.
         """
-        from scipy.fft import rfft
-
         window = int(self.sample_rate * window_sec)
         n_windows = len(audio) // window
         if n_windows == 0:
@@ -128,7 +133,7 @@ class AudioAnalyzer:
 
         for i in range(n_windows):
             chunk = audio[i * window:(i + 1) * window]
-            spectrum = np.abs(rfft(chunk))
+            spectrum = np.abs(np.fft.rfft(chunk))
             total = spectrum.sum()
             if total > 0:
                 high_freq = spectrum[cutoff_bin:].sum()

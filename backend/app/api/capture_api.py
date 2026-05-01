@@ -103,9 +103,12 @@ def capture_status():
             "status_counts": {},
             "resumed_count": 0,
             "capture_mode": "none",
+            "capture_error": None,
             "last_result": None,
             "auto_p1": get_config_value("auto_p1") if get_config_value("auto_p1") is not None else True,
             "auto_p2": get_config_value("auto_p2") if get_config_value("auto_p2") is not None else True,
+            "pause_processing_while_game_running": get_config_value("pause_processing_while_game_running") if get_config_value("pause_processing_while_game_running") is not None else True,
+            "processing_paused_for_game": False,
         })
     return JSONResponse(content=_engine.get_status())
 

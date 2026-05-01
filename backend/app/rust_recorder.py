@@ -53,6 +53,7 @@ class RustRecorder:
         self.height: int = 0
         self.recording: bool = False
         self.recording_path: str | None = None
+        self.last_error: str | None = None
 
         # Latest OCR frame (JPEG bytes)
         self._latest_frame: bytes | None = None
@@ -76,7 +77,8 @@ class RustRecorder:
         """Start the Rust recorder process."""
         exe = _find_recorder_exe()
         if not exe:
-            print("[recorder] runlog-recorder.exe not found")
+            self.last_error = "runlog-recorder.exe not found"
+            print(f"[recorder] {self.last_error}")
             return False
 
         try:
@@ -92,6 +94,7 @@ class RustRecorder:
                 creationflags=creation_flags,
             )
             self._running = True
+            self.last_error = None
 
             # Reader thread for stdout (events from Rust)
             self._reader_thread = threading.Thread(
@@ -107,7 +110,8 @@ class RustRecorder:
             print(f"[recorder] Started runlog-recorder.exe (pid={self._proc.pid})")
             return True
         except Exception as e:
-            print(f"[recorder] Failed to start: {e}")
+            self.last_error = f"Failed to start recorder: {e}"
+            print(f"[recorder] {self.last_error}")
             return False
 
     def stop(self):
@@ -166,6 +170,7 @@ class RustRecorder:
             self._proc.stdin.write(line.encode("utf-8"))
             self._proc.stdin.flush()
         except (BrokenPipeError, OSError) as e:
+            self.last_error = f"Recorder command failed: {e}"
             print(f"[recorder] Send failed: {e}")
 
     def _read_events(self):
@@ -248,6 +253,7 @@ class RustRecorder:
 
         elif evt_type == "error":
             msg = event.get("message", "Unknown error")
+            self.last_error = msg
             print(f"[recorder] Error: {msg}")
             if self.on_error:
                 self.on_error(msg)

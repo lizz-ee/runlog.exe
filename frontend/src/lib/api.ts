@@ -73,6 +73,7 @@ export interface AppSettings {
   p2_workers: number
   auto_p1: boolean
   auto_p2: boolean
+  pause_processing_while_game_running: boolean
   processor_mode: string
   auth_mode: string
   model: string

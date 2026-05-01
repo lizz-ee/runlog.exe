@@ -105,6 +105,11 @@ def _find_relevant_screenshots(ss_dir: Path, low_fields: list[str]) -> list[str]
     return screenshots[:4]
 
 
+def _format_image_list(image_paths: list[str]) -> str:
+    """Return absolute paths for CLI prompts so Claude knows what to Read."""
+    return "\n".join(f"- {os.path.abspath(p).replace(chr(92), '/')}" for p in image_paths)
+
+
 class HybridRouter:
     """Route processing through Alpha, Claude, or both."""
 
@@ -221,8 +226,12 @@ class HybridRouter:
 
             if prefer_cli():
                 # CLI mode: write screenshots to temp, reference in prompt
+                prompt_with_files = (
+                    f"{prompt}\n\nRead these screenshot files first:\n"
+                    f"{_format_image_list(screenshots)}"
+                )
                 response = run_cli_prompt(
-                    prompt,
+                    prompt_with_files,
                     purpose="capture",
                     work_dir=str(ss_dir),
                     allowed_tools=["Read"],
@@ -275,8 +284,12 @@ class HybridRouter:
             from backend.app.api.screenshot import PARSE_PROMPT
 
             if prefer_cli():
+                prompt_with_files = (
+                    f"{PARSE_PROMPT}\n\nRead these screenshot files first:\n"
+                    f"{_format_image_list(image_paths)}"
+                )
                 response = run_cli_prompt(
-                    PARSE_PROMPT,
+                    prompt_with_files,
                     purpose="capture",
                     work_dir=str(ss_dir),
                     allowed_tools=["Read"],

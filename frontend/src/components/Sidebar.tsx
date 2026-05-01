@@ -31,7 +31,7 @@ const sections: NavSection[] = [
       { view: 'map-perimeter', label: 'PERIMETER', tag: '04' },
       { view: 'map-dire-marsh', label: 'DIRE.MARSH', tag: '05' },
       { view: 'map-outpost', label: 'OUTPOST', tag: '06' },
-      { view: 'map-cryo-archive', label: 'CRYO.ARCHIVE', tag: '07', disabled: true },
+      { view: 'map-cryo-archive', label: 'CRYO.ARCHIVE', tag: '07' },
     ],
   },
   {

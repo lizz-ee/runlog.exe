@@ -40,7 +40,7 @@ from .detection.ocr import detect_game_state, DEPLOY_REGION
 from .rust_recorder import RustRecorder
 
 MAX_P1_WORKERS = 4   # Phase 1 (fast stats extraction) — unconstrained
-MAX_P2_WORKERS = 2   # Phase 2 (video narrative + clips) — heavy, capped
+MAX_P2_WORKERS = 1   # Phase 2 (video narrative + clips) — heavy, capped
 
 
 class AutoCapture:
@@ -96,6 +96,7 @@ class AutoCapture:
         # Auto-run flags — can be paused via SYS.CONFIG
         self._auto_p1: bool = True   # submit to P1 pool automatically
         self._auto_p2: bool = True   # submit to P2 pool automatically after P1
+        self._pause_processing_while_game_running: bool = True
         self._p2_held: list[tuple[str, int]] = []  # items held when auto_p2 is off
         self._dismissed_files: set[str] = set()    # filenames dismissed from queue
         # Pre-load dismissed markers from clips dirs so they survive reboots
@@ -161,8 +162,14 @@ class AutoCapture:
         self._p2_max_workers = p2_workers
         self._auto_p1 = get_config_value("auto_p1") if get_config_value("auto_p1") is not None else True
         self._auto_p2 = get_config_value("auto_p2") if get_config_value("auto_p2") is not None else True
+        self._pause_processing_while_game_running = (
+            get_config_value("pause_processing_while_game_running")
+            if get_config_value("pause_processing_while_game_running") is not None
+            else True
+        )
         print(f"[capture] Processing pools: P1={p1_workers} workers, P2={p2_workers} workers")
         print(f"[capture] Auto-run: P1={self._auto_p1}, P2={self._auto_p2}")
+        print(f"[capture] Game-impact guard: {self._pause_processing_while_game_running}")
         self._p1_executor = ThreadPoolExecutor(
             max_workers=p1_workers, thread_name_prefix="p1-processor"
         )
@@ -256,6 +263,7 @@ class AutoCapture:
             "status_counts": status_counts,
             "resumed_count": self.resumed_count,
             "capture_mode": self._capture_mode,
+            "capture_error": self._recorder.last_error,
             "capture_resolution": f"{self._recorder.width}x{self._recorder.height}" if self._recorder.width else None,
             "has_frame": self._latest_frame is not None,
             "window_found": self._recorder.window_name is not None,
@@ -264,6 +272,8 @@ class AutoCapture:
             "last_result": self._last_process_result,  # protected by _processing_lock at write site
             "auto_p1": self._auto_p1,
             "auto_p2": self._auto_p2,
+            "pause_processing_while_game_running": self._pause_processing_while_game_running,
+            "processing_paused_for_game": self._processing_blocked_by_game(),
         }
 
     def get_latest_frame_jpeg(self) -> bytes | None:
@@ -754,6 +764,7 @@ class AutoCapture:
         endgame_ts = self._endgame_timestamp
 
         self._recording = False
+        self._drain_p2_waiting()
         self._recording_start = 0
         self._recording_path = None
         self._scan_state = 'lobby'
@@ -939,6 +950,22 @@ class AutoCapture:
                 self._submit_phase2(filepath, run_id)
                 print(f"[capture] Released held P2 run #{run_id}")
 
+    def set_pause_processing_while_game_running(self, enabled: bool):
+        """Enable/disable the game-impact processing guard at runtime."""
+        self._pause_processing_while_game_running = enabled
+        if not enabled:
+            self._drain_p2_waiting()
+        self._broadcast_status()
+        return self.get_status()
+
+    def _processing_blocked_by_game(self) -> bool:
+        """True when processing should not start because Marathon is visible."""
+        return self._pause_processing_while_game_running and self._recorder.window_name is not None
+
+    def _processing_gate_active(self) -> bool:
+        """True when new processing work should be held to protect gameplay."""
+        return self._recording or self._processing_blocked_by_game()
+
     def dismiss_item(self, filename: str):
         """Remove an item from the processing queue entirely without processing it."""
         # Mark for dispatcher to skip if still in _process_queue
@@ -1078,6 +1105,7 @@ class AutoCapture:
             try:
                 filepath = self._process_queue.get(timeout=1.0)
             except queue.Empty:
+                self._drain_p2_waiting()
                 continue
             filename = os.path.basename(filepath)
             # Skip dismissed items
@@ -1090,6 +1118,12 @@ class AutoCapture:
                 self._process_queue.put(filepath)
                 self._process_queue.task_done()
                 time.sleep(1.0)
+                continue
+            # Avoid starting analysis work while gameplay could be impacted.
+            if self._processing_gate_active():
+                self._process_queue.put(filepath)
+                self._process_queue.task_done()
+                time.sleep(2.0)
                 continue
             self._p1_executor.submit(self._process_phase1, filepath)
             self._process_queue.task_done()
@@ -1179,6 +1213,12 @@ class AutoCapture:
             print(f"[p2] Auto P2 disabled — holding run #{run_id}")
             return
         with self._p2_active_lock:
+            if self._processing_gate_active():
+                self._p2_waiting.append((filepath, run_id))
+                self._update_processing_item(filepath, "queued", run_id=run_id)
+                reason = "recording active" if self._recording else "Marathon running"
+                print(f"[p2] {reason} - holding Phase 2 for run #{run_id}")
+                return
             if self._p2_active < self._p2_max_workers:
                 self._p2_active += 1
                 self._update_processing_item(filepath, "analyzing_gameplay", run_id=run_id)
@@ -1189,16 +1229,23 @@ class AutoCapture:
                 self._update_processing_item(filepath, "queued", run_id=run_id)
                 print(f"[p2] P2 full ({self._p2_active}/{self._p2_max_workers}), run #{run_id} waiting ({len(self._p2_waiting)} in queue)")
 
-    def _p2_finished(self):
-        """Called when a P2 job completes. Drains waiting list if slots available."""
+    def _drain_p2_waiting(self):
+        """Submit waiting Phase 2 jobs when the game-impact gate is clear."""
+        if self._processing_gate_active() or not self._auto_p2:
+            return
         with self._p2_active_lock:
-            self._p2_active = max(0, self._p2_active - 1)
             while self._p2_waiting and self._p2_active < self._p2_max_workers:
                 filepath, run_id = self._p2_waiting.pop(0)
                 self._p2_active += 1
                 self._update_processing_item(filepath, "analyzing_gameplay", run_id=run_id)
                 self._p2_executor.submit(self._process_phase2, filepath, run_id)
-                print(f"[p2] Slot freed, submitting run #{run_id} from waiting list ({self._p2_active}/{self._p2_max_workers} active)")
+                print(f"[p2] Submitting waiting run #{run_id} ({self._p2_active}/{self._p2_max_workers} active)")
+
+    def _p2_finished(self):
+        """Called when a P2 job completes. Drains waiting list if slots available."""
+        with self._p2_active_lock:
+            self._p2_active = max(0, self._p2_active - 1)
+        self._drain_p2_waiting()
 
     def _process_phase2(self, filepath: str, run_id: int):
         """Phase 2: video narrative + clip cutting. Runs in P2 pool.

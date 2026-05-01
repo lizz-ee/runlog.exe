@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { lazy, Suspense, useEffect, useRef } from 'react'
 import axios from 'axios'
 import { useStore } from './lib/store'
 import { formatTime } from './lib/utils'
@@ -7,17 +7,18 @@ import { onScreenshotParsed } from './lib/electron'
 import type { CaptureStatus } from './lib/types'
 import type { OverlaySettings } from './lib/electron'
 import Sidebar from './components/Sidebar'
-import Dashboard from './components/Dashboard'
-import RunHistory from './components/RunHistory'
-import Maps from './components/Maps'
-import Live from './components/Live'
-import Shells from './components/Shells'
-import Squad from './components/Squad'
-import Settings from './components/Settings'
-import Uplink from './components/Uplink'
 import Toasts from './components/Toasts'
 import TitleBar from './components/TitleBar'
 import ErrorBoundary from './components/ErrorBoundary'
+
+const Dashboard = lazy(() => import('./components/Dashboard'))
+const RunHistory = lazy(() => import('./components/RunHistory'))
+const Maps = lazy(() => import('./components/Maps'))
+const Live = lazy(() => import('./components/Live'))
+const Shells = lazy(() => import('./components/Shells'))
+const Squad = lazy(() => import('./components/Squad'))
+const Settings = lazy(() => import('./components/Settings'))
+const Uplink = lazy(() => import('./components/Uplink'))
 
 const MAP_VIEW_TO_NAME: Record<string, string> = {
   'map-perimeter': 'Perimeter',
@@ -250,14 +251,16 @@ export default function App() {
       <Sidebar />
       <main className="flex-1 overflow-y-auto px-8 pt-5 pb-8">
         <ErrorBoundary>
-        {view === 'dashboard' && <Dashboard />}
-        {view === 'history' && <RunHistory />}
-        {view === 'shells' && <Shells />}
-        {view === 'squad' && <Squad />}
-        {mapName && <Maps selectedMap={mapName} />}
-        {view === 'live' && <Live />}
-        {view === 'uplink' && <Uplink />}
-        {view === 'settings' && <Settings />}
+        <Suspense fallback={<div className="label-tag text-m-text-muted">LOADING...</div>}>
+          {view === 'dashboard' && <Dashboard />}
+          {view === 'history' && <RunHistory />}
+          {view === 'shells' && <Shells />}
+          {view === 'squad' && <Squad />}
+          {mapName && <Maps selectedMap={mapName} />}
+          {view === 'live' && <Live />}
+          {view === 'uplink' && <Uplink />}
+          {view === 'settings' && <Settings />}
+        </Suspense>
         </ErrorBoundary>
       </main>
       <Toasts />

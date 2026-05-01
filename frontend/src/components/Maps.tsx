@@ -12,11 +12,13 @@ import { apiBase } from '../lib/api'
 import mapDireMarsh from '../assets/map-dire-marsh.png'
 import mapPerimeter from '../assets/map-perimeter.png'
 import mapOutpost from '../assets/map-outpost.png'
+import mapCryoArchive from '../assets/map-cryo-archive.png'
 
 const MAP_IMAGES: Record<string, string> = {
   'dire-marsh': mapDireMarsh,
   'perimeter': mapPerimeter,
   'outpost': mapOutpost,
+  'cryo-archive': mapCryoArchive,
 }
 
 interface DragState {

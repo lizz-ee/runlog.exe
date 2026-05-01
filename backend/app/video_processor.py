@@ -38,6 +38,40 @@ _check_ffmpeg()
 
 
 
+def _run_claude_cli(cmd: list[str], timeout: int, label: str) -> str:
+    """Run Claude CLI with bounded time and complete stdout/stderr draining."""
+    proc = subprocess.Popen(
+        cmd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=ai_client.cli_env(),
+    )
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.communicate()
+        raise RuntimeError(f"{label} timed out")
+
+    output = stdout.decode("utf-8", errors="replace").strip() if stdout else ""
+    error_text = stderr.decode("utf-8", errors="replace").strip() if stderr else ""
+    if error_text:
+        print(f"[processor cli stderr] {label}: {error_text[:500]}")
+
+    if ai_client.is_auth_failure(output) or ai_client.is_auth_failure(error_text):
+        raise RuntimeError(
+            "Claude CLI is not authenticated. Go to SYS.CONFIG and click LOGIN, "
+            "or run `claude auth login` in your terminal."
+        )
+
+    if proc.returncode != 0:
+        detail = error_text or output or f"exit code {proc.returncode}"
+        raise RuntimeError(f"{label} failed: {detail[:500]}")
+
+    return output
+
+
 # -- Frame extraction settings (easy to tune) -------------------------------
 FRAME_RESOLUTION_MAX = 3840   # never upscale beyond source resolution
 FRAME_DURATION_START = 90     # seconds from start (loading screen can be 0-90s depending on session spawn wait)
@@ -411,23 +445,7 @@ Read ALL of these images, then analyze them and follow these instructions:
            "--dangerously-skip-permissions", "--add-dir", frames_dir]
 
     print(f"[processor] Sending {len(frame_paths)} frames to CLI...")
-    proc = subprocess.Popen(
-        cmd, stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=ai_client.cli_env(),
-    )
-
-    output_lines = []
-    try:
-        for line in iter(proc.stdout.readline, b''):
-            decoded = line.decode("utf-8", errors="replace").rstrip()
-            if decoded:
-                output_lines.append(decoded)
-        proc.wait(timeout=600)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        raise RuntimeError("CLI timed out during Phase 1")
-
-    output = "\n".join(output_lines).strip()
+    output = _run_claude_cli(cmd, timeout=600, label="CLI Phase 1")
     if not output:
         raise RuntimeError("CLI returned no output for Phase 1")
 
@@ -459,22 +477,11 @@ def _analyze_with_screenshots(deploy_jpg: str, readyup_jpg: str, frames_dir: str
         cmd = [claude_bin, "-p", prompt, "--model", model,
                "--dangerously-skip-permissions", "--add-dir", work_dir]
         try:
-            proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL,
-                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=ai_client.cli_env())
-            output = []
-            for line in iter(proc.stdout.readline, b''):
-                decoded = line.decode("utf-8", errors="replace").rstrip()
-                if decoded:
-                    output.append(decoded)
-            proc.wait(timeout=timeout)
-            text = "\n".join(output).strip()
+            text = _run_claude_cli(cmd, timeout=timeout, label=label)
             if text:
                 result = _extract_json(text)
                 print(f"[processor] {label}: {result}")
                 return result
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            print(f"[processor] {label} timed out")
         except Exception as e:
             print(f"[processor] {label} failed: {e}")
         return {}
@@ -680,21 +687,12 @@ These are from the END of a Marathon run — stats screens, death screen, loadou
                     "--dangerously-skip-permissions", "--add-dir", frames_parent]
 
             print(f"[processor] CLI Call 2 batch {batch_idx + 1}/{len(batches)}: {len(batch)} frames...")
-            proc2 = subprocess.Popen(cmd2, stdin=subprocess.DEVNULL,
-                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=ai_client.cli_env())
-            output2 = []
             try:
-                for line in iter(proc2.stdout.readline, b''):
-                    decoded = line.decode("utf-8", errors="replace").rstrip()
-                    if decoded:
-                        output2.append(decoded)
-                proc2.wait(timeout=600)
-            except subprocess.TimeoutExpired:
-                proc2.kill()
-                print(f"[processor] CLI Call 2 batch {batch_idx + 1} timed out")
+                text2 = _run_claude_cli(cmd2, timeout=600, label=f"CLI Call 2 batch {batch_idx + 1}")
+            except Exception as e:
+                print(f"[processor] CLI Call 2 batch {batch_idx + 1} failed: {e}")
                 continue
 
-            text2 = "\n".join(output2).strip()
             if text2:
                 try:
                     stats_data = _extract_json(text2)
@@ -1113,24 +1111,12 @@ Be precise — "RUNNER ELIM" means a runner (human player with #tag) was killed.
     cmd = [claude_bin, "-p", verify_prompt, "--model", "haiku",
            "--dangerously-skip-permissions", "--add-dir", hud_crops_dir]
 
-    proc = subprocess.Popen(
-        cmd, stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=ai_client.cli_env(),
-    )
-
-    output_lines = []
     try:
-        for line in iter(proc.stdout.readline, b''):
-            decoded = line.decode("utf-8", errors="replace").rstrip()
-            if decoded:
-                output_lines.append(decoded)
-        proc.wait(timeout=300)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        print(f"[processor-p2] HUD verify timed out")
+        result = _run_claude_cli(cmd, timeout=300, label="HUD verification")
+    except Exception as e:
+        print(f"[processor-p2] HUD verify failed: {e}")
         return ""
 
-    result = "\n".join(output_lines).strip()
     print(f"[processor-p2] HUD verify complete — {len(result)} chars")
 
     # Clean up crops
@@ -1209,24 +1195,12 @@ Convert timestamps like "0:05:30" or "5:30" to seconds (e.g. 330). Output ONLY t
                "--dangerously-skip-permissions"]
         print(f"[processor-p2] Formatter call {attempt + 1}/{max_retries + 1}...")
 
-        proc = subprocess.Popen(
-            cmd, stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=ai_client.cli_env(),
-        )
-
-        output_lines = []
         try:
-            for line in iter(proc.stdout.readline, b''):
-                decoded = line.decode("utf-8", errors="replace").rstrip()
-                if decoded:
-                    output_lines.append(decoded)
-            proc.wait(timeout=120)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            print(f"[processor-p2] Formatter timed out on attempt {attempt + 1}")
+            output = _run_claude_cli(cmd, timeout=120, label=f"Phase 2 formatter attempt {attempt + 1}")
+        except Exception as e:
+            print(f"[processor-p2] Formatter failed on attempt {attempt + 1}: {e}")
             continue
 
-        output = "\n".join(output_lines).strip()
         if not output:
             print(f"[processor-p2] Formatter returned empty on attempt {attempt + 1}")
             continue
@@ -1308,31 +1282,18 @@ Output all three steps as plain text. Do NOT output JSON."""
            "--dangerously-skip-permissions", "--add-dir", video_dir]
     print(f"[processor-p2] Call 1: Analyst — watching video...")
 
-    proc = subprocess.Popen(
-        cmd, stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=ai_client.cli_env(),
-    )
-
-    output_lines = []
+    raw_analysis = ""
     try:
-        for line in iter(proc.stdout.readline, b''):
-            decoded = line.decode("utf-8", errors="replace").rstrip()
-            if decoded:
-                output_lines.append(decoded)
-                preview = decoded[:200] if len(decoded) > 200 else decoded
-                print(f"[cli-p2] {preview}".encode('ascii', errors='replace').decode())
-        proc.wait(timeout=1800)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        raise RuntimeError("Phase 2 analyst timed out after 30 minutes")
+        raw_analysis = _run_claude_cli(cmd, timeout=1800, label="Phase 2 analyst")
+    except RuntimeError as e:
+        raise RuntimeError(str(e)) from e
 
-    stderr_out = proc.stderr.read().decode("utf-8", errors="replace").strip() if proc.stderr else ""
-    if stderr_out:
-        print(f"[cli-p2 stderr] {stderr_out[:500]}")
-
-    raw_analysis = "\n".join(output_lines).strip()
     if not raw_analysis:
-        raise RuntimeError(f"Phase 2 analyst returned no output. exit={proc.returncode}")
+        raise RuntimeError("Phase 2 analyst returned no output")
+
+    for line in raw_analysis.splitlines()[:20]:
+        preview = line[:200] if len(line) > 200 else line
+        print(f"[cli-p2] {preview}".encode('ascii', errors='replace').decode())
 
     print(f"[processor-p2] Call 1 complete — {len(raw_analysis)} chars of analysis")
 
