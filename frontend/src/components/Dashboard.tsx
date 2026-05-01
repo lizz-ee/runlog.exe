@@ -219,7 +219,10 @@ export default function Dashboard() {
                 <Tooltip
                   contentStyle={{ background: '#0a0a0f', border: '1px solid #1a1a2e', fontSize: 10, fontFamily: 'monospace' }}
                   labelStyle={{ display: 'none' }}
-                  formatter={(v: number) => [`$${v.toLocaleString()}`, 'VAULT']}
+                  formatter={(v) => {
+                    const n = typeof v === 'number' ? v : Number(v ?? 0)
+                    return [`$${n.toLocaleString()}`, 'VAULT']
+                  }}
                 />
                 <Area type="monotone" dataKey="value" stroke="#c8ff00" strokeWidth={2} fill="url(#grad-vault)"
                   dot={{ r: 3, fill: '#c8ff00', stroke: '#c8ff00', strokeWidth: 1 }}

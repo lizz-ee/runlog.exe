@@ -56,3 +56,5 @@ Desktop.ini
 
 # Shortcuts (created by install_runlog.bat)
 *.lnk
+
+.worktrees/

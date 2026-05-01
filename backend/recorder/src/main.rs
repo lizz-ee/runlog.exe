@@ -1,5 +1,4 @@
-use std::fs::File;
-use std::io::{self, BufRead, BufWriter, Seek, SeekFrom, Write};
+use std::io::{self, BufRead, Write};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -18,14 +17,19 @@ use windows_capture::settings::{
 };
 use windows_capture::window::Window;
 
+use windows::Win32::Graphics::Direct3D11::*;
+use windows::Win32::Graphics::Dxgi::Common::DXGI_SAMPLE_DESC;
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
 /// OCR frame interval in capture frames (~0.5s at 60fps in menus)
-/// winocr is ~16ms so 2fps is more than enough for state transitions
 const OCR_FRAME_INTERVAL: u64 = 30;
+/// Multiplier for OCR interval during recording (~3s at 60fps). RUN_COMPLETE
+/// can be visible for only a few seconds, so the staged recording path must
+/// sample faster than the shortest expected banner lifetime.
+const OCR_RECORD_INTERVAL_MULTIPLIER: u64 = 6;
 /// Initial JPEG buffer capacity
 const JPEG_BUF_CAPACITY: usize = 64 * 1024;
 /// JPEG encoding quality (1-100)
@@ -100,97 +104,187 @@ struct OcrFrameData {
     row_pitch: usize,
 }
 
-// ---------------------------------------------------------------------------
-// WAV file writer — writes PCM int16 audio directly to disk
-// ---------------------------------------------------------------------------
-
-struct WavWriter {
-    writer: BufWriter<File>,
-    data_bytes: u32,
-    sample_rate: u32,
-    channels: u16,
-}
-
-impl WavWriter {
-    fn new(path: &str, sample_rate: u32, channels: u16) -> std::io::Result<Self> {
-        let file = File::create(path)?;
-        let mut writer = BufWriter::new(file);
-        // Write placeholder header — finalized on close
-        Self::write_header(&mut writer, sample_rate, channels, 0)?;
-        Ok(Self { writer, data_bytes: 0, sample_rate, channels })
-    }
-
-    fn write_samples(&mut self, pcm: &[u8]) -> std::io::Result<()> {
-        self.writer.write_all(pcm)?;
-        self.data_bytes += pcm.len() as u32;
-        Ok(())
-    }
-
-    fn finish(mut self) -> std::io::Result<()> {
-        self.writer.flush()?;
-        // Seek back and rewrite header with correct sizes
-        self.writer.seek(SeekFrom::Start(0))?;
-        Self::write_header(&mut self.writer, self.sample_rate, self.channels, self.data_bytes)?;
-        self.writer.flush()?;
-        Ok(())
-    }
-
-    fn write_header(w: &mut impl Write, sample_rate: u32, channels: u16, data_bytes: u32) -> std::io::Result<()> {
-        let bits_per_sample: u16 = 16;
-        let block_align = channels * (bits_per_sample / 8);
-        let byte_rate = sample_rate * block_align as u32;
-        let file_size = 36 + data_bytes;
-        w.write_all(b"RIFF")?;
-        w.write_all(&file_size.to_le_bytes())?;
-        w.write_all(b"WAVE")?;
-        w.write_all(b"fmt ")?;
-        w.write_all(&16u32.to_le_bytes())?;         // chunk size
-        w.write_all(&1u16.to_le_bytes())?;           // PCM format
-        w.write_all(&channels.to_le_bytes())?;
-        w.write_all(&sample_rate.to_le_bytes())?;
-        w.write_all(&byte_rate.to_le_bytes())?;
-        w.write_all(&block_align.to_le_bytes())?;
-        w.write_all(&bits_per_sample.to_le_bytes())?;
-        w.write_all(b"data")?;
-        w.write_all(&data_bytes.to_le_bytes())?;
-        Ok(())
-    }
-}
-
 struct SharedState {
-    /// Window title for ready event
     window_title: Mutex<String>,
-    /// When true, the encoder should be created/active
     should_record: AtomicBool,
-    /// Path for the next recording
     record_path: Mutex<Option<String>>,
-    /// Bitrate for the next recording
     record_bitrate: Mutex<Option<u32>>,
-    /// Encoder type for the next recording ("hevc" or "h264")
     record_encoder: Mutex<Option<String>>,
-    /// FPS for the next recording
     record_fps: Mutex<Option<u32>>,
-    /// When true, the capture should shut down
     should_quit: AtomicBool,
-    /// Request a screenshot save
     screenshot_path: Mutex<Option<String>>,
-    /// Total encoded frames (for reporting)
     encoded_frames: AtomicU64,
     /// Force fast direct OCR even during recording (after RUN_COMPLETE)
     ocr_fast: AtomicBool,
-    /// OCR frame buffer — callback copies raw pixels here, bg thread processes
     ocr_pending: Mutex<Option<OcrFrameData>>,
     ocr_notify: std::sync::Condvar,
-    /// OCR thread health — set to false if the thread exits
-    ocr_thread_alive: AtomicBool,
-    /// WAV file writer — audio thread writes PCM directly to disk when recording
-    wav_writer: Mutex<Option<WavWriter>>,
-    /// OCR frame interval (capture frames) — env RUNLOG_OCR_INTERVAL, default 30
+    /// OCR frame interval (capture frames) — env RUNLOG_OCR_INTERVAL
     ocr_interval_cfg: u64,
-    /// OCR JPEG quality (1-100) — env RUNLOG_OCR_QUALITY, default 85
+    /// OCR JPEG quality (1-100) — env RUNLOG_OCR_QUALITY
     ocr_jpeg_quality: u8,
 }
 
+// ---------------------------------------------------------------------------
+// Double-buffered staging pool — zero-stall GPU→CPU readback
+//
+// During recording, we cannot call frame.buffer() (synchronous CopyResource +
+// Map) on the hot path without stalling the GPU encoder pipeline. Instead we
+// issue an async CopyResource into one staging texture and, on the next OCR
+// interval, Map/read the OTHER staging texture whose copy has long since
+// completed. Data is one interval old (~3s) — fine for state detection.
+// ---------------------------------------------------------------------------
+
+struct StagingPool {
+    staging: [Option<ID3D11Texture2D>; 2],
+    current: usize,
+    ready: [bool; 2],
+    device: Option<ID3D11Device>,
+    context: Option<ID3D11DeviceContext>,
+    width: u32,
+    height: u32,
+}
+
+impl StagingPool {
+    fn new() -> Self {
+        Self {
+            staging: [None, None],
+            current: 0,
+            ready: [false, false],
+            device: None,
+            context: None,
+            width: 0,
+            height: 0,
+        }
+    }
+
+    fn ensure_staging(&mut self, frame_texture: &ID3D11Texture2D) {
+        if self.device.is_none() {
+            unsafe {
+                let device: ID3D11Device = match frame_texture.GetDevice() {
+                    Ok(d) => d,
+                    Err(e) => {
+                        eprintln!("[recorder] Failed to get D3D11 device: {}", e);
+                        return;
+                    }
+                };
+                match device.GetImmediateContext() {
+                    Ok(ctx) => {
+                        self.context = Some(ctx);
+                        self.device = Some(device);
+                    }
+                    Err(e) => {
+                        eprintln!("[recorder] Failed to get D3D11 context: {}", e);
+                        return;
+                    }
+                }
+            }
+        }
+
+        let mut desc = D3D11_TEXTURE2D_DESC::default();
+        unsafe { frame_texture.GetDesc(&mut desc) };
+
+        if desc.Width != self.width || desc.Height != self.height {
+            self.width = desc.Width;
+            self.height = desc.Height;
+            let staging_desc = D3D11_TEXTURE2D_DESC {
+                Width: desc.Width,
+                Height: desc.Height,
+                MipLevels: 1,
+                ArraySize: 1,
+                Format: desc.Format,
+                SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+                Usage: D3D11_USAGE_STAGING,
+                BindFlags: 0,
+                CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32,
+                MiscFlags: 0,
+            };
+            for i in 0..2 {
+                let mut tex = None;
+                let result = unsafe {
+                    self.device.as_ref().unwrap()
+                        .CreateTexture2D(&staging_desc, None, Some(&mut tex))
+                };
+                match result {
+                    Ok(_) => {
+                        self.staging[i] = tex;
+                        self.ready[i] = false;
+                    }
+                    Err(e) => {
+                        eprintln!("[recorder] Failed to create staging texture {}: {}", i, e);
+                        self.staging[i] = None;
+                        self.ready[i] = false;
+                    }
+                }
+            }
+            eprintln!("[recorder] Staging pool created: {}x{} (2 buffers)", desc.Width, desc.Height);
+        }
+    }
+
+    fn copy_and_read(&mut self, frame_texture: &ID3D11Texture2D) -> Option<OcrFrameData> {
+        self.ensure_staging(frame_texture);
+        let ctx = match self.context.as_ref() {
+            Some(c) => c,
+            None => return None,
+        };
+
+        let read_idx = self.current;
+        let write_idx = 1 - self.current;
+
+        let result = if self.ready[read_idx] {
+            let staging = match self.staging[read_idx].as_ref() {
+                Some(s) => s,
+                None => return None,
+            };
+            let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
+            let hr = unsafe {
+                ctx.Map(staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))
+            };
+            if hr.is_ok() {
+                let row_pitch = mapped.RowPitch as usize;
+                let total_bytes = match row_pitch.checked_mul(self.height as usize) {
+                    Some(t) => t,
+                    None => {
+                        eprintln!("[recorder] Buffer size overflow: {}x{}", row_pitch, self.height);
+                        unsafe { ctx.Unmap(staging, 0) };
+                        return None;
+                    }
+                };
+                if mapped.pData.is_null() {
+                    eprintln!("[recorder] Map returned null pointer");
+                    unsafe { ctx.Unmap(staging, 0) };
+                    return None;
+                }
+                let data = unsafe {
+                    std::slice::from_raw_parts(mapped.pData as *const u8, total_bytes)
+                };
+                let raw = data.to_vec();
+                unsafe { ctx.Unmap(staging, 0) };
+                self.ready[read_idx] = false;
+                Some(OcrFrameData {
+                    raw,
+                    width: self.width as usize,
+                    height: self.height as usize,
+                    row_pitch,
+                })
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let staging_dst = match self.staging[write_idx].as_ref() {
+            Some(s) => s,
+            None => return result,
+        };
+        unsafe { ctx.CopyResource(staging_dst, frame_texture) };
+        self.ready[write_idx] = true;
+
+        self.current = write_idx;
+
+        result
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Capture handler
@@ -204,8 +298,8 @@ struct Recorder {
     frame_count: u64,
     width: u32,
     height: u32,
-    /// Send OCR frames every N capture frames (menus only)
     ocr_interval: u64,
+    staging_pool: StagingPool,
 }
 
 impl GraphicsCaptureApiHandler for Recorder {
@@ -223,6 +317,7 @@ impl GraphicsCaptureApiHandler for Recorder {
             width: 0,
             height: 0,
             ocr_interval: interval,
+            staging_pool: StagingPool::new(),
         })
     }
 
@@ -233,7 +328,6 @@ impl GraphicsCaptureApiHandler for Recorder {
     ) -> Result<(), Self::Error> {
         self.frame_count += 1;
 
-        // Emit ready with real resolution on first frame
         if self.width == 0 {
             self.width = frame.width();
             self.height = frame.height();
@@ -247,9 +341,7 @@ impl GraphicsCaptureApiHandler for Recorder {
         self.width = frame.width();
         self.height = frame.height();
 
-        // Check quit
         if self.state.should_quit.load(Ordering::Acquire) {
-            // Stop any active recording
             if let Some(encoder) = self.encoder.take() {
                 let _ = encoder.finish();
                 self.emit_recording_stopped();
@@ -258,7 +350,6 @@ impl GraphicsCaptureApiHandler for Recorder {
             return Ok(());
         }
 
-        // Handle screenshot request
         {
             let mut ss_path = self.state.screenshot_path.lock().unwrap();
             if let Some(path) = ss_path.take() {
@@ -272,7 +363,7 @@ impl GraphicsCaptureApiHandler for Recorder {
             }
         }
 
-        // Handle start recording
+        // Start recording
         if self.state.should_record.load(Ordering::Acquire) && self.encoder.is_none() {
             let path = self.state.record_path.lock().unwrap().take();
             let bitrate = self.state.record_bitrate.lock().unwrap().take();
@@ -282,19 +373,16 @@ impl GraphicsCaptureApiHandler for Recorder {
                 let br = bitrate.unwrap_or(30_000_000).clamp(1_000_000, 300_000_000);
                 let sub_type = match encoder_type.as_deref() {
                     Some("h264") => VideoSettingsSubType::H264,
-                    _ => VideoSettingsSubType::HEVC,  // default to HEVC
+                    _ => VideoSettingsSubType::HEVC,
                 };
                 let frame_rate = fps.unwrap_or(60).clamp(1, 240);
-
-                // Video-only encoder — audio goes to separate WAV via WASAPI loopback
-                let audio_settings = AudioSettingsBuilder::default().disabled(true);
 
                 match VideoEncoder::new(
                     VideoSettingsBuilder::new(self.width, self.height)
                         .sub_type(sub_type)
                         .bitrate(br)
                         .frame_rate(frame_rate),
-                    audio_settings,
+                    AudioSettingsBuilder::default().disabled(true),
                     ContainerSettingsBuilder::default(),
                     &path,
                 ) {
@@ -306,15 +394,6 @@ impl GraphicsCaptureApiHandler for Recorder {
                         self.recording_start = Some(Instant::now());
                         self.state.encoded_frames.store(0, Ordering::Relaxed);
                         self.state.ocr_fast.store(false, Ordering::Relaxed);
-                        // Open WAV file for audio capture alongside video
-                        let wav_path = path.replace(".mp4", ".wav");
-                        match WavWriter::new(&wav_path, 48000, 2) {
-                            Ok(w) => {
-                                *self.state.wav_writer.lock().unwrap() = Some(w);
-                                eprintln!("[recorder] WAV audio: {}", wav_path);
-                            }
-                            Err(e) => eprintln!("[recorder] WAV open failed (no audio): {}", e),
-                        }
                         emit(&Event::RecordingStarted { path });
                     }
                     Err(e) => {
@@ -329,18 +408,11 @@ impl GraphicsCaptureApiHandler for Recorder {
             }
         }
 
-        // Handle stop recording
+        // Stop recording
         if !self.state.should_record.load(Ordering::Acquire) && self.encoder.is_some() {
             if let Some(encoder) = self.encoder.take() {
                 let total = self.state.encoded_frames.load(Ordering::Relaxed);
                 eprintln!("[recorder] Stopping encoder — {} frames total", total);
-                // Finalize WAV audio file
-                if let Some(wav) = self.state.wav_writer.lock().unwrap().take() {
-                    match wav.finish() {
-                        Ok(_) => eprintln!("[recorder] WAV audio finalized"),
-                        Err(e) => eprintln!("[recorder] WAV finalize failed: {}", e),
-                    }
-                }
                 match encoder.finish() {
                     Ok(_) => eprintln!("[recorder] Encoder finished OK"),
                     Err(e) => eprintln!("[recorder] Encoder finish FAILED: {}", e),
@@ -349,7 +421,7 @@ impl GraphicsCaptureApiHandler for Recorder {
             }
         }
 
-        // Encode video frame (audio goes to WAV via WASAPI thread)
+        // Encode video frame (zero-copy GPU path)
         if let Some(ref mut encoder) = self.encoder {
             let frames_before = self.state.encoded_frames.load(Ordering::Relaxed);
             match encoder.send_frame(frame) {
@@ -370,11 +442,24 @@ impl GraphicsCaptureApiHandler for Recorder {
             }
         }
 
-        // OCR frames: menus only — during recording Python uses mss screenshots
-        // so the recording pipeline has zero GPU readbacks beyond encoding.
+        // OCR frame capture:
+        //   - In menus (no encoder): direct frame.buffer() every ocr_interval (~0.5s)
+        //   - During recording: async double-buffered staging every 6*ocr_interval (~3s)
+        //   - After RUN_COMPLETE (ocr_fast on): direct path, fast interval
         let is_recording = self.encoder.is_some();
-        if !is_recording && self.frame_count % self.ocr_interval == 0 {
-            self.send_ocr_frame(frame);
+        let ocr_fast = self.state.ocr_fast.load(Ordering::Relaxed);
+        let use_staged = is_recording && !ocr_fast;
+        let interval = if use_staged {
+            self.ocr_interval.saturating_mul(OCR_RECORD_INTERVAL_MULTIPLIER)
+        } else {
+            self.ocr_interval
+        };
+        if interval > 0 && self.frame_count % interval == 0 {
+            if use_staged {
+                self.send_ocr_frame_staged(frame);
+            } else {
+                self.send_ocr_frame(frame);
+            }
         }
 
         Ok(())
@@ -406,7 +491,7 @@ impl Recorder {
     }
 
     /// Direct OCR frame capture — used in menus when GPU is not under load.
-    /// Calls frame.buffer() which does synchronous CopyResource + Map.
+    /// frame.buffer() does a synchronous CopyResource + Map; fine when idle.
     fn send_ocr_frame(&mut self, frame: &mut Frame<'_>) {
         let mut buffer = match frame.buffer() {
             Ok(b) => b,
@@ -422,7 +507,6 @@ impl Recorder {
         let raw: Vec<u8> = buffer.as_raw_buffer().to_vec();
         drop(buffer);
 
-        // Hand off to background OCR thread — non-blocking
         {
             let mut pending = self.state.ocr_pending.lock().unwrap();
             *pending = Some(OcrFrameData { raw, width: w, height: h, row_pitch });
@@ -430,6 +514,20 @@ impl Recorder {
         self.state.ocr_notify.notify_one();
     }
 
+    /// Zero-stall OCR during recording via double-buffered staging textures.
+    /// Reads the previous frame's staging (copy long since complete) and
+    /// issues an async CopyResource for the current frame. No GPU stall.
+    fn send_ocr_frame_staged(&mut self, frame: &mut Frame<'_>) {
+        let frame_texture = unsafe { frame.as_raw_texture() };
+
+        if let Some(ocr_data) = self.staging_pool.copy_and_read(frame_texture) {
+            {
+                let mut pending = self.state.ocr_pending.lock().unwrap();
+                *pending = Some(ocr_data);
+            }
+            self.state.ocr_notify.notify_one();
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -438,7 +536,6 @@ impl Recorder {
 
 fn find_marathon_window() -> Option<Window> {
     let windows = Window::enumerate().ok()?;
-    // Log what we see on first call for debugging
     static LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     if !LOGGED.swap(true, std::sync::atomic::Ordering::Relaxed) {
         for w in &windows {
@@ -449,11 +546,9 @@ fn find_marathon_window() -> Option<Window> {
             }
         }
     }
-    // Match by process name or window title — exclude our own app (runlog)
     windows.into_iter().find(|w| {
         let name = w.process_name().unwrap_or_default().to_lowercase();
         let title = w.title().unwrap_or_default().to_lowercase();
-        // Skip our own windows
         if name.contains("runlog") || title.contains("runlog") || title.contains("marathon-runlog") {
             return false;
         }
@@ -475,8 +570,6 @@ fn set_high_priority() {
         fn SetProcessInformation(hProcess: *mut c_void, class: u32, info: *const c_void, size: u32) -> i32;
     }
 
-    // NORMAL priority — encoding is handled on GPU, no need to compete with the game for CPU.
-    // Power throttle opt-out stays: prevents Windows 11 efficiency mode from degrading frame timing.
     const NORMAL_PRIORITY_CLASS: u32 = 0x00000020;
     const PROCESS_POWER_THROTTLING: u32 = 4;
 
@@ -490,16 +583,14 @@ fn set_high_priority() {
     unsafe {
         let process = GetCurrentProcess();
 
-        // Normal priority — GPU handles encoding, no need to compete with the game.
         if SetPriorityClass(process, NORMAL_PRIORITY_CLASS) != 0 {
             eprintln!("[recorder] Process priority: NORMAL");
         }
 
-        // Opt out of Windows 11 power throttling (both timer resolution and execution speed)
         let throttle = ProcessPowerThrottlingState {
             version: 1,
-            control_mask: 0x1 | 0x2, // EXECUTION_SPEED | IGNORE_TIMER_RESOLUTION
-            state_mask: 0,            // Disable both
+            control_mask: 0x1 | 0x2,
+            state_mask: 0,
         };
         let size = std::mem::size_of::<ProcessPowerThrottlingState>() as u32;
         if SetProcessInformation(process, PROCESS_POWER_THROTTLING, &throttle as *const _ as *const c_void, size) != 0 {
@@ -509,9 +600,6 @@ fn set_high_priority() {
 }
 
 fn set_gpu_priority() {
-    // Set GPU scheduling priority to REALTIME — same as OBS
-    // Prevents Windows from deprioritizing our GPU work when a fullscreen game is running
-
     #[link(name = "gdi32")]
     extern "system" {
         fn D3DKMTSetProcessSchedulingPriorityClass(
@@ -525,7 +613,6 @@ fn set_gpu_priority() {
         fn GetCurrentProcess() -> *mut std::ffi::c_void;
     }
 
-    // D3DKMT_SCHEDULINGPRIORITYCLASS_REALTIME = 5
     const D3DKMT_SCHEDULINGPRIORITYCLASS_REALTIME: u32 = 5;
 
     unsafe {
@@ -542,211 +629,12 @@ fn set_gpu_priority() {
     }
 }
 
-// ---------------------------------------------------------------------------
-// WASAPI loopback audio capture
-// ---------------------------------------------------------------------------
-
-/// Captures system audio (loopback from the default render device) and pushes
-/// raw int16-stereo-48kHz PCM chunks into `state.pending_audio`.
-/// The capture callback drains this queue before each video frame for A/V sync.
-fn run_audio_capture(state: Arc<SharedState>) {
-    use windows::Win32::Media::Audio::{
-        IAudioCaptureClient, IAudioClient, IMMDeviceEnumerator, MMDeviceEnumerator,
-        AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_LOOPBACK, eConsole, eRender,
-    };
-    use windows::Win32::System::Com::{
-        CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_MULTITHREADED,
-    };
-
-    unsafe {
-        // Init COM for this thread — HRESULT<0 means failure (S_FALSE=1 is fine)
-        let hr = CoInitializeEx(None, COINIT_MULTITHREADED);
-        if hr.0 < 0 {
-            eprintln!("[audio] CoInitializeEx failed: 0x{:08x}", hr.0 as u32);
-            return;
-        }
-
-        // Guard: ensure CoUninitialize runs when this scope exits
-        struct ComGuard;
-        impl Drop for ComGuard {
-            fn drop(&mut self) {
-                unsafe {
-                    windows::Win32::System::Com::CoUninitialize();
-                }
-            }
-        }
-        let _com_guard = ComGuard;
-
-        // Get default render (output) device enumerator
-        let enumerator: IMMDeviceEnumerator =
-            match CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL) {
-                Ok(e) => e,
-                Err(e) => {
-                    eprintln!("[audio] CoCreateInstance(IMMDeviceEnumerator) failed: {}", e);
-                    return;
-                }
-            };
-
-        // Default render endpoint — this is where the game's audio plays out
-        let device = match enumerator.GetDefaultAudioEndpoint(eRender, eConsole) {
-            Ok(d) => d,
-            Err(e) => {
-                eprintln!("[audio] GetDefaultAudioEndpoint failed: {}", e);
-                return;
-            }
-        };
-
-        // Activate IAudioClient on the render endpoint
-        let audio_client: IAudioClient = match device.Activate(CLSCTX_ALL, None) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("[audio] IAudioClient activate failed: {}", e);
-                return;
-            }
-        };
-
-        // Get the endpoint's native mix format (shared mode must use this)
-        let mix_fmt_ptr = match audio_client.GetMixFormat() {
-            Ok(f) => f,
-            Err(e) => {
-                eprintln!("[audio] GetMixFormat failed: {}", e);
-                return;
-            }
-        };
-
-        let channels = (*mix_fmt_ptr).nChannels as usize;
-        let bits = (*mix_fmt_ptr).wBitsPerSample;
-        let sample_rate = (*mix_fmt_ptr).nSamplesPerSec;
-        eprintln!("[audio] Mix format: {}ch  {}Hz  {}bit", channels, sample_rate, bits);
-
-        // Initialize for loopback — shared mode, render endpoint, loopback flag
-        let init_result = audio_client.Initialize(
-            AUDCLNT_SHAREMODE_SHARED,
-            AUDCLNT_STREAMFLAGS_LOOPBACK,
-            2_000_000i64, // hnsBufferDuration: 200ms in 100ns units
-            0i64,          // hnsPeriodicity: 0 = OS default for shared mode
-            mix_fmt_ptr,
-            None,
-        );
-
-        // Free COM-allocated mix format — must happen after Initialize call
-        windows::Win32::System::Com::CoTaskMemFree(Some(mix_fmt_ptr as *const _ as *const std::ffi::c_void));
-
-        if let Err(e) = init_result {
-            eprintln!("[audio] IAudioClient::Initialize failed: {}", e);
-            return;
-        }
-
-        let capture_client: IAudioCaptureClient = match audio_client.GetService() {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("[audio] GetService(IAudioCaptureClient) failed: {}", e);
-                return;
-            }
-        };
-
-        if let Err(e) = audio_client.Start() {
-            eprintln!("[audio] IAudioClient::Start failed: {}", e);
-            return;
-        }
-
-        eprintln!("[audio] WASAPI loopback capture started ({}ch {}Hz {}bit) — writing to WAV when recording", channels, sample_rate, bits);
-
-        // AUDCLNT_BUFFERFLAGS_SILENT (0x2) — data is silence, skip it
-        const SILENT: u32 = 0x2;
-
-        loop {
-            if state.should_quit.load(Ordering::Acquire) {
-                break;
-            }
-
-            let recording = state.should_record.load(Ordering::Acquire);
-            // Fast poll while recording so WASAPI buffer never overflows; slower
-            // poll when idle — the WAV isn't being written anyway, so there's no
-            // reason to wake up every 10ms and burn CPU during gameplay menus.
-            let idle_poll_ms = if recording { 10 } else { 100 };
-
-            // Poll for available frames
-            let packet_size = match capture_client.GetNextPacketSize() {
-                Ok(s) => s,
-                Err(e) => {
-                    eprintln!("[audio] GetNextPacketSize failed: {}", e);
-                    std::thread::sleep(std::time::Duration::from_millis(idle_poll_ms));
-                    continue;
-                }
-            };
-
-            if packet_size == 0 {
-                std::thread::sleep(std::time::Duration::from_millis(idle_poll_ms));
-                continue;
-            }
-
-            let mut data: *mut u8 = std::ptr::null_mut();
-            let mut num_frames: u32 = 0;
-            let mut flags: u32 = 0;
-            let mut qpc_pos: u64 = 0;
-
-            if let Err(e) = capture_client.GetBuffer(
-                &mut data,
-                &mut num_frames,
-                &mut flags,
-                None,
-                Some(&mut qpc_pos),
-            ) {
-                eprintln!("[audio] GetBuffer failed: {}", e);
-                continue;
-            }
-
-            if data.is_null() {
-                let _ = capture_client.ReleaseBuffer(num_frames);
-                continue;
-            }
-
-            if recording && (flags & SILENT) == 0 && num_frames > 0 {
-                // qpc_pos is already in 100ns units (Windows converts for us)
-                let num_samples = num_frames as usize * channels;
-
-                let pcm: Vec<u8> = if bits == 32 {
-                    // float32 → int16
-                    let floats = std::slice::from_raw_parts(data as *const f32, num_samples);
-                    let mut out = Vec::with_capacity(num_samples * 2);
-                    for &f in floats {
-                        let s = (f.clamp(-1.0, 1.0) * 32767.0) as i16;
-                        out.extend_from_slice(&s.to_le_bytes());
-                    }
-                    out
-                } else if bits == 16 {
-                    // already int16 — copy raw bytes
-                    std::slice::from_raw_parts(data, num_samples * 2).to_vec()
-                } else {
-                    Vec::new()
-                };
-
-                if !pcm.is_empty() {
-                    if let Some(ref mut wav) = *state.wav_writer.lock().unwrap() {
-                        if let Err(e) = wav.write_samples(&pcm) {
-                            eprintln!("[audio] WAV write failed: {}", e);
-                        }
-                    }
-                }
-            }
-
-            let _ = capture_client.ReleaseBuffer(num_frames);
-        }
-
-        let _ = audio_client.Stop();
-        eprintln!("[audio] WASAPI loopback stopped");
-    }
-}
-
 fn main() {
     eprintln!("[recorder] runlog-recorder starting...");
 
-    // Prevent Windows from throttling this process when in background
     set_high_priority();
     set_gpu_priority();
 
-    // Wait for Marathon window
     let window = loop {
         if let Some(w) = find_marathon_window() {
             break w;
@@ -758,7 +646,6 @@ fn main() {
     let title = window.title().unwrap_or_else(|_| "Marathon".into());
     eprintln!("[recorder] Found window: {}", title);
 
-    // Runtime-tunable OCR knobs
     let ocr_interval_cfg: u64 = std::env::var("RUNLOG_OCR_INTERVAL")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -771,7 +658,6 @@ fn main() {
         .unwrap_or(JPEG_QUALITY);
     eprintln!("[recorder] OCR config: interval={} frames, jpeg_quality={}", ocr_interval_cfg, ocr_jpeg_quality);
 
-    // Shared state
     let state = Arc::new(SharedState {
         window_title: Mutex::new(title.clone()),
         should_record: AtomicBool::new(false),
@@ -785,17 +671,14 @@ fn main() {
         ocr_fast: AtomicBool::new(false),
         ocr_pending: Mutex::new(None),
         ocr_notify: std::sync::Condvar::new(),
-        ocr_thread_alive: AtomicBool::new(true),
-        wav_writer: Mutex::new(None),
         ocr_interval_cfg,
         ocr_jpeg_quality,
     });
 
-    // OCR processing thread — does the slow work off the capture callback
+    // OCR processing thread
     let ocr_state = Arc::clone(&state);
     std::thread::spawn(move || {
         loop {
-            // Wait for a frame to be available
             let frame_data = {
                 let mut pending = ocr_state.ocr_pending.lock().unwrap();
                 while pending.is_none() {
@@ -806,7 +689,6 @@ fn main() {
                         Ok((guard, _)) => guard,
                         Err(e) => {
                             eprintln!("[recorder] OCR mutex poisoned, exiting thread: {}", e);
-                            ocr_state.ocr_thread_alive.store(false, Ordering::Relaxed);
                             return;
                         }
                     };
@@ -814,15 +696,12 @@ fn main() {
                 pending.take().unwrap()
             };
 
-            // Validate row_pitch before processing
             if frame_data.row_pitch < frame_data.width * 4 {
                 eprintln!("[recorder] Invalid row_pitch: {} < {} * 4", frame_data.row_pitch, frame_data.width);
                 continue;
             }
 
             // Downscale 4K → 1920×1080 for OCR frames — reduces IPC bandwidth ~4x.
-            // Python upscales individual crops further as needed before calling winocr.
-            // At 1080p (width < 3000) no downscale needed, scale stays 1.
             let ocr_scale = if frame_data.width >= 3000 { 2 } else { 1 };
             let ow = frame_data.width / ocr_scale;
             let oh = frame_data.height / ocr_scale;
@@ -843,7 +722,6 @@ fn main() {
                 }
             }
 
-            // JPEG encode + emit
             let mut jpeg_buf = Vec::with_capacity(JPEG_BUF_CAPACITY);
             let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_buf, ocr_state.ocr_jpeg_quality);
             if encoder.encode(&rgb_buf, ow as u32, oh as u32, image::ExtendedColorType::Rgb8).is_ok() {
@@ -854,7 +732,7 @@ fn main() {
         }
     });
 
-    // IPC thread — reads commands from stdin
+    // IPC thread
     let ipc_state = Arc::clone(&state);
     std::thread::spawn(move || {
         let stdin = io::stdin();
@@ -893,18 +771,8 @@ fn main() {
                 }
             }
         }
-        // stdin closed — signal quit
         ipc_state.should_quit.store(true, Ordering::Release);
     });
-
-    // Audio capture thread — WASAPI loopback from the default render device
-    let audio_state = Arc::clone(&state);
-    std::thread::spawn(move || {
-        run_audio_capture(audio_state);
-        eprintln!("[audio] Audio capture thread exited");
-    });
-
-    // Ready event is emitted from on_frame_arrived after first frame (with real resolution)
 
     // Start capture (blocks this thread)
     let settings = Settings::new(

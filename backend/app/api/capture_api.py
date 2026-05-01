@@ -159,12 +159,12 @@ def list_clips():
             run_folder_path = os.path.join(CLIPS_DIR, run_folder)
             if not os.path.isdir(run_folder_path):
                 # Legacy flat clip — handle for backwards compat
-                if run_folder.endswith(".mp4") and "_4k" not in run_folder:
+                if run_folder.startswith("clip_") and run_folder.endswith(".mp4") and "_4k" not in run_folder:
                     _add_clip_entry(clips, CLIPS_DIR, run_folder, run_folder=None)
                 continue
             for f in sorted(os.listdir(run_folder_path)):
-                # Skip 4K versions — app uses 1080p
-                if f.endswith(".mp4") and "_4k" not in f:
+                # Only list true clips (clip_*.mp4); exclude the full run recording (run_*.mp4) and 4K variants.
+                if f.startswith("clip_") and f.endswith(".mp4") and "_4k" not in f:
                     _add_clip_entry(clips, run_folder_path, f, run_folder=run_folder)
     _clips_cache["data"] = clips
     _clips_cache["ts"] = _time.time()

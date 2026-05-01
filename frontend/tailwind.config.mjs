@@ -4,7 +4,6 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        // Core Marathon palette
         'm-black': '#000000',
         'm-bg': '#050508',
         'm-surface': '#0a0a10',
@@ -12,13 +11,11 @@ module.exports = {
         'm-border': '#1a1a2a',
         'm-border-bright': '#2a2a40',
 
-        // Accent — Marathon neon lime
         'm-green': '#c8ff00',
         'm-green-dim': '#a0cc00',
         'm-green-glow': 'rgba(200, 255, 0, 0.08)',
         'm-green-bright': '#d4ff2a',
 
-        // Status
         'm-red': '#ff2244',
         'm-red-dim': '#cc1133',
         'm-red-glow': 'rgba(255, 34, 68, 0.08)',
@@ -26,7 +23,6 @@ module.exports = {
         'm-cyan': '#00ddff',
         'm-purple': '#8844ff',
 
-        // Text
         'm-text': '#e8e8f0',
         'm-text-dim': '#888899',
         'm-text-muted': '#555566',
@@ -43,8 +39,8 @@ module.exports = {
       },
       animation: {
         'pulse-slow': 'pulse 3s ease-in-out infinite',
-        'scan': 'scan 4s linear infinite',
-        'scanDown': 'scanDown 2s linear infinite',
+        scan: 'scan 4s linear infinite',
+        scanDown: 'scanDown 2s linear infinite',
         'spin-slow': 'spin 3s linear infinite',
         'wipe-delete': 'wipe-delete 1.5s ease-in-out infinite',
       },

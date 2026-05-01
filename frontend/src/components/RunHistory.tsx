@@ -966,12 +966,16 @@ export function RunRow({ run, isExpanded, onToggle, onToggleFavorite, onUpdate, 
   }, [run])
 
   const refreshFolderSize = useCallback(() => {
-    if (activeClips[0]?.run_folder) {
-      axios.get(`${apiBase}/api/capture/folder-size/${activeClips[0].run_folder}`)
+    const folder = activeClips[0]?.run_folder
+      || (run.recording_path
+        ? (run.recording_path.split(/[/\\]clips[/\\]/).pop() || '').replace(/\\/g, '/').split('/')[0] || null
+        : null)
+    if (folder) {
+      axios.get(`${apiBase}/api/capture/folder-size/${folder}`)
         .then(({ data }) => setFolderSize(data.size_mb))
         .catch(() => setFolderSize(null))
     }
-  }, [activeClips])
+  }, [activeClips, run.recording_path])
 
   // Refetch folder size on expand and after deletions
   useEffect(() => {
@@ -1156,24 +1160,34 @@ export function RunRow({ run, isExpanded, onToggle, onToggleFavorite, onUpdate, 
                   return <span className="text-m-cyan text-[9px]">{total} CLIP{total !== 1 ? 'S' : ''}</span>
                 })()}
               </button>
-              {activeClips[0]?.run_folder && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    axios.post(`${apiBase}/api/capture/open-folder`, { folder: activeClips[0].run_folder })
-                  }}
-                  className="label-tag px-2 py-0.5 border border-m-border text-m-text-muted hover:text-m-green hover:border-m-green/40 transition-all flex items-center gap-1.5"
-                  title="Open clips folder"
-                >
-                  <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
-                    <path d="M1 3.5A1.5 1.5 0 012.5 2h3.879a1.5 1.5 0 011.06.44l1.122 1.12A1.5 1.5 0 009.62 4H13.5A1.5 1.5 0 0115 5.5v7a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 12.5v-9z"/>
-                  </svg>
-                  OPEN
-                  {folderSize != null && (
-                    <span className="text-m-text-muted/40">{folderSize >= 1000 ? `${(folderSize / 1000).toFixed(1)}GB` : `${folderSize}MB`}</span>
-                  )}
-                </button>
-              )}
+              {(() => {
+                // Prefer an existing clip's run_folder; fall back to deriving it
+                // from run.recording_path so the button appears as soon as the
+                // full run is saved (before any Phase 2 clips exist).
+                const folder = activeClips[0]?.run_folder
+                  || (run.recording_path
+                    ? (run.recording_path.split(/[/\\]clips[/\\]/).pop() || '').replace(/\\/g, '/').split('/')[0] || null
+                    : null)
+                if (!folder) return null
+                return (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      axios.post(`${apiBase}/api/capture/open-folder`, { folder })
+                    }}
+                    className="label-tag px-2 py-0.5 border border-m-border text-m-text-muted hover:text-m-green hover:border-m-green/40 transition-all flex items-center gap-1.5"
+                    title="Open clips folder"
+                  >
+                    <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
+                      <path d="M1 3.5A1.5 1.5 0 012.5 2h3.879a1.5 1.5 0 011.06.44l1.122 1.12A1.5 1.5 0 009.62 4H13.5A1.5 1.5 0 0115 5.5v7a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 12.5v-9z"/>
+                    </svg>
+                    OPEN
+                    {folderSize != null && (
+                      <span className="text-m-text-muted/40">{folderSize >= 1000 ? `${(folderSize / 1000).toFixed(1)}GB` : `${folderSize}MB`}</span>
+                    )}
+                  </button>
+                )
+              })()}
             </div>
             {highlightsOpen && (
               <div className="mt-3">

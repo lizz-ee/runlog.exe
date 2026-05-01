@@ -373,7 +373,7 @@ function TrendPanel({ title, data, domain, suffix, prefix }: {
               <Tooltip
                 contentStyle={{ background: '#0a0a0f', border: '1px solid #1a1a2e', fontSize: 10, fontFamily: 'monospace' }}
                 labelStyle={{ color: '#777' }}
-                formatter={(v: number) => [`${prefix || ''}${v}${suffix || ''}`, '']}
+                formatter={(v) => [`${prefix || ''}${v ?? ''}${suffix || ''}`, '']}
               />
               <Area type="monotone" dataKey="value" stroke="#c8ff00" strokeWidth={2} fill={`url(#grad-${title.replace(/\s/g, '')})`}
                 dot={{ r: 3, fill: '#c8ff00', stroke: '#c8ff00', strokeWidth: 1 }}
