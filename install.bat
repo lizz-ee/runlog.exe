@@ -80,9 +80,9 @@ goto :check_node
 :python_found
 :: Resolve to full absolute path so the app can find it later
 echo import sys; print(sys.executable)> "%TEMP%\_pypath.py"
-for /f "delims=" %%P in ('"%PYTHON_CMD%" "%TEMP%\_pypath.py"') do set "PYTHON_CMD=%%P"
+for /f "delims=" %%P in ('cmd /d /s /c ""%PYTHON_CMD%" "%TEMP%\_pypath.py"""') do set "PYTHON_CMD=%%P"
 del "%TEMP%\_pypath.py" 2>nul
-for /f "tokens=2" %%v in ('"%PYTHON_CMD%" --version 2^>^&1') do echo        FOUND: Python %%v
+for /f "tokens=2" %%v in ('cmd /d /s /c ""%PYTHON_CMD%" --version 2^>^&1"') do echo        FOUND: Python %%v
 
 :check_node
 :: --- Node.js 18+ ---
@@ -214,14 +214,14 @@ if %errorlevel% neq 0 (
     "%PYTHON_CMD%" "%TEMP%\get-pip.py" --quiet >nul 2>&1
     del "%TEMP%\get-pip.py" 2>nul
 )
-echo        Installing PyTorch [CPU-only]...
-"%PYTHON_CMD%" -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu --quiet >nul 2>&1
+echo        Installing PyTorch [CPU-only, latest]...
+"%PYTHON_CMD%" -m pip install --upgrade torch torchvision --index-url https://download.pytorch.org/whl/cpu --quiet >nul 2>&1
 if %errorlevel% neq 0 (
     echo        ERROR: PyTorch install failed.
     set /a ERRORS+=1
 )
-echo        Installing requirements...
-"%PYTHON_CMD%" -m pip install -r requirements.txt --quiet >nul 2>&1
+echo        Installing requirements [latest]...
+"%PYTHON_CMD%" -m pip install --upgrade -r requirements.txt --quiet >nul 2>&1
 if %errorlevel% neq 0 (
     echo        ERROR: Requirements install failed.
     set /a ERRORS+=1
@@ -289,7 +289,13 @@ echo  [3/3] Node.js packages...
 cd /d "%FRONTEND%"
 call npm install --loglevel=error 2>&1
 if %errorlevel% equ 0 (
-    echo        Node packages installed.
+    call npm update --loglevel=error 2>&1
+    if %errorlevel% equ 0 (
+        echo        Node packages installed and updated.
+    ) else (
+        echo        ERROR: npm update failed.
+        set /a ERRORS+=1
+    )
 ) else (
     echo        ERROR: npm install failed.
     set /a ERRORS+=1
@@ -308,6 +314,17 @@ echo.
 cd /d "%FRONTEND%"
 :: Skip code signing (no certificate)
 set CSC_IDENTITY_AUTO_DISCOVERY=false
+:: Stop running packaged processes so release files are not locked and stale.
+taskkill /IM runlog.exe /F >nul 2>&1
+taskkill /IM runlog-recorder.exe /F >nul 2>&1
+:: Clean prior build output so electron-builder starts fresh
+if exist "%ROOT%release" (
+    echo  Cleaning prior release/ output...
+    rmdir /s /q "%ROOT%release" 2>nul
+)
+if exist "%FRONTEND%\dist" (
+    rmdir /s /q "%FRONTEND%\dist" 2>nul
+)
 echo  Building frontend + packaging installer...
 call npm run dist 2>&1
 if exist "%ROOT%release\win-unpacked\runlog.exe" (
@@ -365,7 +382,7 @@ if %ERRORS% gtr 0 (
 ) else (
     echo  INSTALL COMPLETE
     echo.
-    echo  Double-click runlog.lnk to launch the app.
+    echo  Double-click runlog.exe.lnk to launch the app.
     echo.
     echo  Or run directly from source:
     echo    Terminal 1:  cd backend ^& python run.py

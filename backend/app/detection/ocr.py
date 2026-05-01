@@ -12,7 +12,7 @@ EasyOCR is NOT used here — it stays in the alpha stats pipeline only.
 
 import io
 
-from PIL import Image
+from PIL import Image, ImageStat
 
 # -- Windows OCR (winocr) -----------------------------------------------------
 
@@ -54,7 +54,7 @@ def _ocr_pil(img: Image.Image, label: str = "") -> str:
 DEPLOY_REGION = (0.35, 0.38, 0.65, 0.65)
 
 # OCR.ENDGAME — upper center, //RUN_COMPLETE banner
-ENDGAME_REGION = (0.28, 0.135, 0.72, 0.275)
+ENDGAME_REGION = (0.28, 0.12, 0.72, 0.22)
 
 # OCR.LOBBY — bottom center, PREPARE/READY_UP buttons
 LOBBY_REGION = (0.33, 0.72, 0.67, 0.89)
@@ -68,6 +68,14 @@ def _crop_region(img: Image.Image, region: tuple) -> Image.Image:
     w, h = img.size
     x1, y1, x2, y2 = region
     return img.crop((int(w * x1), int(h * y1), int(w * x2), int(h * y2)))
+
+
+def _looks_like_run_complete(img: Image.Image) -> bool:
+    """Detect the RUN_COMPLETE banner visually before trying OCR."""
+    crop = _crop_region(img, ENDGAME_REGION).convert("RGB")
+    mean_r, mean_g, mean_b = ImageStat.Stat(crop).mean[:3]
+    brightness = (mean_r + mean_g + mean_b) / 3
+    return brightness > 150 and mean_g > 180 and mean_g > mean_b * 1.2
 
 
 def detect_game_state(frame: "Image.Image | bytes", scan_mode: str = "lobby") -> dict | None:
@@ -102,6 +110,9 @@ def detect_game_state(frame: "Image.Image | bytes", scan_mode: str = "lobby") ->
             return None
 
         if scan_mode == "endgame":
+            if _looks_like_run_complete(img):
+                return {"type": "endgame", "map_name": None, "text": "VISUAL_RUN_COMPLETE"}
+
             text = _ocr_pil(_crop_region(img, ENDGAME_REGION), "ENDGAME")
             if text and "RUN" in text and "COMPLETE" in text:
                 return {"type": "endgame", "map_name": None, "text": text}

@@ -82,7 +82,7 @@ export const MAPS: Record<string, MapData> = {
   },
   'Cryo Archive': {
     name: 'Cryo Archive',
-    image: null,
+    image: 'cryo-archive',
     zones: [],
     spawns: [],
   },
