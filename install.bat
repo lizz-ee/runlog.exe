@@ -1,4 +1,9 @@
 @echo off
+if /i not "%~1"=="--foreground" (
+    start "runlog.exe - Installer" "%ComSpec%" /k ""%~f0" --foreground"
+    exit /b 0
+)
+if /i "%~2"=="--dry-run" exit /b 0
 setlocal enabledelayedexpansion
 title runlog.exe - Installer
 color 0A
