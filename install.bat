@@ -1,9 +1,14 @@
 @echo off
+:: Short-circuit --dry-run before any relaunch — used by install-script validators
+:: and CI smoke tests. Without this, `install.bat --dry-run` would be relaunched
+:: as `install.bat --foreground` and the dry-run flag would be lost.
+if /i "%~1"=="--dry-run" exit /b 0
+if /i "%~2"=="--dry-run" exit /b 0
 if /i not "%~1"=="--foreground" (
-    start "runlog.exe - Installer" "%ComSpec%" /k ""%~f0" --foreground"
+    :: Preserve any caller args (e.g. future flags) through the relaunch.
+    start "runlog.exe - Installer" "%ComSpec%" /k ""%~f0" --foreground %*"
     exit /b 0
 )
-if /i "%~2"=="--dry-run" exit /b 0
 setlocal enabledelayedexpansion
 title runlog.exe - Installer
 color 0A
@@ -83,9 +88,18 @@ set /a ERRORS+=1
 goto :check_node
 
 :python_found
-:: Resolve to full absolute path so the app can find it later
-echo import sys; print(sys.executable)> "%TEMP%\_pypath.py"
-for /f "delims=" %%P in ('cmd /d /s /c ""%PYTHON_CMD%" "%TEMP%\_pypath.py"""') do set "PYTHON_CMD=%%P"
+:: Resolve to full absolute path so the app can find it later.
+:: Two pitfalls in the original code reproduced "2> was unexpected at this
+:: time" on a clean machine and are fixed here:
+::   1. The echoed Python statement contained raw () which cmd parses against
+::      its own paren counter, even on an `echo` line. Escape with ^( and ^).
+::   2. The FOR /F wrapper used `..._pypath.py"""` (7 quotes total). cmd /S /C
+::      grabs everything between the first and last quote, so an odd quote
+::      count leaves a trailing stray `"` that breaks the inner command.
+::      Use 6 quotes: ""<exe>" "<file>"" so cmd /S /C extracts a clean
+::      "<exe>" "<file>" with all internal quotes balanced.
+echo import sys; print^(sys.executable^)> "%TEMP%\_pypath.py"
+for /f "delims=" %%P in ('cmd /d /s /c ""%PYTHON_CMD%" "%TEMP%\_pypath.py""') do set "PYTHON_CMD=%%P"
 del "%TEMP%\_pypath.py" 2>nul
 for /f "tokens=2" %%v in ('cmd /d /s /c ""%PYTHON_CMD%" --version 2^>^&1"') do echo        FOUND: Python %%v
 
@@ -292,19 +306,16 @@ if exist "%RECORDER%\target\release\runlog-recorder.exe" (
 :: --- Node.js deps ---
 echo  [3/3] Node.js packages...
 cd /d "%FRONTEND%"
+:: Reproducible install: prefer `npm ci` against the committed lockfile.
+:: Never run `npm update` here — it mutates package-lock.json on every install
+:: and would dirty the repo / break subsequent `npm ci` runs.
 if exist package-lock.json (
     call npm ci --loglevel=error 2>&1
 ) else (
     call npm install --loglevel=error 2>&1
 )
 if %errorlevel% equ 0 (
-    call npm update --loglevel=error 2>&1
-    if %errorlevel% equ 0 (
-        echo        Node packages installed and updated.
-    ) else (
-        echo        ERROR: npm update failed.
-        set /a ERRORS+=1
-    )
+    echo        Node packages installed.
 ) else (
     echo        ERROR: npm install failed.
     set /a ERRORS+=1

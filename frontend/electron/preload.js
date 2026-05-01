@@ -42,4 +42,7 @@ contextBridge.exposeInMainWorld('runlog', {
 
   // Open a URL in the default browser
   openUrl: (url) => ipcRenderer.send('open-url', url),
+
+  // Restart the app (used by Settings when a restart-required toggle is changed)
+  relaunchApp: () => ipcRenderer.send('app-relaunch'),
 })

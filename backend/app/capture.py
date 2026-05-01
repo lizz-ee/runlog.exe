@@ -708,7 +708,11 @@ class AutoCapture:
         encoder = get_config_value("encoder") or "hevc"
         bitrate_mbps = get_config_value("bitrate") or 30
         fps = get_config_value("fps") or 60
+        resolution = get_config_value("resolution") or "native"
         bitrate = int(bitrate_mbps) * 1_000_000
+        # Map resolution preset → target_height. Width is computed Rust-side
+        # using the live capture aspect ratio so ultrawide windows stay correct.
+        target_height = {"native": None, "1440p": 1440, "1080p": 1080, "720p": 720}.get(resolution)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         run_tag = f"run_{timestamp}"
@@ -718,14 +722,28 @@ class AutoCapture:
         os.makedirs(os.path.join(run_folder, "screenshots"), exist_ok=True)
         path = os.path.join(run_folder, filename)
 
-        if self._recorder.start_recording(path, bitrate=bitrate, encoder=encoder, fps=fps):
+        if self._recorder.start_recording(path, bitrate=bitrate, encoder=encoder, fps=fps, target_height=target_height):
             self._recording = True
             self._recording_start = time.time()
             self._recording_path = path
-            print(f"[capture] Recording to: {path} ({encoder.upper()}, {bitrate_mbps}Mbps, {fps}fps)")
+            res_label = f"{resolution}" if target_height else "native"
+            print(f"[capture] Recording to: {path} ({encoder.upper()}, {bitrate_mbps}Mbps, {fps}fps, {res_label})")
             self._broadcast_status()
         else:
             print("[capture] Recording failed to start")
+
+    def _maybe_restart_recorder_for_fps(self):
+        """Bounce the recorder if a setting change deferred a restart while
+        recording was active. Safe to call only when self._recording is False."""
+        if not getattr(self._recorder, "fps_restart_pending", False):
+            return
+        self._recorder.fps_restart_pending = False
+        try:
+            print("[capture] Restarting recorder to apply deferred fps change")
+            self._recorder.stop()
+            self._recorder.start()
+        except Exception as e:
+            print(f"[capture] Deferred recorder restart failed: {e}")
 
     def _stop_recording(self):
         """Stop recording and queue the file for processing."""
@@ -744,10 +762,17 @@ class AutoCapture:
 
         if not filepath:
             print("[capture] No recording path, skipping.")
+            self._maybe_restart_recorder_for_fps()
             return
 
         # Wait briefly for Rust to finalize the MP4
         time.sleep(1)
+
+        # Once Rust has flushed the MP4, the recorder process is safe to bounce.
+        # Drain a deferred fps-change restart here so the next recording uses
+        # the new WGC capture-rate cap. File processing below is independent
+        # of the recorder process and proceeds normally.
+        self._maybe_restart_recorder_for_fps()
 
         if not os.path.exists(filepath):
             print(f"[capture] Recording file not found: {filepath}")

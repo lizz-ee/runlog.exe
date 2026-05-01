@@ -69,6 +69,7 @@ export interface AppSettings {
   encoder: string
   bitrate: number
   fps: number
+  resolution: string
   p1_workers: number
   p2_workers: number
   auto_p1: boolean

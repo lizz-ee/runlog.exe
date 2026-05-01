@@ -101,6 +101,85 @@ try:
                 ))
             _seed_db.commit()
             print(f"[seed] Loaded {len(_seed_spawns)} reference spawn points")
+
+    # Idempotent cleanup: drop any seeded spawn points without game coordinates.
+    # Earlier seed data shipped Perimeter/Columns and Perimeter/Tunnels with
+    # null game_coord_x/y; those locations have no map placement and shouldn't
+    # appear in the spawn list. Re-points dependent runs to NULL first so the
+    # FK delete is safe.
+    from .models import Run
+    _orphan_ids = [
+        sid for (sid,) in _seed_db.query(SpawnPoint.id).filter(
+            (SpawnPoint.game_coord_x.is_(None)) | (SpawnPoint.game_coord_y.is_(None))
+        ).all()
+    ]
+    if _orphan_ids:
+        _seed_db.query(Run).filter(Run.spawn_point_id.in_(_orphan_ids)).update(
+            {Run.spawn_point_id: None}, synchronize_session=False
+        )
+        deleted = _seed_db.query(SpawnPoint).filter(SpawnPoint.id.in_(_orphan_ids)).delete(
+            synchronize_session=False
+        )
+        _seed_db.commit()
+        print(f"[seed] Removed {deleted} spawn point(s) without game coordinates")
+
+    # Idempotent dupe consolidation: Outpost/Processing SE was the same
+    # physical spawn as Processing E (same screen pos, game coords <1 unit
+    # apart). The reference data dropped Processing SE in favour of the
+    # recovered "Processing E" name. Migrate any runs pointing at the old
+    # row to the surviving Processing E row, then delete the dupe.
+    _dupe = _seed_db.query(SpawnPoint).filter_by(
+        map_name="Outpost", spawn_location="Processing SE"
+    ).one_or_none()
+    if _dupe:
+        _keep = _seed_db.query(SpawnPoint).filter_by(
+            map_name="Outpost", spawn_location="Processing E"
+        ).one_or_none()
+        if _keep:
+            _seed_db.query(Run).filter(Run.spawn_point_id == _dupe.id).update(
+                {Run.spawn_point_id: _keep.id}, synchronize_session=False
+            )
+            _seed_db.delete(_dupe)
+            _seed_db.commit()
+            print("[seed] Consolidated duplicate spawn point Outpost/Processing SE -> Processing E")
+        else:
+            # Surviving row not present yet; rename the dupe in-place so we
+            # don't lose the data, and let the upsert below skip it.
+            _dupe.spawn_location = "Processing E"
+            _seed_db.commit()
+            print("[seed] Renamed Outpost/Processing SE -> Processing E (no existing duplicate)")
+
+    # Idempotent upsert: any (map_name, spawn_location) in the shipping JSON
+    # that is missing from the user's DB gets inserted. Existing rows are left
+    # alone so user-edited coordinates aren't clobbered. New users get
+    # everything via the empty-table seed above; this branch only matters for
+    # users upgrading from an older seed snapshot.
+    _seed_file = os.path.join(os.path.dirname(__file__), "data", "spawn_points.json")
+    if os.path.exists(_seed_file):
+        import json
+        with open(_seed_file) as f:
+            _ref_spawns = json.load(f)
+        existing_keys = {
+            (m, l) for (m, l) in _seed_db.query(
+                SpawnPoint.map_name, SpawnPoint.spawn_location
+            ).all()
+        }
+        added = 0
+        for s in _ref_spawns:
+            if (s["map_name"], s["spawn_location"]) in existing_keys:
+                continue
+            _seed_db.add(SpawnPoint(
+                map_name=s["map_name"],
+                spawn_location=s["spawn_location"],
+                x=s.get("x"),
+                y=s.get("y"),
+                game_coord_x=s.get("game_coord_x"),
+                game_coord_y=s.get("game_coord_y"),
+            ))
+            added += 1
+        if added:
+            _seed_db.commit()
+            print(f"[seed] Added {added} new spawn point(s) from updated reference data")
 finally:
     _seed_db.close()
 

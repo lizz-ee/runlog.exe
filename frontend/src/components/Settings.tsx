@@ -115,6 +115,12 @@ export default function Settings() {
   const [cliUpdating, setCliUpdating] = useState(false)
   const [migrating, setMigrating] = useState(false)
   const [migrateResult, setMigrateResult] = useState<string | null>(null)
+  // Snapshot of original values for restart-required keys. Populated on the
+  // first change of each key. If the user dismisses the toast without
+  // restarting, every key in this map is reverted (UI + backend) to its
+  // snapshotted original. Keyed empty = no pending changes.
+  const [restartOriginals, setRestartOriginals] = useState<Record<string, any>>({})
+  const restartDirty = Object.keys(restartOriginals).length > 0
 
   useEffect(() => {
     getSettings().then(setConfig).catch((e) => console.error('[Settings] fetch settings failed:', e))
@@ -143,9 +149,57 @@ export default function Settings() {
     }
   }, [])
 
+  // Settings whose effects only land at engine/process startup. Changing any
+  // of these reveals a sticky bottom-right RESTART REQUIRED toast.
+  const RESTART_KEYS = new Set(['p1_workers', 'p2_workers', 'storage_path'])
+
   function saveConfig(key: string, value: any) {
+    if (RESTART_KEYS.has(key)) {
+      // Track originals so a dismiss can revert. Only snapshot the very first
+      // change per key — subsequent changes still revert to the truly-original
+      // value, not an intermediate. If the new value equals the snapshot we've
+      // already taken, the change is a revert and the snapshot can be dropped.
+      setRestartOriginals(prev => {
+        if (key in prev) {
+          if (prev[key] === value) {
+            const { [key]: _, ...rest } = prev
+            return rest
+          }
+          return prev
+        }
+        const original = config ? (config as any)[key] : undefined
+        if (original === value) return prev
+        return { ...prev, [key]: original }
+      })
+    }
     updateConfig(key, value).catch((e) => console.error('[Settings] save config failed:', e))
     setConfig(prev => prev ? { ...prev, [key]: value } : prev)
+  }
+
+  function dismissRestart() {
+    // Revert every pending restart-key change back to its original value
+    // (both backend and local UI). Then clear the pending set so the toast hides.
+    Object.entries(restartOriginals).forEach(([key, originalValue]) => {
+      updateConfig(key, originalValue).catch((e) =>
+        console.error('[Settings] revert failed:', e)
+      )
+      setConfig(prev => prev ? { ...prev, [key]: originalValue } : prev)
+    })
+    setRestartOriginals({})
+  }
+
+  function relaunchApp() {
+    const runlog = (window as any).runlog
+    if (runlog?.relaunchApp) runlog.relaunchApp()
+    else window.location.reload()  // dev-mode fallback (no Electron bridge)
+  }
+
+  function restartNow() {
+    // The new values were already persisted on each saveConfig call; the
+    // restart just makes them take effect. Clear the originals map so React
+    // doesn't trigger a revert if the relaunch is interrupted.
+    setRestartOriginals({})
+    relaunchApp()
   }
 
   async function handleTestAndSave() {
@@ -303,9 +357,22 @@ export default function Settings() {
               />
             </SettingRow>
 
+            <SettingRow label="RESOLUTION">
+              <ToggleButton
+                options={[
+                  { value: 'native', label: 'NATIVE' },
+                  { value: '1440p', label: '1440P' },
+                  { value: '1080p', label: '1080P' },
+                  { value: '720p', label: '720P' },
+                ]}
+                value={config.resolution || 'native'}
+                onChange={v => saveConfig('resolution', v)}
+              />
+            </SettingRow>
+
             <div className="pt-1 border-t border-m-border/30">
               <p className="text-[9px] font-mono text-m-text-muted tracking-wider">
-                NATIVE WINDOW — NEXT RECORDING
+                APPLIES TO NEXT RECORDING — OCR UNAFFECTED
               </p>
             </div>
           </div>
@@ -360,7 +427,7 @@ export default function Settings() {
             <div className="pt-1 border-t border-m-border/30">
               <p className="text-[9px] font-mono text-m-text-muted tracking-wider">
                 P1 = FRAMES + STATS — P2 = NARRATIVE + CLIPS<br/>
-                <span className="text-m-yellow/40">WORKERS RESTART REQUIRED — AUTO-RUN TAKES EFFECT IMMEDIATELY</span>
+                <span className="text-m-yellow/40">WORKER COUNTS REQUIRE RESTART · OTHER TOGGLES TAKE EFFECT IMMEDIATELY</span>
               </p>
             </div>
           </div>
@@ -877,6 +944,35 @@ export default function Settings() {
         <span>runlog.exe v1.0.0</span>
         <span>LOCAL-FIRST // NO CLOUD // NO TELEMETRY</span>
       </div>
+
+      {/* Sticky RESTART REQUIRED toast — shown when a setting that's only read
+          at engine/process startup has been changed since launch. */}
+      {restartDirty && (
+        <div className="fixed bottom-5 right-5 z-50 border border-m-yellow/60 bg-m-card shadow-[0_0_24px_-8px_rgba(200,255,0,0.5)]">
+          <div className="px-4 py-3 flex items-center gap-4">
+            <div>
+              <p className="label-tag text-m-yellow">RESTART REQUIRED</p>
+              <p className="text-2xs font-mono text-m-text-muted mt-0.5">
+                Some changes only apply on app restart.
+              </p>
+            </div>
+            <button
+              onClick={restartNow}
+              className="px-3 py-1.5 text-2xs font-mono tracking-widest border border-m-yellow/60 text-m-yellow bg-m-yellow/10 hover:bg-m-yellow/20 transition-colors"
+            >
+              RESTART NOW
+            </button>
+            <button
+              onClick={dismissRestart}
+              className="px-2 py-1.5 text-2xs font-mono text-m-text-muted hover:text-m-text"
+              aria-label="Cancel and revert"
+              title="Cancel and revert pending changes"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

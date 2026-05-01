@@ -65,6 +65,12 @@ class RustRecorder:
         self.on_recording_stopped: callable | None = None
         self.on_error: callable | None = None
 
+        # Deferred restart flag — set when a setting changes that the recorder
+        # only reads at process startup (e.g. fps for the WGC capture-rate cap)
+        # while a recording is in progress. The capture engine drains this
+        # after the recording finishes and bounces the recorder process.
+        self.fps_restart_pending: bool = False
+
     @property
     def available(self) -> bool:
         return _find_recorder_exe() is not None
@@ -82,16 +88,25 @@ class RustRecorder:
             return False
 
         try:
-            import sys
-            # Launch recorder with above-normal priority on Windows
-            creation_flags = 0x00008000 if sys.platform == 'win32' else 0  # ABOVE_NORMAL_PRIORITY_CLASS
+            # Pass the configured recording fps to the recorder so its WGC
+            # capture rate cap matches what we actually encode. Without this,
+            # WGC delivers frames at the game's render rate (e.g. 90 fps),
+            # wasting GPU cycles on captures we'd just throw away.
+            env = os.environ.copy()
+            try:
+                from .api.settings_api import get_config_value
+                fps = get_config_value("fps") or 60
+                env["RUNLOG_CAPTURE_FPS"] = str(int(fps))
+            except Exception:
+                pass
+
             self._proc = subprocess.Popen(
                 [exe],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=False,  # binary mode for stdout (JSON lines)
-                creationflags=creation_flags,
+                env=env,
             )
             self._running = True
             self.last_error = None
@@ -126,11 +141,25 @@ class RustRecorder:
         self._proc = None
         print("[recorder] Stopped")
 
-    def start_recording(self, path: str, bitrate: int = 30_000_000, encoder: str = "hevc", fps: int = 60) -> bool:
-        """Tell the Rust binary to start recording."""
+    def start_recording(
+        self,
+        path: str,
+        bitrate: int = 30_000_000,
+        encoder: str = "hevc",
+        fps: int = 60,
+        target_height: int | None = None,
+    ) -> bool:
+        """Tell the Rust binary to start recording.
+
+        target_height: when set, encoder downscales to this height with aspect
+        preserved (e.g. 1080 → 1920x1080 from 4K input). None or 0 = native.
+        """
         if not self.is_running:
             return False
-        self._send_command({"cmd": "start", "path": path, "bitrate": bitrate, "encoder": encoder, "fps": fps})
+        cmd = {"cmd": "start", "path": path, "bitrate": bitrate, "encoder": encoder, "fps": fps}
+        if target_height and target_height > 0:
+            cmd["target_height"] = int(target_height)
+        self._send_command(cmd)
         return True
 
     def stop_recording(self):
