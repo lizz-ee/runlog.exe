@@ -5,7 +5,7 @@ const fs = require('fs')
 // Prevent Windows from throttling/suspending this app when backgrounded
 const powerBlockerId = powerSaveBlocker.start('prevent-app-suspension')
 const http = require('http')
-const { BackendManager } = require('./backend-manager')
+const { BackendManager, API_PORT } = require('./backend-manager')
 const { RecordingManager } = require('./recording-manager')
 
 // Auto-updater — uncomment when code signing + GitHub releases are configured
@@ -267,7 +267,7 @@ function showNotification(title, body) {
 
 function checkProcessingActive() {
   return new Promise((resolve) => {
-    const req = http.get('http://127.0.0.1:8000/api/capture/status', (res) => {
+    const req = http.get(`http://127.0.0.1:${API_PORT}/api/capture/status`, (res) => {
       let data = ''
       res.on('data', (chunk) => { data += chunk })
       res.on('end', () => {
@@ -575,7 +575,7 @@ app.whenReady().then(async () => {
         createOverlay()
         updateOverlay('active', 'WATCHING')
       }
-    })
+    }, API_PORT)
     recordingManager.start()
     console.log('=== runlog.exe ===')
     console.log('  Auto-capture active')
@@ -639,7 +639,7 @@ ipcMain.on('window-close', async () => {
   }
 })
 ipcMain.on('get-api-base-url', (event) => {
-  event.returnValue = isDev ? '' : 'http://127.0.0.1:8000'
+  event.returnValue = isDev ? '' : `http://127.0.0.1:${API_PORT}`
 })
 ipcMain.on('overlay-update', (_event, state, detail) => {
   updateOverlay(state, detail)

@@ -41,10 +41,12 @@ def invalidate_clips_cache():
 
 def _safe_path(base_dir: str, user_path: str) -> str:
     """Resolve user_path under base_dir, rejecting traversal attempts."""
-    resolved = os.path.normpath(os.path.join(base_dir, user_path))
-    if not resolved.startswith(os.path.normpath(base_dir) + os.sep) and resolved != os.path.normpath(base_dir):
+    from pathlib import Path
+    base = Path(base_dir).resolve()
+    resolved = (base / user_path).resolve()
+    if not str(resolved).startswith(str(base) + os.sep) and resolved != base:
         raise HTTPException(status_code=400, detail="Invalid path")
-    return resolved
+    return str(resolved)
 
 
 def _get_engine() -> AutoCapture:

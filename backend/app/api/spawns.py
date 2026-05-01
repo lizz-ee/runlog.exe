@@ -49,9 +49,14 @@ Return ONLY valid JSON:
 Return ONLY the JSON object, no markdown, no explanation."""
 
 
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
+ALLOWED_IMAGE_EXTS = {"jpg", "jpeg", "png", "webp"}
+
 async def _save_spawn_upload(file: UploadFile) -> str:
     """Save a spawn screenshot and return the path."""
     contents = await file.read()
+    if len(contents) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File too large (max 50 MB)")
 
     try:
         img = Image.open(io.BytesIO(contents))
@@ -60,9 +65,11 @@ async def _save_spawn_upload(file: UploadFile) -> str:
         raise HTTPException(status_code=400, detail="Invalid image file")
 
     os.makedirs(settings.media_upload_dir, exist_ok=True)
-    ext = file.filename.split(".")[-1].lower() if file.filename and "." in file.filename else "png"
-    if ext not in ("jpg", "jpeg", "png", "webp"):
-        ext = "png"
+    if not file.filename or "." not in file.filename:
+        raise HTTPException(status_code=400, detail="File extension required. Use: jpg, jpeg, png, or webp")
+    ext = file.filename.rsplit(".", 1)[-1].lower()
+    if ext not in ALLOWED_IMAGE_EXTS:
+        raise HTTPException(status_code=400, detail=f"File type '.{ext}' not allowed. Use: jpg, jpeg, png, or webp")
     filename = f"spawn_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}.{ext}"
     filepath = os.path.join(settings.media_upload_dir, filename)
 
@@ -84,12 +91,14 @@ async def parse_spawn_screenshot(file: UploadFile = File(...)):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Claude error: {str(e)}")
+        print(f"[spawns] Claude error: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=500, detail=f"Claude error: {type(e).__name__}")
 
     try:
         parsed = _extract_json(response_text)
     except (json.JSONDecodeError, ValueError):
-        raise HTTPException(status_code=422, detail=f"Could not parse response: {response_text[:500]}")
+        print(f"[spawns] Failed to parse Claude response: {response_text[:500]}")
+        raise HTTPException(status_code=422, detail="Could not parse Claude response")
 
     return ParsedSpawnScreenshot(**parsed)
 

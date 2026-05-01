@@ -73,9 +73,14 @@ Return ONLY the JSON object, no markdown, no explanation."""
 
 
 
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
+ALLOWED_IMAGE_EXTS = {"jpg", "jpeg", "png", "webp"}
+
 async def _save_upload(file: UploadFile) -> str:
     """Save an uploaded file and return the path."""
     contents = await file.read()
+    if len(contents) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File too large (max 50 MB)")
 
     try:
         img = Image.open(io.BytesIO(contents))
@@ -85,7 +90,11 @@ async def _save_upload(file: UploadFile) -> str:
 
     upload_dir = os.path.abspath(settings.media_upload_dir)
     os.makedirs(upload_dir, exist_ok=True)
-    ext = file.filename.split(".")[-1] if file.filename and "." in file.filename else "png"
+    if not file.filename or "." not in file.filename:
+        raise HTTPException(status_code=400, detail="File extension required. Use: jpg, jpeg, png, or webp")
+    ext = file.filename.rsplit(".", 1)[-1].lower()
+    if ext not in ALLOWED_IMAGE_EXTS:
+        raise HTTPException(status_code=400, detail=f"File type '.{ext}' not allowed. Use: jpg, jpeg, png, or webp")
     filename = f"{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}.{ext}"
     filepath = os.path.join(upload_dir, filename)
 
@@ -118,7 +127,8 @@ Then, analyze the images and follow these instructions:
             if ai_client.prefer_api():
                 print(f"[screenshot] CLI failed ({e}), falling back to API...")
             else:
-                raise HTTPException(status_code=500, detail=str(e))
+                print(f"[screenshot] CLI error: {e}")
+                raise HTTPException(status_code=500, detail="Screenshot parsing failed")
 
     if ai_client.prefer_api():
         return ai_client.run_api_prompt(
@@ -177,17 +187,17 @@ async def parse_screenshot(files: List[UploadFile] = File(...)):
         raise
     except Exception as e:
         import traceback
-        tb = traceback.format_exc()
-        print(f"Claude error: {tb}")
-        raise HTTPException(status_code=500, detail=f"Claude error: {type(e).__name__}: {str(e) or tb[-300:]}")
+        print(f"Claude error: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Claude error: {type(e).__name__}")
 
     # Parse JSON response
     try:
         parsed = _extract_json(response_text)
     except (json.JSONDecodeError, ValueError):
+        print(f"[screenshot] Failed to parse Claude response: {response_text[:500]}")
         raise HTTPException(
             status_code=422,
-            detail=f"Could not parse Claude response as JSON. Raw response: {response_text[:500]}"
+            detail="Could not parse Claude response as JSON"
         )
 
     return ParsedScreenshot(**parsed)

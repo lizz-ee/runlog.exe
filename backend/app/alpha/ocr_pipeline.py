@@ -13,6 +13,7 @@ Usage:
 
 import asyncio
 import logging
+import os
 import re
 from pathlib import Path
 
@@ -54,7 +55,7 @@ try:
     for tess_path in [
         r"C:\Program Files\Tesseract-OCR\tesseract.exe",
         r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
-        r"C:\Users\User\AppData\Local\Tesseract-OCR\tesseract.exe",
+        os.path.join(os.environ.get("LOCALAPPDATA", ""), "Tesseract-OCR", "tesseract.exe"),
     ]:
         if Path(tess_path).exists():
             pytesseract.pytesseract.tesseract_cmd = tess_path

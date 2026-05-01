@@ -138,6 +138,7 @@ class BackendManager {
       ...process.env,
       DATABASE_URL: `sqlite:///${path.join(this.userDataPath, 'runlog.db').replace(/\\/g, '/')}`,
       MEDIA_UPLOAD_DIR: path.join(this.userDataPath, 'media_uploads'),
+      RUNLOG_PORT: String(API_PORT),
       PYTHONUNBUFFERED: '1',
     }
 
@@ -330,4 +331,4 @@ class BackendManager {
   }
 }
 
-module.exports = { BackendManager }
+module.exports = { BackendManager, API_PORT }

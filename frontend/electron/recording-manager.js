@@ -10,8 +10,9 @@
 const http = require('http')
 
 class RecordingManager {
-  constructor(onStatus) {
+  constructor(onStatus, apiPort) {
     this.onStatus = onStatus || (() => {})
+    this.apiPort = apiPort || 8000
     this.isCapturing = false
     this.wasRecording = false
     this.marathonTimer = null
@@ -119,7 +120,7 @@ class RecordingManager {
 
   _apiGet(path) {
     return new Promise((resolve, reject) => {
-      http.get(`http://127.0.0.1:8000${path}`, { timeout: 5000 }, (res) => {
+      http.get(`http://127.0.0.1:${this.apiPort}${path}`, { timeout: 5000 }, (res) => {
         let data = ''
         res.on('data', chunk => data += chunk)
         res.on('end', () => {
@@ -133,7 +134,7 @@ class RecordingManager {
   _apiPost(path) {
     return new Promise((resolve, reject) => {
       const req = http.request({
-        hostname: '127.0.0.1', port: 8000, path, method: 'POST',
+        hostname: '127.0.0.1', port: this.apiPort, path, method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Content-Length': 2 },
         timeout: 10000,
       }, (res) => {

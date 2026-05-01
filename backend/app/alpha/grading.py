@@ -10,7 +10,9 @@ import random
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path("C:/Users/User/AppData/Roaming/runlog/marathon/data/runlog.db")
+from ..config import _DATA_DIR
+
+DB_PATH = Path(_DATA_DIR) / "runlog.db"
 
 # ---------------------------------------------------------------------------
 # Weight constants

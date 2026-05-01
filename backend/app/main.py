@@ -209,9 +209,10 @@ app = FastAPI(
     version="1.0.0",
 )
 
+_api_port = os.environ.get("RUNLOG_PORT", "8000")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:8000", "app://.", "file://"],
+    allow_origins=["http://localhost:5173", "http://localhost:3000", f"http://127.0.0.1:{_api_port}", "app://.", "file://"],
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["Content-Type"],

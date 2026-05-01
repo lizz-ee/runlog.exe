@@ -135,7 +135,6 @@ def cli_update() -> dict:
     result = subprocess.run(
         ["npm", "install", "-g", "@anthropic-ai/claude-code"],
         capture_output=True, text=True, timeout=120,
-        shell=True,
     )
     if result.returncode != 0:
         raise RuntimeError(f"Update failed: {result.stderr.strip()}")
@@ -162,7 +161,6 @@ def cli_latest_version() -> str | None:
         result = subprocess.run(
             ["npm", "view", "@anthropic-ai/claude-code", "version"],
             capture_output=True, text=True, timeout=15,
-            shell=True,
         )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()

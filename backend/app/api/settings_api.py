@@ -118,11 +118,13 @@ def test_api_key_endpoint(body: ApiKeyUpdate):
     try:
         return ai_client.test_api_key(key)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        print(f"[settings] API key validation error: {e}")
+        raise HTTPException(status_code=400, detail="Invalid API key format")
     except anthropic.AuthenticationError:
         raise HTTPException(status_code=401, detail="Invalid API key")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Connection error: {str(e)}")
+        print(f"[settings] API key test failed: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=500, detail="Could not verify API key")
 
 
 @router.delete("/api-key")
@@ -257,7 +259,8 @@ def migrate_storage(body: MigrateStorageRequest):
         os.makedirs(new_clips, exist_ok=True)
         os.makedirs(new_recordings, exist_ok=True)
     except OSError as e:
-        raise HTTPException(status_code=400, detail=f"Cannot create directory: {e}")
+        print(f"[settings] Cannot create directory: {e}")
+        raise HTTPException(status_code=400, detail="Cannot create directory at the specified path")
 
     # Collect all source directories to check — AppData first, then current
     # storage dir (in case of re-migration between custom paths).
@@ -356,7 +359,8 @@ def cli_login_endpoint():
     try:
         return ai_client.cli_login()
     except RuntimeError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        print(f"[settings] CLI login failed: {e}")
+        raise HTTPException(status_code=404, detail="Claude CLI not found")
 
 
 @router.post("/cli-logout")
@@ -365,7 +369,8 @@ def cli_logout_endpoint():
     try:
         return ai_client.cli_logout()
     except RuntimeError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[settings] CLI logout failed: {e}")
+        raise HTTPException(status_code=500, detail="Logout failed")
 
 
 @router.post("/cli-update")
@@ -376,9 +381,11 @@ def cli_update_endpoint():
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=504, detail="Update timed out")
     except RuntimeError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[settings] CLI update RuntimeError: {e}")
+        raise HTTPException(status_code=500, detail="CLI update failed")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Update failed: {str(e)}")
+        print(f"[settings] CLI update error: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=500, detail="CLI update failed")
 
 
 @router.get("/cli-latest-version")
