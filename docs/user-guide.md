@@ -434,7 +434,7 @@ SYS.CONFIG is split into two columns:
 | Setting | Options | Default |
 |---|---|---|
 | Encoder | HEVC (better quality) or H.264 (wider compatibility) | HEVC |
-| Bitrate | 1–100 Mbps | 50 Mbps |
+| Bitrate | 10–100 Mbps | 50 Mbps |
 | FPS | 30 or 60 | 60 |
 
 ### Processing Workers
@@ -442,7 +442,7 @@ SYS.CONFIG is split into two columns:
 | Setting | Range | Default |
 |---|---|---|
 | P1 Workers | 1–8 | 4 |
-| P2 Workers | 1–4 | 2 |
+| P2 Workers | 1–4 | 1 |
 
 More workers = faster processing of multiple runs, but higher CPU/API usage.
 
@@ -452,7 +452,7 @@ An optional overlay that appears on top of Marathon while you play.
 
 | Setting | Options | Default |
 |---|---|---|
-| Enabled | On / Off | Off |
+| Enabled | On / Off | On |
 | Corner | Top-left, Top-center, Top-right, Bottom-left, Bottom-center, Bottom-right | — |
 | Size | Small (250px), Medium (290px), Large (360px) | Medium |
 | Opacity | 0–100% | 88% |

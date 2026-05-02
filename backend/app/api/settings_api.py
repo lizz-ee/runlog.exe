@@ -14,12 +14,17 @@ router = APIRouter()
 
 def _load_settings() -> dict:
     if os.path.exists(_SETTINGS_FILE):
-        with open(_SETTINGS_FILE, "r") as f:
-            return json.load(f)
+        try:
+            with open(_SETTINGS_FILE, "r") as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else {}
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"[settings] Could not read settings file: {e}")
     return {}
 
 
 def _save_settings(data: dict) -> None:
+    os.makedirs(os.path.dirname(_SETTINGS_FILE), exist_ok=True)
     with open(_SETTINGS_FILE, "w") as f:
         json.dump(data, f, indent=2)
 
@@ -143,18 +148,48 @@ def update_config(body: ConfigUpdate):
     allowed_keys = set(DEFAULTS.keys()) | {"storage_path"}
     if body.key not in allowed_keys:
         raise HTTPException(status_code=400, detail=f"Unknown config key: {body.key}")
-    if body.key in ("model", "uplink_model") and body.value not in ("sonnet", "haiku"):
-        raise HTTPException(status_code=400, detail=f"Invalid model: {body.value}. Must be 'sonnet' or 'haiku'")
-    if body.key == "encoder" and body.value not in ("hevc", "h264"):
-        raise HTTPException(status_code=400, detail=f"Invalid encoder: {body.value}. Must be 'hevc' or 'h264'")
-    if body.key == "resolution" and body.value not in ("native", "1440p", "1080p", "720p"):
-        raise HTTPException(status_code=400, detail=f"Invalid resolution: {body.value}. Must be 'native', '1440p', '1080p', or '720p'")
-    if body.key == "processor_mode" and body.value not in ("alpha", "hybrid", "claude"):
-        raise HTTPException(status_code=400, detail=f"Invalid processor_mode: {body.value}. Must be 'alpha', 'hybrid', or 'claude'")
+    value = body.value
+    if body.key in ("model", "uplink_model") and value not in ("sonnet", "haiku"):
+        raise HTTPException(status_code=400, detail=f"Invalid model: {value}. Must be 'sonnet' or 'haiku'")
+    if body.key == "encoder" and value not in ("hevc", "h264"):
+        raise HTTPException(status_code=400, detail=f"Invalid encoder: {value}. Must be 'hevc' or 'h264'")
+    if body.key == "resolution" and value not in ("native", "1440p", "1080p", "720p"):
+        raise HTTPException(status_code=400, detail=f"Invalid resolution: {value}. Must be 'native', '1440p', '1080p', or '720p'")
+    if body.key == "processor_mode" and value not in ("alpha", "hybrid", "claude"):
+        raise HTTPException(status_code=400, detail=f"Invalid processor_mode: {value}. Must be 'alpha', 'hybrid', or 'claude'")
+    if body.key == "auth_mode" and value not in ("api", "cli"):
+        raise HTTPException(status_code=400, detail=f"Invalid auth_mode: {value}. Must be 'api' or 'cli'")
+
+    numeric_limits = {
+        "bitrate": (10, 100),
+        "fps": (30, 60),
+        "p1_workers": (1, 8),
+        "p2_workers": (1, 4),
+    }
+    if body.key in numeric_limits:
+        if isinstance(value, bool):
+            raise HTTPException(status_code=400, detail=f"Invalid {body.key}: must be a number")
+        try:
+            value = int(value)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail=f"Invalid {body.key}: must be a number")
+        min_value, max_value = numeric_limits[body.key]
+        if value < min_value or value > max_value:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid {body.key}: must be between {min_value} and {max_value}",
+            )
+        if body.key == "fps" and value not in (30, 60):
+            raise HTTPException(status_code=400, detail="Invalid fps: must be 30 or 60")
+
+    if body.key in ("auto_p1", "auto_p2", "pause_processing_while_game_running") and not isinstance(value, bool):
+        raise HTTPException(status_code=400, detail=f"Invalid {body.key}: must be true or false")
 
     # Special handling for storage_path — validate directory exists
     if body.key == "storage_path":
-        path = str(body.value).strip()
+        if not isinstance(value, str):
+            raise HTTPException(status_code=400, detail="Invalid storage_path: must be a string")
+        path = str(value).strip()
         if path:
             os.makedirs(path, exist_ok=True)
             if not os.path.isdir(path):
@@ -162,9 +197,10 @@ def update_config(body: ConfigUpdate):
             # Create subdirectories
             os.makedirs(os.path.join(path, "recordings"), exist_ok=True)
             os.makedirs(os.path.join(path, "clips"), exist_ok=True)
+        value = path
 
     saved = _load_settings()
-    saved[body.key] = body.value
+    saved[body.key] = value
     _save_settings(saved)
 
     # Capture engine settings that do not require recreating worker pools can
@@ -173,7 +209,7 @@ def update_config(body: ConfigUpdate):
         try:
             from . import capture_api
             if capture_api._engine is not None:
-                capture_api._engine.set_pause_processing_while_game_running(bool(body.value))
+                capture_api._engine.set_pause_processing_while_game_running(bool(value))
         except Exception:
             pass
 
@@ -199,7 +235,7 @@ def update_config(body: ConfigUpdate):
     elif body.key == "storage_path":
         note = "Restart the app for storage_path changes to take effect."
 
-    return {"status": "saved", "key": body.key, "value": body.value, "note": note}
+    return {"status": "saved", "key": body.key, "value": value, "note": note}
 
 
 @router.get("/browse-folder")

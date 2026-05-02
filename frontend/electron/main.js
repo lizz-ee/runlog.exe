@@ -732,6 +732,12 @@ ipcMain.on('overlay-set-size', (_event, size) => {
   }
 })
 
+ipcMain.on('overlay-set-close-when-done', (_event, enabled) => {
+  const settings = loadOverlaySettings()
+  settings.closeWhenDone = Boolean(enabled)
+  saveOverlaySettings(settings)
+})
+
 let _overlayPosTimeout = null
 ipcMain.on('overlay-set-position', (_event, xPercent, yPercent) => {
   // Move overlay window if it exists

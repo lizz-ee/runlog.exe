@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld('runlog', {
   getOverlaySettings: () => ipcRenderer.invoke('overlay-get-settings'),
   setOverlayOpacity: (opacity) => ipcRenderer.send('overlay-set-opacity', opacity),
   setOverlaySize: (size) => ipcRenderer.send('overlay-set-size', size),
+  setOverlayCloseWhenDone: (enabled) => ipcRenderer.send('overlay-set-close-when-done', enabled),
   setOverlayPosition: (xPct, yPct) => ipcRenderer.send('overlay-set-position', xPct, yPct),
   previewOverlay: () => ipcRenderer.send('overlay-preview'),
 

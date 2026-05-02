@@ -96,6 +96,7 @@ export default function Settings() {
   const [overlayCorner, setOverlayCorner] = useState('top-left')
   const [overlayOpacity, setOverlayOpacity] = useState(88)
   const [overlaySize, setOverlaySize] = useState('medium')
+  const [overlayCloseWhenDone, setOverlayCloseWhenDone] = useState(false)
   const [overlayPos, setOverlayPos] = useState({ x: 0, y: 0 })  // % position
   const [draggingOverlay, setDraggingOverlay] = useState(false)
   const posRef = useRef<HTMLDivElement>(null)
@@ -107,6 +108,15 @@ export default function Settings() {
     lastSendRef.current = now;
     (window as any).runlog?.setOverlayPosition?.(xPct, yPct)
   }, [])
+
+  function getOverlayPointerPosition(clientX: number, clientY: number) {
+    const rect = posRef.current?.getBoundingClientRect()
+    if (!rect) return null
+    return {
+      x: Math.max(0, Math.min(100, (clientX - rect.left) / rect.width * 100)),
+      y: Math.max(0, Math.min(100, (clientY - rect.top) / rect.height * 100)),
+    }
+  }
 
   // CLI status
   const [cliStatus, setCliStatus] = useState<{ installed: boolean; authenticated: boolean; path: string | null; version: string | null } | null>(null)
@@ -134,6 +144,7 @@ export default function Settings() {
         setOverlayCorner(corner)
         setOverlayOpacity(s.opacity ?? 88)
         setOverlaySize(s.size ?? 'medium')
+        setOverlayCloseWhenDone(s.closeWhenDone ?? false)
         // Set initial preview position from saved settings
         if (s.customX != null && s.customY != null) {
           // Custom drag position — use exact saved percentages
@@ -599,6 +610,18 @@ export default function Settings() {
                 />
               </SettingRow>
 
+              <SettingRow label="AUTO-CLOSE">
+                <ToggleButton
+                  options={[{ value: 'on', label: 'ON' }, { value: 'off', label: 'OFF' }]}
+                  value={overlayCloseWhenDone ? 'on' : 'off'}
+                  onChange={v => {
+                    const enabled = v === 'on'
+                    setOverlayCloseWhenDone(enabled)
+                    window.runlog?.setOverlayCloseWhenDone?.(enabled)
+                  }}
+                />
+              </SettingRow>
+
               <SettingRow label="POSITION">
                 <div className="grid grid-cols-3 gap-0">
                   {CORNERS.map((c) => {
@@ -654,28 +677,28 @@ export default function Settings() {
                   e.preventDefault()
                   e.currentTarget.setPointerCapture(e.pointerId)
                   setDraggingOverlay(true)
-                  const rect = posRef.current?.getBoundingClientRect()
-                  if (!rect) return
-                  const xPct = Math.max(0, Math.min(100, (e.clientX - rect.left) / rect.width * 100))
-                  const yPct = Math.max(0, Math.min(100, (e.clientY - rect.top) / rect.height * 100))
-                  setOverlayPos({ x: xPct, y: yPct })
+                  const pos = getOverlayPointerPosition(e.clientX, e.clientY)
+                  if (!pos) return
+                  setOverlayPos(pos)
                   setOverlayCorner('custom')
-                  sendOverlayPos(xPct, yPct)
+                  sendOverlayPos(pos.x, pos.y)
                 }}
                 onPointerMove={(e) => {
-                  if (!draggingOverlay || !posRef.current) return
-                  const rect = posRef.current.getBoundingClientRect()
-                  const xPct = Math.max(0, Math.min(100, (e.clientX - rect.left) / rect.width * 100))
-                  const yPct = Math.max(0, Math.min(100, (e.clientY - rect.top) / rect.height * 100))
-                  setOverlayPos({ x: xPct, y: yPct })
-                  sendOverlayPos(xPct, yPct)
+                  if (!draggingOverlay) return
+                  const pos = getOverlayPointerPosition(e.clientX, e.clientY)
+                  if (!pos) return
+                  setOverlayPos(pos)
+                  sendOverlayPos(pos.x, pos.y)
                 }}
-                onPointerUp={() => {
+                onPointerUp={(e) => {
                   if (draggingOverlay) {
                     setDraggingOverlay(false)
-                    ;(window as any).runlog?.setOverlayPosition?.(overlayPos.x, overlayPos.y)
+                    const pos = getOverlayPointerPosition(e.clientX, e.clientY) || overlayPos
+                    setOverlayPos(pos)
+                    ;(window as any).runlog?.setOverlayPosition?.(pos.x, pos.y)
                   }
                 }}
+                onPointerCancel={() => setDraggingOverlay(false)}
               >
                 {/* Grid lines for reference */}
                 <div className="absolute inset-0 pointer-events-none"

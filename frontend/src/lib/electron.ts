@@ -41,10 +41,12 @@ interface RunlogBridge {
   getOverlaySettings: () => Promise<OverlaySettings>
   setOverlayOpacity: (opacity: number) => void
   setOverlaySize: (size: string) => void
+  setOverlayCloseWhenDone: (enabled: boolean) => void
   setOverlayPosition: (xPct: number, yPct: number) => void
   previewOverlay: () => void
   openFile: (filePath: string) => void
   openUrl: (url: string) => void
+  relaunchApp: () => void
 }
 
 declare global {
