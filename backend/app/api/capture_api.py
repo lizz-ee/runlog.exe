@@ -7,6 +7,7 @@ Provides start/stop/status/frame endpoints for the singleton capture engine.
 
 import os
 import subprocess
+import mimetypes
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response, JSONResponse
@@ -47,6 +48,64 @@ def _safe_path(base_dir: str, user_path: str) -> str:
     if not str(resolved).startswith(str(base) + os.sep) and resolved != base:
         raise HTTPException(status_code=400, detail="Invalid path")
     return str(resolved)
+
+
+def _media_type(path: str) -> str:
+    guessed, _ = mimetypes.guess_type(path)
+    return guessed or "application/octet-stream"
+
+
+def _sprite_metadata(filepath: str) -> tuple[int | None, int | None, int | None]:
+    """Return sprite grid metadata, rebuilding the sidecar for existing sprites if needed."""
+    import json as _json
+    import math
+
+    sprite_meta_path = filepath.replace(".mp4", "_sprite.json")
+    try:
+        with open(sprite_meta_path) as mf:
+            meta = _json.load(mf)
+        return meta["cols"], meta["rows"], meta["frames"]
+    except (FileNotFoundError, KeyError, ValueError, _json.JSONDecodeError):
+        pass
+
+    try:
+        probe = subprocess.run(
+            ['ffprobe', '-v', 'quiet', '-show_entries', 'format=duration', '-of', 'csv=p=0', filepath],
+            capture_output=True, text=True, timeout=5
+        )
+        dur = float(probe.stdout.strip())
+        frames = min(300, max(30, int(dur * 3)))
+        cols = min(10, frames)
+        rows = math.ceil(frames / cols)
+        try:
+            with open(sprite_meta_path, "w") as mf:
+                _json.dump({"cols": cols, "rows": rows, "frames": frames}, mf)
+        except Exception:
+            pass
+        return cols, rows, frames
+    except Exception:
+        return None, None, None
+
+
+def _recording_asset_payload(filepath: str, serve_path: str) -> dict:
+    thumb_path = filepath.replace(".mp4", "_thumb.jpg")
+    sprite_path = filepath.replace(".mp4", "_sprite.jpg")
+    thumb_serve = serve_path.replace(".mp4", "_thumb.jpg")
+    sprite_serve = serve_path.replace(".mp4", "_sprite.jpg")
+
+    thumb_exists = os.path.exists(thumb_path) and os.path.getsize(thumb_path) > 5000
+    sprite_exists = os.path.exists(sprite_path) and os.path.getsize(sprite_path) > 5000
+    sprite_cols, sprite_rows, sprite_frames = (None, None, None)
+    if sprite_exists:
+        sprite_cols, sprite_rows, sprite_frames = _sprite_metadata(filepath)
+
+    return {
+        "thumbnail": thumb_serve if thumb_exists else None,
+        "sprite": sprite_serve if sprite_exists else None,
+        "sprite_cols": sprite_cols,
+        "sprite_rows": sprite_rows,
+        "sprite_frames": sprite_frames,
+    }
 
 
 def _get_engine() -> AutoCapture:
@@ -141,6 +200,28 @@ def serve_thumbnail(filename: str):
     raise HTTPException(status_code=404, detail="Thumbnail not found")
 
 
+@router.get("/recording/assets/{filepath:path}")
+def recording_assets(filepath: str):
+    """Return backend-confirmed thumbnail/sprite metadata for a kept full recording."""
+    full_path = _safe_path(CLIPS_DIR, filepath)
+    if not os.path.exists(full_path) or not full_path.lower().endswith(".mp4"):
+        raise HTTPException(status_code=404, detail="Recording not found")
+    payload = _recording_asset_payload(full_path, filepath.replace("\\", "/"))
+    if (
+        _engine
+        and not _engine._processing_gate_active()
+        and (
+            payload["thumbnail"] is None
+            or payload["sprite"] is None
+            or payload["sprite_cols"] is None
+            or payload["sprite_rows"] is None
+            or payload["sprite_frames"] is None
+        )
+    ):
+        _engine._generate_recording_assets(full_path, background=True)
+    return JSONResponse(content=payload)
+
+
 @router.get("/clips")
 def list_clips():
     """List all highlight clips with metadata.
@@ -210,34 +291,7 @@ def _add_clip_entry(clips: list, folder: str, filename: str, run_folder: str | N
     # Get sprite grid dimensions from sidecar metadata (no ffprobe needed)
     sprite_cols, sprite_rows, sprite_frames = None, None, None
     if sprite_exists:
-        import json as _json
-        import math
-        sprite_meta_path = filepath.replace(".mp4", "_sprite.json")
-        try:
-            with open(sprite_meta_path) as mf:
-                meta = _json.load(mf)
-            sprite_cols = meta["cols"]
-            sprite_rows = meta["rows"]
-            sprite_frames = meta["frames"]
-        except (FileNotFoundError, KeyError, ValueError, _json.JSONDecodeError):
-            # Fallback: generate sidecar from ffprobe (one-time migration)
-            try:
-                probe = subprocess.run(
-                    ['ffprobe', '-v', 'quiet', '-show_entries', 'format=duration', '-of', 'csv=p=0', filepath],
-                    capture_output=True, text=True, timeout=5
-                )
-                dur = float(probe.stdout.strip())
-                sprite_frames = min(300, max(30, int(dur * 3)))
-                sprite_cols = min(10, sprite_frames)
-                sprite_rows = math.ceil(sprite_frames / sprite_cols)
-                # Write sidecar so we don't ffprobe again
-                try:
-                    with open(sprite_meta_path, "w") as mf:
-                        _json.dump({"cols": sprite_cols, "rows": sprite_rows, "frames": sprite_frames}, mf)
-                except Exception:
-                    pass
-            except Exception:
-                pass
+        sprite_cols, sprite_rows, sprite_frames = _sprite_metadata(filepath)
 
     # For serving, use run_folder/filename path if in subfolder
     serve_path = f"{run_folder}/{filename}" if run_folder else filename
@@ -270,6 +324,10 @@ def serve_clip(filepath: str, request: Request):
     full_path = _safe_path(CLIPS_DIR, filepath)
     if not os.path.exists(full_path):
         raise HTTPException(status_code=404, detail="Clip not found")
+
+    from fastapi.responses import FileResponse
+    if not full_path.lower().endswith(".mp4"):
+        return FileResponse(full_path, media_type=_media_type(full_path))
 
     file_size = os.path.getsize(full_path)
     range_header = request.headers.get("range")
@@ -306,7 +364,6 @@ def serve_clip(filepath: str, request: Request):
             },
         )
 
-    from fastapi.responses import FileResponse
     return FileResponse(full_path, media_type="video/mp4")
 
 
@@ -342,6 +399,7 @@ def keep_recording(body: RecordingAction):
 
     # Remove from processing queue UI
     if _engine:
+        _engine._generate_recording_assets(filepath)
         _engine.remove_processing_item(filename)
 
     invalidate_clips_cache()
@@ -463,7 +521,7 @@ def delete_clip(body: dict):
     os.remove(filepath)
 
     # Also remove thumbnail, sprite, and any related assets
-    for suffix in ("_thumb.jpg", "_sprite.jpg"):
+    for suffix in ("_thumb.jpg", "_sprite.jpg", "_sprite.json"):
         asset_path = filepath.replace(".mp4", suffix)
         if os.path.exists(asset_path):
             os.remove(asset_path)
@@ -494,7 +552,7 @@ def delete_kept_recording(body: dict):
         # Delete mp4, thumbnail, and sprite sheet
         if os.path.exists(recording_path):
             os.remove(recording_path)
-        for suffix in ("_thumb.jpg", "_sprite.jpg"):
+        for suffix in ("_thumb.jpg", "_sprite.jpg", "_sprite.json"):
             asset_path = recording_path.replace(".mp4", suffix)
             if os.path.exists(asset_path):
                 os.remove(asset_path)

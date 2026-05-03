@@ -1,9 +1,10 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { format } from 'date-fns'
 import axios from 'axios'
-import { getRuns, updateRun, createRunner, getRunners, getClips, getClipUrl, apiBase, toggleFavorite, cutClip, deleteClip, deleteKeptRecording } from '../lib/api'
+import { getRuns, updateRun, createRunner, getRunners, getClips, getClipUrl, getRecordingAssets, apiBase, toggleFavorite, cutClip, deleteClip, deleteKeptRecording } from '../lib/api'
 import { useStore } from '../lib/store'
 import { formatTime } from '../lib/utils'
+import type { RecordingAssets } from '../lib/api'
 import type { Run, Clip } from '../lib/types'
 import rankedIcon from '../assets/ranked.png'
 
@@ -956,7 +957,11 @@ export function RunRow({ run, isExpanded, onToggle, onToggleFavorite, onUpdate, 
   const [folderSizeTick, setFolderSizeTick] = useState(0)
   // Local clips override — when user creates/deletes clips, fetch fresh from API
   const [localClips, setLocalClips] = useState<Clip[] | null>(null)
+  const [recordingAssets, setRecordingAssets] = useState<RecordingAssets | null>(null)
   const activeClips = localClips ?? clips
+  const recordingRelPath = run.recording_path
+    ? (run.recording_path.split(/[/\\]clips[/\\]/).pop() || '').replace(/\\/g, '/')
+    : null
 
   const refreshLocalClips = useCallback(() => {
     getClips().then(allClips => {
@@ -967,15 +972,52 @@ export function RunRow({ run, isExpanded, onToggle, onToggleFavorite, onUpdate, 
 
   const refreshFolderSize = useCallback(() => {
     const folder = activeClips[0]?.run_folder
-      || (run.recording_path
-        ? (run.recording_path.split(/[/\\]clips[/\\]/).pop() || '').replace(/\\/g, '/').split('/')[0] || null
-        : null)
+      || (recordingRelPath ? recordingRelPath.split('/')[0] || null : null)
     if (folder) {
       axios.get(`${apiBase}/api/capture/folder-size/${folder}`)
         .then(({ data }) => setFolderSize(data.size_mb))
         .catch(() => setFolderSize(null))
     }
-  }, [activeClips, run.recording_path])
+  }, [activeClips, recordingRelPath])
+
+  useEffect(() => {
+    if (!isExpanded || !recordingRelPath) {
+      setRecordingAssets(null)
+      return
+    }
+
+    let cancelled = false
+    let retryTimer: number | undefined
+    let attempts = 0
+
+    const loadAssets = () => {
+      attempts += 1
+      getRecordingAssets(recordingRelPath)
+        .then((assets) => {
+          if (cancelled) return
+          setRecordingAssets(assets)
+
+          const spriteReady = !!assets.sprite && !!assets.sprite_cols && !!assets.sprite_rows && !!assets.sprite_frames
+          if (!spriteReady && attempts < 120) {
+            retryTimer = window.setTimeout(loadAssets, 5000)
+          }
+        })
+        .catch(() => {
+          if (cancelled) return
+          setRecordingAssets(null)
+          if (attempts < 120) {
+            retryTimer = window.setTimeout(loadAssets, 5000)
+          }
+        })
+    }
+
+    loadAssets()
+
+    return () => {
+      cancelled = true
+      if (retryTimer) window.clearTimeout(retryTimer)
+    }
+  }, [isExpanded, recordingRelPath, folderSizeTick])
 
   // Refetch folder size on expand and after deletions
   useEffect(() => {
@@ -1165,9 +1207,7 @@ export function RunRow({ run, isExpanded, onToggle, onToggleFavorite, onUpdate, 
                 // from run.recording_path so the button appears as soon as the
                 // full run is saved (before any Phase 2 clips exist).
                 const folder = activeClips[0]?.run_folder
-                  || (run.recording_path
-                    ? (run.recording_path.split(/[/\\]clips[/\\]/).pop() || '').replace(/\\/g, '/').split('/')[0] || null
-                    : null)
+                  || (recordingRelPath ? recordingRelPath.split('/')[0] || null : null)
                 if (!folder) return null
                 return (
                   <button
@@ -1197,29 +1237,22 @@ export function RunRow({ run, isExpanded, onToggle, onToggleFavorite, onUpdate, 
                   <>
                     <div className="grid grid-cols-3 gap-3">
                       {/* Full recording pill */}
-                      {run.recording_path && (() => {
-                        const relPath = (run.recording_path!.split(/[/\\]clips[/\\]/).pop() || '').replace(/\\/g, '/')
-                        const thumbPath = relPath.replace('.mp4', '_thumb.jpg')
-                        const spritePath = relPath.replace('.mp4', '_sprite.jpg')
-                        // Estimate sprite grid from duration: 3fps, min 30, cap 300
-                        const estFrames = run.duration_seconds ? Math.min(300, Math.max(30, Math.floor(run.duration_seconds * 3))) : null
-                        const estCols = estFrames ? Math.min(10, estFrames) : null
-                        const estRows = estFrames && estCols ? Math.ceil(estFrames / estCols) : null
+                      {recordingRelPath && (() => {
                         return (
                           <ClipPill
                             key="full-run"
                             label="FULL RUN"
-                            thumbnail={getClipUrl(thumbPath)}
-                            sprite={getClipUrl(spritePath)}
-                            spriteCols={estCols}
-                            spriteRows={estRows}
-                            spriteFrames={estFrames}
-                            isActive={playingClip === relPath}
-                            onPlay={(e) => { e.stopPropagation(); setPlayingClip(relPath) }}
+                            thumbnail={recordingAssets?.thumbnail ? getClipUrl(recordingAssets.thumbnail) : null}
+                            sprite={recordingAssets?.sprite ? getClipUrl(recordingAssets.sprite) : null}
+                            spriteCols={recordingAssets?.sprite_cols ?? null}
+                            spriteRows={recordingAssets?.sprite_rows ?? null}
+                            spriteFrames={recordingAssets?.sprite_frames ?? null}
+                            isActive={playingClip === recordingRelPath}
+                            onPlay={(e) => { e.stopPropagation(); setPlayingClip(recordingRelPath) }}
                             onDelete={async () => {
                               try {
                                 await deleteKeptRecording(run.id)
-                                if (playingClip === relPath) setPlayingClip(null)
+                                if (playingClip === recordingRelPath) setPlayingClip(null)
                                 onUpdate()
                                 refreshLocalClips()
                                 setFolderSizeTick(t => t + 1)

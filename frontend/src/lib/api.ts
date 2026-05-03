@@ -234,6 +234,20 @@ export async function getClips(): Promise<Clip[]> {
   return data.clips
 }
 
+export interface RecordingAssets {
+  thumbnail: string | null
+  sprite: string | null
+  sprite_cols: number | null
+  sprite_rows: number | null
+  sprite_frames: number | null
+}
+
+export async function getRecordingAssets(filepath: string): Promise<RecordingAssets> {
+  const encodedPath = filepath.split('/').map(encodeURIComponent).join('/')
+  const { data } = await api.get<RecordingAssets>(`/capture/recording/assets/${encodedPath}`)
+  return data
+}
+
 export async function deleteClip(filename: string): Promise<void> {
   await api.post('/capture/clip/delete', { filename })
 }

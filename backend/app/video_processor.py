@@ -1423,10 +1423,11 @@ def analyze_video_phase2(video_path: str, run_id: int | None = None) -> dict:
 
 # -- Clip cutting -----------------------------------------------------------
 
-def _generate_sprite_sheet(video_path: str, duration: float):
+def _generate_sprite_sheet(video_path: str, duration: float) -> bool:
     """Generate a sprite sheet (thumbnail grid) for hover scrub preview."""
     import math
     sprite_path = video_path.replace(".mp4", "_sprite.jpg")
+    meta_path = video_path.replace(".mp4", "_sprite.json")
     try:
         # Frame count: 3 frames per second of clip, minimum 30, cap at 300
         total_frames = min(300, max(30, int(duration * 3)))
@@ -1445,20 +1446,33 @@ def _generate_sprite_sheet(video_path: str, duration: float):
              sprite_path],
             capture_output=True, text=True, timeout=timeout,
         )
-        if result.returncode == 0 and os.path.exists(sprite_path):
+        if result.returncode == 0 and os.path.exists(sprite_path) and os.path.getsize(sprite_path) > 5000:
             size_kb = os.path.getsize(sprite_path) / 1024
             print(f"[processor] Sprite sheet: {os.path.basename(sprite_path)} ({total_frames} frames, {cols}x{rows}, {size_kb:.0f}KB)")
             # Write sprite metadata sidecar so /clips endpoint doesn't need ffprobe
             try:
-                meta_path = video_path.replace(".mp4", "_sprite.json")
                 with open(meta_path, "w") as mf:
                     json.dump({"cols": cols, "rows": rows, "frames": total_frames}, mf)
             except Exception:
                 pass
+            return True
         else:
+            for failed_path in (sprite_path, meta_path):
+                if os.path.exists(failed_path):
+                    try:
+                        os.remove(failed_path)
+                    except Exception:
+                        pass
             print(f"[processor] Sprite generation failed: {result.stderr[:200]}")
     except Exception as e:
+        for failed_path in (sprite_path, meta_path):
+            if os.path.exists(failed_path):
+                try:
+                    os.remove(failed_path)
+                except Exception:
+                    pass
         print(f"[processor] Sprite error: {e}")
+    return False
 
 
 def cut_clips(source_path: str, clips_dir: str, highlights: list[dict], run_timestamp: str | None = None) -> list[str]:

@@ -85,6 +85,8 @@ class AutoCapture:
         self._last_process_result: dict | None = None
         self._processing_items: list[dict] = []
         self._processing_lock = threading.Lock()
+        self._asset_lock = threading.Lock()
+        self._asset_generating: set[str] = set()
         self.resumed_count: int = 0
         self._p1_executor: ThreadPoolExecutor | None = None
         self._p2_executor: ThreadPoolExecutor | None = None
@@ -1043,14 +1045,32 @@ class AutoCapture:
             self.dismiss_item(filename)
         print(f"[capture] Dismissed {len(failed)} failed item(s)")
 
-    def _generate_recording_assets(self, filepath: str):
+    def _generate_recording_assets(self, filepath: str, background: bool = False):
         """Generate thumbnail + sprite sheet for a full-run recording.
 
         Idempotent: each artifact is skipped if it already exists. Safe to call
-        as soon as the .mp4 is closed on disk — we run this at Phase 1 completion
-        so the FULL RUN pill in the UI has a thumb + scrubbable sprite immediately,
-        without waiting for Phase 2.
+        as soon as the heavy-media gate allows it, either during Phase 2
+        finalization or from the recording-asset endpoint for older/missing
+        assets.
         """
+        filepath = os.path.abspath(filepath)
+
+        if background:
+            with self._asset_lock:
+                if filepath in self._asset_generating:
+                    return
+                self._asset_generating.add(filepath)
+
+            def _run():
+                try:
+                    self._generate_recording_assets(filepath)
+                finally:
+                    with self._asset_lock:
+                        self._asset_generating.discard(filepath)
+
+            threading.Thread(target=_run, daemon=True).start()
+            return
+
         import shutil
         if not os.path.exists(filepath):
             return
@@ -1065,7 +1085,7 @@ class AutoCapture:
             duration = float(probe.stdout.strip()) if probe.stdout.strip() else 300
 
             keep_thumb = filepath.replace(".mp4", "_thumb.jpg")
-            if not os.path.exists(keep_thumb):
+            if not (os.path.exists(keep_thumb) and os.path.getsize(keep_thumb) > 5000):
                 endgame_jpg = os.path.join(run_dir, "screenshots", "endgame.jpg")
                 if os.path.exists(endgame_jpg):
                     shutil.copy2(endgame_jpg, keep_thumb)
@@ -1080,22 +1100,22 @@ class AutoCapture:
                     )
 
             sprite_path = filepath.replace(".mp4", "_sprite.jpg")
-            if not os.path.exists(sprite_path):
+            sprite_meta_path = filepath.replace(".mp4", "_sprite.json")
+            if not (os.path.exists(sprite_path) and os.path.getsize(sprite_path) > 5000 and os.path.exists(sprite_meta_path)):
                 from .video_processor import _generate_sprite_sheet
                 _generate_sprite_sheet(filepath, duration)
         except Exception as e:
             print(f"[assets] Generation failed for {os.path.basename(filepath)}: {e}")
 
     def _auto_save_recording(self, filepath: str, run_id: int | None):
-        """Finalize recording after Phase 2. Assets were already generated at
-        Phase 1 completion — this just regenerates if missing and cleans markers."""
+        """Finalize recording after Phase 2, generate missing assets, and clean markers."""
         filename = os.path.basename(filepath)
 
         if not os.path.exists(filepath):
             print(f"[auto-save] Recording not found: {filepath}")
             return
 
-        # Regenerate any missing assets (no-op if P1 already produced them)
+        # Generate any missing assets now that we are in the heavy media lane.
         self._generate_recording_assets(filepath)
 
         # Clean up marker files
