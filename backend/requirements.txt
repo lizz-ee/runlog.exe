@@ -13,3 +13,4 @@ scipy>=1.11.0,<2.0.0        # audio waveform + frequency analysis (alpha layer-2
 easyocr>=1.7.0,<2.0.0       # used by alpha OCR pipeline (stats extraction)
 winocr>=0.0.15              # Windows OCR for live game state detection (low-latency)
 pytesseract>=0.3.10         # optional: improves alpha single-digit stat accuracy
+soundcard>=0.4.4,<1.0.0     # optional runtime loopback capture for sidecar audio

@@ -261,9 +261,24 @@ export default function Live() {
               RUNLOG CAPTURE SYSTEMS
             </p>
             {status?.recording ? (
+              <>
               <p className="text-[10px] font-mono text-m-red font-bold mt-0.5 animate-pulse">
                 ■ REC {formatTime(status.recording_seconds)}
               </p>
+              <p className={`text-[8px] font-mono tracking-widest ${
+                status.audio_capture_active
+                  ? 'text-m-green'
+                  : status.audio_capture_error
+                    ? 'text-m-yellow'
+                    : 'text-m-text-muted/50'
+              }`}>
+                {status.audio_capture_active
+                  ? 'AUDIO.ON'
+                  : status.audio_capture_error
+                    ? 'VIDEO.ONLY'
+                    : 'AUDIO.STANDBY'}
+              </p>
+              </>
             ) : (
               <p className="text-[10px] font-mono text-m-text-muted/50 mt-0.5">
                 STANDBY

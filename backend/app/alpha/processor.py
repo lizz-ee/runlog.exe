@@ -342,7 +342,8 @@ class AlphaProcessor:
     # Phase 2: Grade + Summary (replaces Claude video analysis)
     # =========================================================================
 
-    def process_phase2(self, stats: dict, video_path: str | None = None) -> dict:
+    def process_phase2(self, stats: dict, video_path: str | None = None,
+                       audio_path: str | None = None) -> dict:
         """
         Generate grade, summary, and highlights from extracted stats + video.
 
@@ -355,6 +356,7 @@ class AlphaProcessor:
         ----------
         stats : dict from process_phase1()
         video_path : optional path to the run's video file for highlight detection
+        audio_path : optional sidecar WAV path for audio analysis
 
         Returns
         -------
@@ -370,7 +372,7 @@ class AlphaProcessor:
                 from backend.app.alpha.highlight_detector import HighlightDetector
 
                 detector = HighlightDetector()
-                highlights = detector.detect(video_path, stats=stats)
+                highlights = detector.detect(video_path, stats=stats, audio_path=audio_path)
                 logger.info(f"Detected {len(highlights)} highlights from video")
 
                 # Reuse audio segments from highlight detector (avoids double extraction)

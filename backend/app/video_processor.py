@@ -349,6 +349,73 @@ def _get_video_duration(video_path: str) -> float | None:
         return None
 
 
+def _sidecar_audio_path(recording_path: str) -> str:
+    return os.path.splitext(recording_path)[0] + "_audio.wav"
+
+
+def _has_audio_stream(video_path: str) -> bool:
+    try:
+        probe = subprocess.run(
+            ['ffprobe', '-v', 'quiet', '-select_streams', 'a:0',
+             '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', video_path],
+            capture_output=True, text=True, timeout=10,
+        )
+        return probe.returncode == 0 and "audio" in probe.stdout.lower()
+    except Exception:
+        return False
+
+
+def _mux_sidecar_audio(recording_path: str) -> bool:
+    """Mux sidecar WAV into the MP4 with video stream copy.
+
+    Runs only in the heavy processing lane. Leaves the original video untouched
+    if audio is missing, already muxed, or ffmpeg fails.
+    """
+    audio_path = _sidecar_audio_path(recording_path)
+    if not os.path.exists(recording_path) or not os.path.exists(audio_path):
+        return False
+    if _has_audio_stream(recording_path):
+        return True
+
+    tmp_path = recording_path.replace(".mp4", "_muxing.mp4")
+    cmd = [
+        'ffmpeg', '-y', '-hide_banner', '-loglevel', 'warning',
+        '-i', recording_path,
+        '-i', audio_path,
+        '-map', '0:v:0',
+        '-map', '1:a:0',
+        '-c:v', 'copy',
+        '-c:a', 'aac',
+        '-b:a', '192k',
+        '-shortest',
+        '-movflags', '+faststart',
+        tmp_path,
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        if result.returncode != 0:
+            print(f"[audio] Mux failed: {result.stderr[:300]}")
+            return False
+        if os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 0 and _has_audio_stream(tmp_path):
+            os.replace(tmp_path, recording_path)
+            print(f"[audio] Muxed sidecar audio into {os.path.basename(recording_path)}")
+            try:
+                os.remove(audio_path)
+                print(f"[audio] Removed sidecar WAV: {os.path.basename(audio_path)}")
+            except Exception as e:
+                print(f"[audio] Sidecar cleanup failed: {e}")
+            return True
+    except Exception as e:
+        print(f"[audio] Mux error: {e}")
+    finally:
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
+    return False
+
+
 # -- Frame extraction -------------------------------------------------------
 
 def extract_key_frames(video_path: str, frames_dir: str, video_duration: float) -> str:
@@ -1430,7 +1497,7 @@ def cut_clips(source_path: str, clips_dir: str, highlights: list[dict], run_time
             '-i', source_path,
             '-t', str(dur),
             '-c:v', 'copy',
-            '-an',
+            '-c:a', 'copy',
             '-movflags', '+faststart',
             clip_path,
         ]
@@ -1814,10 +1881,27 @@ def process_recording(recording_path: str, clips_dir: str, on_phase=None) -> dic
     if video_duration:
         frames_dir = recording_path.replace(".mp4", "_frames")
         try:
+            # Determine processor mode (alpha / hybrid / claude) before doing
+            # any ffmpeg work. Alpha and hybrid P1 can read direct OCR
+            # screenshots, so they should not extract video frames in the
+            # menu-fast lane unless they later fall back to Claude.
+            _processor_mode = "alpha"
+            try:
+                from .api.settings_api import get_config_value
+                _processor_mode = get_config_value("processor_mode") or "alpha"
+            except Exception:
+                pass
+
             phase("extracting_frames")
             t0 = time.time()
 
-            if has_screenshots:
+            skip_frame_extract = _processor_mode in ("alpha", "hybrid") and has_screenshots
+
+            if skip_frame_extract:
+                os.makedirs(frames_dir, exist_ok=True)
+                print("[processor] Screenshot pipeline: skipping P1 frame extraction for local mode")
+                metrics["frame_extraction_seconds"] = 0.0
+            elif has_screenshots:
                 # NEW PIPELINE: screenshots + targeted end frame extraction
                 end_start = endgame_ts if endgame_ts else max(0, video_duration - 60)
                 print(f"[processor] Screenshot pipeline: deploy={'Y' if os.path.exists(deploy_jpg) else 'N'} "
@@ -1847,14 +1931,6 @@ def process_recording(recording_path: str, clips_dir: str, on_phase=None) -> dic
             phase("analyzing_stats")
             t0 = time.time()
 
-            # Determine processor mode (alpha / hybrid / claude)
-            _processor_mode = "alpha"
-            try:
-                from .api.settings_api import get_config_value
-                _processor_mode = get_config_value("processor_mode") or "alpha"
-            except Exception:
-                pass
-
             analysis = None
 
             if _processor_mode in ("alpha", "hybrid") and has_screenshots:
@@ -1879,6 +1955,22 @@ def process_recording(recording_path: str, clips_dir: str, on_phase=None) -> dic
                     analysis = None
 
             if _processor_mode == "claude" or analysis is None:
+                if has_screenshots and not _get_frame_paths(frames_dir):
+                    # Local mode failed or cloud mode was selected. Extract the
+                    # end window now, instead of paying this cost for every
+                    # successful Alpha P1 run.
+                    end_start = endgame_ts if endgame_ts else max(0, video_duration - 60)
+                    end_duration = video_duration - end_start
+                    if end_duration > 0:
+                        os.makedirs(frames_dir, exist_ok=True)
+                        subprocess.run(
+                            ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'warning',
+                             '-ss', str(end_start), '-i', recording_path,
+                             '-t', str(min(end_duration, 90)),
+                             '-vf', 'fps=1', '-q:v', '2',
+                             os.path.join(frames_dir, 'end_%04d.jpg')],
+                            capture_output=True, text=True, timeout=180,
+                        )
                 if has_screenshots:
                     # Claude: two-call analysis with screenshots
                     analysis = _analyze_with_screenshots(
@@ -2031,7 +2123,12 @@ def process_recording_phase2(
                 db.close()
             except Exception as e:
                 print(f"[processor-p2] Failed to load Phase 1 stats: {e}")
-            phase2_data = _alpha.process_phase2(p1_stats, video_path=recording_path)
+            sidecar_audio = _sidecar_audio_path(recording_path)
+            phase2_data = _alpha.process_phase2(
+                p1_stats,
+                video_path=recording_path,
+                audio_path=sidecar_audio if os.path.exists(sidecar_audio) else None,
+            )
             print(f"[processor-p2] {_mode_label} Phase 2 took {time.time() - t0:.0f}s, "
                   f"grade={phase2_data.get('grade')}, "
                   f"{len(phase2_data.get('highlights', []))} highlights")
@@ -2063,6 +2160,10 @@ def process_recording_phase2(
 
     # Update run with narrative data (never overwrites stats)
     update_run_phase2(run_id, phase2_data)
+
+    # Step 3.5: mux sidecar audio into the full recording if available. This is
+    # deliberately here in Phase 2 so ffmpeg work stays out of match-time/P1.
+    _mux_sidecar_audio(recording_path)
 
     # Step 4: Cut clips from original 4K
     phase("cutting_clips")

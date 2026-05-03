@@ -36,11 +36,83 @@ class AudioAnalyzer:
     def __init__(self, sample_rate: int = 16000):
         self.sample_rate = sample_rate
 
-    def extract_audio(self, video_path: str) -> np.ndarray | None:
+    @staticmethod
+    def sidecar_path_for(video_path: str) -> str:
+        """Return the conventional sidecar WAV path for a recording."""
+        root, _ = os.path.splitext(video_path)
+        return root + "_audio.wav"
+
+    def _resample_if_needed(self, audio: np.ndarray, source_rate: int) -> np.ndarray:
+        if source_rate == self.sample_rate or len(audio) == 0:
+            return audio.astype(np.float32, copy=False)
+
+        try:
+            from scipy.signal import resample_poly
+            from math import gcd
+
+            divisor = gcd(source_rate, self.sample_rate)
+            up = self.sample_rate // divisor
+            down = source_rate // divisor
+            return resample_poly(audio, up, down).astype(np.float32, copy=False)
+        except Exception:
+            duration = len(audio) / float(source_rate)
+            target_len = max(1, int(duration * self.sample_rate))
+            src_x = np.linspace(0.0, duration, num=len(audio), endpoint=False)
+            dst_x = np.linspace(0.0, duration, num=target_len, endpoint=False)
+            return np.interp(dst_x, src_x, audio).astype(np.float32)
+
+    def _read_wav(self, wav_path: str) -> np.ndarray | None:
+        """Read PCM WAV data as mono float32 at self.sample_rate."""
+        try:
+            with wave.open(wav_path, "rb") as wav:
+                sr = wav.getframerate()
+                sample_width = wav.getsampwidth()
+                channels = wav.getnchannels()
+                n_frames = wav.getnframes()
+                raw = wav.readframes(n_frames)
+
+            if sample_width != 2:
+                logger.info("Unsupported audio sample width: %s bytes", sample_width)
+                return None
+
+            audio = np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
+            if channels > 1:
+                audio = audio.reshape(-1, channels).mean(axis=1)
+
+            if len(audio) == 0:
+                logger.info("Audio track has zero samples")
+                return None
+
+            audio = self._resample_if_needed(audio, sr)
+            duration = len(audio) / self.sample_rate
+            logger.info("Audio loaded: %.0fs, %sHz -> %sHz, %s samples",
+                        duration, sr, self.sample_rate, len(audio))
+            return audio
+        except Exception as e:
+            logger.warning("WAV read failed: %s", e)
+            return None
+
+    def extract_audio(self, video_path: str, audio_path: str | None = None) -> np.ndarray | None:
         """Extract mono audio from video as numpy float32 array.
 
         Returns None if video has no audio data.
         """
+        if audio_path and os.path.exists(audio_path):
+            audio = self._read_wav(audio_path)
+            if audio is not None:
+                return audio
+            logger.info("Sidecar audio unreadable, falling back to embedded audio")
+
+        sidecar = self.sidecar_path_for(video_path)
+        if os.path.exists(sidecar):
+            audio = self._read_wav(sidecar)
+            if audio is not None:
+                return audio
+            logger.info("Sidecar audio unreadable, falling back to embedded audio")
+
+        if os.path.splitext(video_path)[1].lower() == ".wav":
+            return self._read_wav(video_path)
+
         with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
             tmp_path = tmp.name
 
@@ -57,7 +129,8 @@ class AudioAnalyzer:
             result = subprocess.run(cmd, capture_output=True, timeout=120)
 
             if result.returncode != 0 or not os.path.exists(tmp_path):
-                logger.info("No audio track available")
+                stderr = result.stderr.decode("utf-8", errors="replace") if result.stderr else ""
+                logger.info("No audio track available: %s", stderr.strip()[:300])
                 return None
 
             file_size = os.path.getsize(tmp_path)
@@ -65,29 +138,7 @@ class AudioAnalyzer:
                 logger.info("Audio track is empty (no data)")
                 return None
 
-            # Read WAV data without scipy; ffmpeg writes mono pcm_s16le.
-            with wave.open(tmp_path, "rb") as wav:
-                sr = wav.getframerate()
-                sample_width = wav.getsampwidth()
-                n_frames = wav.getnframes()
-                raw = wav.readframes(n_frames)
-
-            if sample_width != 2:
-                logger.info("Unsupported audio sample width: %s bytes", sample_width)
-                return None
-
-            audio = np.frombuffer(raw, dtype=np.int16)
-
-            if len(audio) == 0:
-                logger.info("Audio track has zero samples")
-                return None
-
-            # Convert to float32 normalized
-            audio = audio.astype(np.float32) / 32768.0
-
-            duration = len(audio) / sr
-            logger.info(f"Audio extracted: {duration:.0f}s, {sr}Hz, {len(audio)} samples")
-            return audio
+            return self._read_wav(tmp_path)
 
         except subprocess.TimeoutExpired:
             logger.warning("Audio extraction timed out")
@@ -208,12 +259,12 @@ class AudioAnalyzer:
             is_combat=is_combat,
         )
 
-    def analyze_video(self, video_path: str) -> list[AudioSegment]:
+    def analyze_video(self, video_path: str, audio_path: str | None = None) -> list[AudioSegment]:
         """Full pipeline: extract audio → detect segments.
 
         Returns empty list if video has no audio.
         """
-        audio = self.extract_audio(video_path)
+        audio = self.extract_audio(video_path, audio_path=audio_path)
         if audio is None:
             return []
         return self.detect_segments(audio)

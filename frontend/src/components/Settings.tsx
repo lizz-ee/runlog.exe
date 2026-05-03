@@ -381,6 +381,14 @@ export default function Settings() {
               />
             </SettingRow>
 
+            <SettingRow label="AUDIO">
+              <ToggleButton
+                options={[{ value: 'on', label: 'ON' }, { value: 'off', label: 'OFF' }]}
+                value={config.audio_capture ? 'on' : 'off'}
+                onChange={v => saveConfig('audio_capture', v === 'on')}
+              />
+            </SettingRow>
+
             <div className="pt-1 border-t border-m-border/30">
               <p className="text-[9px] font-mono text-m-text-muted tracking-wider">
                 APPLIES TO NEXT RECORDING — OCR UNAFFECTED

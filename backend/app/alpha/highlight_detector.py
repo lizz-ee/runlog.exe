@@ -55,7 +55,8 @@ class HighlightDetector:
         self.hud = HUDDetector()
         self.audio = AudioAnalyzer()
 
-    def detect(self, video_path: str, stats: dict | None = None) -> list[dict]:
+    def detect(self, video_path: str, stats: dict | None = None,
+               audio_path: str | None = None) -> list[dict]:
         """Full detection pipeline: scan video → merge signals → produce highlights.
 
         Parameters
@@ -76,7 +77,7 @@ class HighlightDetector:
 
         # Layer 2: Audio analysis (gracefully empty if no audio)
         logger.info("Layer 2: Analyzing audio...")
-        audio_segments = self.audio.analyze_video(video_path)
+        audio_segments = self.audio.analyze_video(video_path, audio_path=audio_path)
         self.last_audio_segments = audio_segments  # Expose for reuse
 
         # Merge signals into highlights

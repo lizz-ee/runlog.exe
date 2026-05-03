@@ -44,6 +44,7 @@ DEFAULTS = {
     "bitrate": 50,         # Mbps
     "fps": 60,
     "resolution": "native",  # native | 1440p | 1080p | 720p
+    "audio_capture": True,  # Sidecar loopback audio capture for Alpha P2/clips
     "p1_workers": 4,
     "p2_workers": 1,
     "auto_p1": True,       # Auto-run Phase 1 (stats extraction) when recording finishes
@@ -83,6 +84,7 @@ def get_settings():
         "bitrate": saved.get("bitrate", DEFAULTS["bitrate"]),
         "fps": saved.get("fps", DEFAULTS["fps"]),
         "resolution": saved.get("resolution", DEFAULTS["resolution"]),
+        "audio_capture": saved.get("audio_capture", DEFAULTS["audio_capture"]),
         "p1_workers": saved.get("p1_workers", DEFAULTS["p1_workers"]),
         "p2_workers": saved.get("p2_workers", DEFAULTS["p2_workers"]),
         "auto_p1": saved.get("auto_p1", DEFAULTS["auto_p1"]),

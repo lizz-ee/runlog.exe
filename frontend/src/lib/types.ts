@@ -217,6 +217,9 @@ export interface CaptureStatus {
   resumed_count: number
   capture_mode: string | null
   capture_error: string | null
+  audio_capture_active?: boolean
+  audio_capture_path?: string | null
+  audio_capture_error?: string | null
   capture_resolution: string | null
   has_frame: boolean
   window_found: boolean

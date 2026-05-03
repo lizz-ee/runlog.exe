@@ -290,6 +290,21 @@ if %errorlevel% neq 0 (
     echo        Ensure Windows 10/11 and run: pip install winocr
 )
 del "%TEMP%\_winocr_test.py" 2>nul
+echo        Checking soundcard [sidecar audio capture]...
+echo import soundcard; print('soundcard ready')> "%TEMP%\_soundcard_test.py"
+"%PYTHON_CMD%" "%TEMP%\_soundcard_test.py"
+if %errorlevel% neq 0 (
+    echo        Installing soundcard...
+    "%PYTHON_CMD%" -m pip install --upgrade soundcard --quiet >nul 2>&1
+    "%PYTHON_CMD%" "%TEMP%\_soundcard_test.py"
+    if %errorlevel% neq 0 (
+        echo        WARNING: soundcard install failed - recordings will be video-only until installed.
+        echo        Run: pip install soundcard
+    ) else (
+        echo        soundcard installed.
+    )
+)
+del "%TEMP%\_soundcard_test.py" 2>nul
 echo        Python packages installed.
 
 :: --- Rust recorder ---

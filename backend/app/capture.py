@@ -38,6 +38,7 @@ import io
 
 from .detection.ocr import detect_game_state, DEPLOY_REGION
 from .rust_recorder import RustRecorder
+from .audio_sidecar import AudioSidecarRecorder
 
 MAX_P1_WORKERS = 4   # Phase 1 (fast stats extraction) — unconstrained
 MAX_P2_WORKERS = 1   # Phase 2 (video narrative + clips) — heavy, capped
@@ -61,6 +62,7 @@ class AutoCapture:
 
         # Rust recorder
         self._recorder = RustRecorder()
+        self._audio = AudioSidecarRecorder()
 
         # Threads
         self._ocr_thread: threading.Thread | None = None
@@ -264,6 +266,9 @@ class AutoCapture:
             "resumed_count": self.resumed_count,
             "capture_mode": self._capture_mode,
             "capture_error": self._recorder.last_error,
+            "audio_capture_active": self._audio.active,
+            "audio_capture_path": self._audio.path,
+            "audio_capture_error": self._audio.error,
             "capture_resolution": f"{self._recorder.width}x{self._recorder.height}" if self._recorder.width else None,
             "has_frame": self._latest_frame is not None,
             "window_found": self._recorder.window_name is not None,
@@ -273,7 +278,7 @@ class AutoCapture:
             "auto_p1": self._auto_p1,
             "auto_p2": self._auto_p2,
             "pause_processing_while_game_running": self._pause_processing_while_game_running,
-            "processing_paused_for_game": self._processing_blocked_by_game(),
+            "processing_paused_for_game": self._heavy_processing_blocked_by_game(),
         }
 
     def get_latest_frame_jpeg(self) -> bytes | None:
@@ -709,6 +714,9 @@ class AutoCapture:
         bitrate_mbps = get_config_value("bitrate") or 30
         fps = get_config_value("fps") or 60
         resolution = get_config_value("resolution") or "native"
+        audio_enabled = get_config_value("audio_capture")
+        if audio_enabled is None:
+            audio_enabled = True
         bitrate = int(bitrate_mbps) * 1_000_000
         # Map resolution preset → target_height. Width is computed Rust-side
         # using the live capture aspect ratio so ultrawide windows stay correct.
@@ -723,11 +731,22 @@ class AutoCapture:
         path = os.path.join(run_folder, filename)
 
         if self._recorder.start_recording(path, bitrate=bitrate, encoder=encoder, fps=fps, target_height=target_height):
+            audio_path = path.replace(".mp4", "_audio.wav")
+            if audio_enabled:
+                self._audio.start(audio_path)
+            else:
+                self._audio.status.active = False
+                self._audio.status.path = None
+                self._audio.status.error = "disabled in settings"
             self._recording = True
             self._recording_start = time.time()
             self._recording_path = path
             res_label = f"{resolution}" if target_height else "native"
             print(f"[capture] Recording to: {path} ({encoder.upper()}, {bitrate_mbps}Mbps, {fps}fps, {res_label})")
+            if self._audio.active:
+                print(f"[audio] Sidecar recording to: {audio_path}")
+            elif not audio_enabled:
+                print("[audio] Sidecar disabled in settings")
             self._broadcast_status()
         else:
             print("[capture] Recording failed to start")
@@ -748,6 +767,7 @@ class AutoCapture:
     def _stop_recording(self):
         """Stop recording and queue the file for processing."""
         self._recorder.stop_recording()
+        audio_path = self._audio.stop()
 
         duration = time.time() - self._recording_start
         filepath = self._recording_path
@@ -784,6 +804,10 @@ class AutoCapture:
             return
 
         print(f"[capture] Recording complete: {duration:.0f}s ({file_size / (1024*1024):.1f}MB)")
+        if audio_path:
+            print(f"[audio] Sidecar complete: {audio_path} ({os.path.getsize(audio_path) / (1024*1024):.1f}MB)")
+        elif self._audio.error:
+            print(f"[audio] Sidecar unavailable: {self._audio.error}")
 
         # Save endgame timestamp for Phase 1
         if endgame_ts:
@@ -966,13 +990,22 @@ class AutoCapture:
         self._broadcast_status()
         return self.get_status()
 
-    def _processing_blocked_by_game(self) -> bool:
-        """True when processing should not start because Marathon is visible."""
+    def _heavy_processing_blocked_by_game(self) -> bool:
+        """True when heavy media work should not start because Marathon is visible."""
         return self._pause_processing_while_game_running and self._recorder.window_name is not None
 
-    def _processing_gate_active(self) -> bool:
-        """True when new processing work should be held to protect gameplay."""
-        return self._recording or self._processing_blocked_by_game()
+    def _processing_gate_active(self, phase: str = "p2") -> bool:
+        """True when new work should be held to protect gameplay.
+
+        P1 is allowed in menus because it primarily uses captured screenshots.
+        P2/media work remains gated while Marathon is open under the game-impact
+        guard because it performs video scans, ffmpeg work, and clip generation.
+        """
+        if self._recording:
+            return True
+        if phase == "p1":
+            return False
+        return self._heavy_processing_blocked_by_game()
 
     def dismiss_item(self, filename: str):
         """Remove an item from the processing queue entirely without processing it."""
@@ -1140,7 +1173,7 @@ class AutoCapture:
                 time.sleep(1.0)
                 continue
             # Avoid starting analysis work while gameplay could be impacted.
-            if self._processing_gate_active():
+            if self._processing_gate_active("p1"):
                 self._process_queue.put(filepath)
                 self._process_queue.task_done()
                 time.sleep(2.0)
@@ -1213,9 +1246,12 @@ class AutoCapture:
                 except Exception as e:
                     print(f"[p1] DB recording_path update failed: {e}")
 
-            # Generate thumbnail + sprite sheet now — the FULL RUN pill needs
-            # these, and there's no reason to wait for Phase 2 to show them.
-            self._generate_recording_assets(filepath)
+            # P1 can run in menus, so keep it light. Heavy assets are generated
+            # after Phase 2 when the heavy media gate allows it.
+            try:
+                self._generate_thumbnail(filepath, 0)
+            except Exception:
+                pass
 
             # Invalidate clips cache so the new recording shows up immediately
             from .api.capture_api import invalidate_clips_cache
@@ -1247,7 +1283,7 @@ class AutoCapture:
             print(f"[p2] Recording in progress — holding run #{run_id}")
             return
         with self._p2_active_lock:
-            if self._processing_gate_active():
+            if self._processing_gate_active("p2"):
                 self._p2_waiting.append((filepath, run_id))
                 self._update_processing_item(filepath, "queued", run_id=run_id)
                 reason = "recording active" if self._recording else "Marathon running"
@@ -1265,7 +1301,7 @@ class AutoCapture:
 
     def _drain_p2_waiting(self):
         """Submit waiting Phase 2 jobs when the game-impact gate is clear."""
-        if self._processing_gate_active() or not self._auto_p2:
+        if self._processing_gate_active("p2") or not self._auto_p2:
             return
         with self._p2_active_lock:
             while self._p2_waiting and self._p2_active < self._p2_max_workers:
@@ -1437,10 +1473,6 @@ class AutoCapture:
                             duration = float(probe.stdout.strip()) if probe.stdout.strip() else 300
                         except Exception:
                             duration = 300
-                        # Generate any missing assets (thumbnail, sprite) — these
-                        # are cheap, idempotent, and runs finalized under older
-                        # code may not have them yet.
-                        self._generate_recording_assets(filepath)
                         self._add_processing_item(filepath, duration)
                         self._submit_phase2(filepath, run_id)
                         print(f"[resume] Run #{run_id} — resuming Phase 2")

@@ -70,6 +70,7 @@ export interface AppSettings {
   bitrate: number
   fps: number
   resolution: string
+  audio_capture: boolean
   p1_workers: number
   p2_workers: number
   auto_p1: boolean
