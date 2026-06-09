@@ -63,13 +63,16 @@ struct RegionDef {
     y2: f32,
 }
 
-const OCR_REGIONS: [RegionDef; 3] = [
+const OCR_REGIONS: [RegionDef; 4] = [
     // OCR.LOBBY — bottom center, PREPARE/READY_UP buttons
     RegionDef { name: "lobby", x1: 0.33, y1: 0.72, x2: 0.67, y2: 0.89 },
     // OCR.DEPLOY — center screen, deployment loading screen (also postgame banner)
     RegionDef { name: "deploy", x1: 0.35, y1: 0.38, x2: 0.65, y2: 0.65 },
     // OCR.ENDGAME — upper center, //RUN_COMPLETE banner
     RegionDef { name: "endgame", x1: 0.28, y1: 0.12, x2: 0.72, y2: 0.22 },
+    // OCR.KILLFEED — upper left, "[Player] eliminated [Target]" feed (below the
+    // timer pill). Scanned during runs to log combat timestamps for Phase 2.
+    RegionDef { name: "killfeed", x1: 0.01, y1: 0.15, x2: 0.30, y2: 0.38 },
 ];
 
 // ---------------------------------------------------------------------------
@@ -126,6 +129,7 @@ enum Event {
         lobby: String,
         deploy: String,
         endgame: String,
+        killfeed: String,
     },
     #[serde(rename = "screenshot_saved")]
     ScreenshotSaved { path: String },
@@ -887,6 +891,7 @@ fn main() {
                         let mut lobby = String::new();
                         let mut deploy = String::new();
                         let mut endgame = String::new();
+                        let mut killfeed = String::new();
                         for (name, img) in &regions {
                             if let Some(jpeg) = bgra_to_jpeg(img, scale, quality) {
                                 let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg);
@@ -894,13 +899,14 @@ fn main() {
                                     "lobby" => lobby = b64,
                                     "deploy" => deploy = b64,
                                     "endgame" => endgame = b64,
+                                    "killfeed" => killfeed = b64,
                                     _ => {}
                                 }
                             }
                         }
                         if !(lobby.is_empty() && deploy.is_empty() && endgame.is_empty()) {
                             seq += 1;
-                            emit(&Event::Regions { seq, lobby, deploy, endgame });
+                            emit(&Event::Regions { seq, lobby, deploy, endgame, killfeed });
                         }
                     }
                     if let Some(img) = full {

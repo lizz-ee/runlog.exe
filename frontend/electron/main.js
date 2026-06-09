@@ -1,9 +1,6 @@
 const { app, BrowserWindow, Tray, Menu, Notification, nativeImage, ipcMain, dialog, powerSaveBlocker } = require('electron')
 const path = require('path')
 const fs = require('fs')
-
-// Prevent Windows from throttling/suspending this app when backgrounded
-const powerBlockerId = powerSaveBlocker.start('prevent-app-suspension')
 const http = require('http')
 const { BackendManager } = require('./backend-manager')
 const { RecordingManager } = require('./recording-manager')
@@ -265,25 +262,53 @@ function showNotification(title, body) {
   // Replaced by overlay — no more Windows popups
 }
 
-function checkProcessingActive() {
+function getCaptureStatus() {
   return new Promise((resolve) => {
     const req = http.get('http://127.0.0.1:8000/api/capture/status', (res) => {
       let data = ''
       res.on('data', (chunk) => { data += chunk })
       res.on('end', () => {
-        try {
-          const status = JSON.parse(data)
-          const items = status.processing_items || []
-          const active = items.filter(i =>
-            !['done', 'error', 'queued'].includes(i.status)
-          )
-          resolve(active.length)
-        } catch { resolve(0) }
+        try { resolve(JSON.parse(data)) } catch { resolve(null) }
       })
     })
-    req.on('error', () => resolve(0))
-    req.setTimeout(2000, () => { req.destroy(); resolve(0) })
+    req.on('error', () => resolve(null))
+    req.setTimeout(2000, () => { req.destroy(); resolve(null) })
   })
+}
+
+async function checkProcessingActive() {
+  const status = await getCaptureStatus()
+  if (!status) return 0
+  const items = status.processing_items || []
+  return items.filter(i => !['done', 'error', 'queued'].includes(i.status)).length
+}
+
+// ── Power-save blocker — scoped to actual work ───────────────────────
+// Blocking app suspension from boot keeps the machine from idling while
+// runlog just sits in the tray. Only hold the blocker while a recording is
+// live or the processing pipeline has work (active or queued).
+
+let powerBlockerId = null
+
+function setPowerBlocker(active) {
+  if (active && powerBlockerId === null) {
+    powerBlockerId = powerSaveBlocker.start('prevent-app-suspension')
+    console.log('[power] Suspension blocker ON (recording/processing active)')
+  } else if (!active && powerBlockerId !== null) {
+    powerSaveBlocker.stop(powerBlockerId)
+    powerBlockerId = null
+    console.log('[power] Suspension blocker OFF (idle)')
+  }
+}
+
+async function refreshPowerBlocker() {
+  const status = await getCaptureStatus()
+  if (!status) { setPowerBlocker(false); return }
+  const items = status.processing_items || []
+  const hasWork = !!status.recording
+    || (status.queue_size || 0) > 0
+    || items.some(i => !['done', 'error'].includes(i.status))
+  setPowerBlocker(hasWork)
 }
 
 async function confirmQuitIfProcessing() {
@@ -406,6 +431,11 @@ if (!gotTheLock) {
 app.whenReady().then(async () => {
   createWindow()
   createTray()
+
+  // Hold the suspension blocker only while there's real work (recording or
+  // processing). Re-checked every 30s; resolves to idle if the backend is down.
+  setInterval(refreshPowerBlocker, 30000)
+  refreshPowerBlocker()
 
   // Auto-updater — uncomment when code signing + GitHub releases are configured
   // initAutoUpdater(mainWindow)

@@ -62,8 +62,30 @@ ENDGAME_REGION = (0.28, 0.12, 0.72, 0.22)
 # OCR.LOBBY — bottom center, PREPARE/READY_UP buttons
 LOBBY_REGION = (0.33, 0.72, 0.67, 0.89)
 
+# OCR.KILLFEED — upper left, "[Player] eliminated [Target]" feed
+KILLFEED_REGION = (0.01, 0.15, 0.30, 0.38)
+
 # Known map names for deployment detection
 MAP_NAMES = ["PERIMETER", "OUTPOST", "DIRE MARSH", "CRYO ARCHIVE"]
+
+
+def detect_kill_feed(img: "Image.Image | None") -> list[str]:
+    """Scan the kill feed crop for elimination lines.
+
+    Returns the raw OCR lines containing an elimination ("X eliminated Y").
+    Used during recording to log combat timestamps for Phase 2 — purely
+    additive hints, so OCR misses are harmless.
+    """
+    if img is None:
+        return []
+    try:
+        text = _ocr_pil(img, "")
+        if not text or "ELIMINAT" not in text:
+            return []
+        return [ln.strip() for ln in text.splitlines() if "ELIMINAT" in ln and ln.strip()]
+    except Exception as e:
+        print(f"[ocr] Kill feed error: {e}")
+        return []
 
 
 def _looks_like_run_complete(banner: Image.Image) -> bool:

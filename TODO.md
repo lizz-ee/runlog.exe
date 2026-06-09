@@ -27,17 +27,23 @@
 Phase 1 (Quick Wins) and Phase 2 (Chain-of-Thought) are complete.
 
 ### Phase 3: Audio Energy Analysis
-- [ ] Extract audio from recording via ffmpeg (`-vn -ac 1 -ar 22050`)
-- [ ] Add `librosa` dependency, compute RMS energy per 0.5s window
-- [ ] Flag "hot zones" where energy > 2x baseline for > 1 second
-- [ ] Pass hot zones as combat-region context to Phase 2 prompt
-- [ ] Smart frame extraction — 2-4fps during hot zones, 0.5fps during cold zones (reduces LLM cost ~70-80%)
+**BLOCKED on audio capture** — recordings are currently silent: the Rust recorder
+encodes with audio disabled, and `windows-capture` does not capture audio itself
+(the app must feed WASAPI loopback buffers via `send_frame_with_audio`; its audio
+path blocks on the buffer channel, so silence injection is required or the encoder
+stalls). `AudioAnalyzer` (backend/app/alpha/audio_analyzer.py, numpy — no librosa
+needed) is already implemented and wired into ALPHA highlights; it activates
+automatically once recordings have an audio track.
+- [ ] WASAPI loopback capture in the recorder (A/V sync + silence injection + opt-in setting — system audio may include voice chat)
+- [x] ~~Add `librosa` dependency~~ — RMS + spectral energy implemented with numpy in `AudioAnalyzer`
+- [x] Hot zones → combat-region context for Phase 2 (done via kill feed events, see Phase 4)
+- [x] Smart frame extraction — 2fps in confirmed combat windows, 0.25fps elsewhere (done via kill feed events)
 
-### Phase 4: Kill Feed CV Classifier
-- [ ] Collect kill feed crop dataset from existing recordings (~200-400 samples)
-- [ ] Train lightweight CNN (MobileNet or similar), export as ONNX
-- [ ] Run classifier on OCR frames during recording, log kill timestamps to `.kills` marker file
-- [ ] Pass confirmed kill timestamps to Phase 2 as ground truth
+### Phase 4: Kill Feed Detection
+- [x] Live kill feed logging during recording — winocr on a dedicated OCR.KILLFEED scan region (cropped recorder-side), eliminations appended to a `.events` sidecar with run timestamps. ~16ms per 3s tick at below-normal priority — zero game impact.
+- [x] Pass confirmed kill timestamps to Phase 2 as ground truth (CLI analyst gets event list + targeted two-pass extraction plan; API path gets the event list)
+- [ ] Calibrate OCR.KILLFEED region coordinates against real 4K footage (current rect is from the HUD layout guide — misses are harmless, events are additive hints)
+- [ ] Optional upgrade: CNN classifier (MobileNet → ONNX) if winocr accuracy on feed text proves insufficient
 
 ### Phase 5: Advanced (Future)
 - [ ] Voice/shout detection — energy spikes in 300-3000Hz band

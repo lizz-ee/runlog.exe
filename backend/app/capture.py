@@ -38,7 +38,7 @@ from datetime import datetime
 from PIL import Image
 import io
 
-from .detection.ocr import detect_game_state
+from .detection.ocr import detect_game_state, detect_kill_feed
 from .rust_recorder import RustRecorder
 
 MAX_P1_WORKERS = 4   # Phase 1 (fast stats extraction) — unconstrained
@@ -79,6 +79,8 @@ class AutoCapture:
         self._endgame_timestamp: float | None = None
         self._scan_state: str = 'lobby'
         self._state_changed_at: float = 0
+        # Kill feed dedup: normalized line -> seconds-into-recording last seen
+        self._recent_kill_feed: dict[str, float] = {}
 
         # Processing queue + executors
         self._process_queue: queue.Queue = queue.Queue()
@@ -412,12 +414,48 @@ class AutoCapture:
             else:
                 endgame_cycle = 0
 
+            # ---- Kill feed scan (during the run only) --------------------------
+            # Logs combat timestamps to the .events sidecar so Phase 2 can
+            # focus its frame extraction on confirmed fights. Hints only —
+            # misses are harmless, and the scan is one ~16ms winocr call per
+            # staged tick at below-normal priority.
+            if self._recording and self._scan_state == 'endgame':
+                self._scan_kill_feed(regions)
+
             # ---- OCR ---------------------------------------------------------
             result = detect_game_state(regions, scan_mode=self._scan_state)
             if self._running:
                 self._handle_detection(result)
 
         print("[capture] OCR loop stopped.")
+
+    def _scan_kill_feed(self, regions: "dict[str, Image.Image]"):
+        """OCR the kill feed crop and append new eliminations to the .events
+        sidecar (JSONL: {"t": seconds_into_recording, "text": line}). Phase 2
+        uses these as confirmed combat timestamps for smart frame extraction."""
+        if not self._recording_path:
+            return
+        try:
+            lines = detect_kill_feed(regions.get('killfeed'))
+            if not lines:
+                return
+            now = time.time() - self._recording_start
+            new_events = []
+            for line in lines:
+                norm = ''.join(line.split()).upper()
+                last_seen = self._recent_kill_feed.get(norm)
+                if last_seen is not None and (now - last_seen) < 15:
+                    continue  # same feed entry still on screen
+                self._recent_kill_feed[norm] = now
+                new_events.append({"t": round(now, 1), "text": line})
+            if new_events:
+                import json
+                with open(self._recording_path + ".events", "a", encoding="utf-8") as f:
+                    for event in new_events:
+                        f.write(json.dumps(event) + "\n")
+                print(f"[capture] Kill feed: {len(new_events)} event(s) at {now:.0f}s")
+        except Exception as e:
+            print(f"[capture] Kill feed scan failed: {e}")
 
     # Map detection phases to descriptive filenames
     _PHASE_NAMES = {'ready_up': 'readyup', 'run': 'run', 'deploying': 'deploying'}
@@ -720,6 +758,7 @@ class AutoCapture:
             self._recording = True
             self._recording_start = time.time()
             self._recording_path = path
+            self._recent_kill_feed = {}
             res_label = f"{resolution}" if target_height else "native"
             print(f"[capture] Recording to: {path} ({encoder.upper()}, {bitrate_mbps}Mbps, {fps}fps, {res_label})")
             self._broadcast_status()
@@ -986,7 +1025,7 @@ class AutoCapture:
             except Exception:
                 pass
             # Clean up marker files so the recording isn't re-queued
-            for ext in ('.p1done', '.encoded', '.endgame', '.session'):
+            for ext in ('.p1done', '.encoded', '.endgame', '.session', '.events'):
                 marker_path = os.path.join(run_dir, filename + ext)
                 if os.path.exists(marker_path):
                     try:
@@ -1061,7 +1100,7 @@ class AutoCapture:
         self._generate_recording_assets(filepath)
 
         # Clean up marker files
-        for ext in ('.p1done', '.encoded', '.endgame', '.session'):
+        for ext in ('.p1done', '.encoded', '.endgame', '.session', '.events'):
             marker = filepath + ext
             if os.path.exists(marker):
                 os.remove(marker)

@@ -24,7 +24,8 @@ class RecordingManager {
   }
 
   stop() {
-    if (this.marathonTimer) clearInterval(this.marathonTimer)
+    this.stopped = true
+    if (this.marathonTimer) clearTimeout(this.marathonTimer)
     if (this.statusTimer) clearInterval(this.statusTimer)
     this.marathonTimer = null
     this.statusTimer = null
@@ -36,10 +37,14 @@ class RecordingManager {
   }
 
   // ── Marathon monitoring ────────────────────────────────────────────
+  // Adaptive cadence: tasklist spawns a process per check, so back off to
+  // 15s while idle (the game takes far longer than that to reach a lobby)
+  // and tighten to 5s while capturing so we stop promptly on game close.
 
   _startMarathonMonitor() {
-    if (this.marathonTimer) clearInterval(this.marathonTimer)
-    this.marathonTimer = setInterval(async () => {
+    if (this.marathonTimer) clearTimeout(this.marathonTimer)
+    this.stopped = false
+    const tick = async () => {
       const running = await this._isMarathonRunning()
 
       if (running && !this.isCapturing) {
@@ -49,7 +54,12 @@ class RecordingManager {
         console.log('[recording] Marathon closed — stopping capture')
         this._stopCapture()
       }
-    }, 5000)
+
+      if (!this.stopped) {
+        this.marathonTimer = setTimeout(tick, this.isCapturing ? 5000 : 15000)
+      }
+    }
+    tick()
   }
 
   async _startCapture() {

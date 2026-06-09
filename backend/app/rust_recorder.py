@@ -293,7 +293,7 @@ class RustRecorder:
             # OCR region crops — small JPEGs, one per scan region
             try:
                 regions: dict[str, bytes] = {}
-                for key in ("lobby", "deploy", "endgame"):
+                for key in ("lobby", "deploy", "endgame", "killfeed"):
                     b64 = event.get(key) or ""
                     if b64:
                         regions[key] = base64.b64decode(b64)
