@@ -193,9 +193,12 @@ export default function Live() {
   // dismissing state removed — recordings auto-save on completion
   const { addToast } = useStore()
 
-  // Frame refresh interval — specific to Live page preview
+  // Frame refresh interval — specific to Live page preview. Skip refetch +
+  // decode while the window is hidden/occluded (e.g. behind the game).
   useEffect(() => {
-    const frameInterval = setInterval(() => setFrameKey(k => k + 1), 2000)
+    const frameInterval = setInterval(() => {
+      if (!document.hidden) setFrameKey(k => k + 1)
+    }, 2000)
     return () => clearInterval(frameInterval)
   }, [])
 

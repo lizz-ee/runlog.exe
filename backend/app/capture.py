@@ -797,9 +797,10 @@ class AutoCapture:
         except Exception:
             pass
 
-        # Add to processing queue
+        # Add to processing queue (this also kicks off thumbnail generation —
+        # a second explicit call here would race a duplicate ffmpeg on the
+        # same thumb file while the player is still in the lobby)
         self._add_processing_item(filepath, duration)
-        self._generate_thumbnail(filepath, duration)
         self._process_queue.put(filepath)
         self._broadcast_status()
 

@@ -328,7 +328,11 @@ function createWindow() {
       contextIsolation: true,
       webSecurity: true,
       preload: path.join(__dirname, 'preload.js'),
-      backgroundThrottling: false,  // Keep OCR/detection running at full speed when alt-tabbed
+      // backgroundThrottling stays ON (default): detection runs in the Python
+      // backend, not this renderer, and SSE/IPC events (which drive the HUD
+      // overlay) are never throttled — only timers and painting are. Letting
+      // Chromium throttle the hidden/occluded window keeps the animated UI
+      // from burning CPU/GPU while Marathon is in the foreground.
     },
   })
   if (saved?.isMaximized) mainWindow.maximize()
