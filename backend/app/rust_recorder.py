@@ -3,12 +3,14 @@ Rust recorder wrapper — communicates with runlog-recorder.exe via JSON IPC.
 
 The Rust binary handles:
   - WGC window capture (Marathon only, privacy safe)
-  - H.264 encoding via MediaFoundation hardware encoder (zero-copy GPU)
+  - H.264/HEVC encoding via MediaFoundation hardware encoder (zero-copy GPU)
   - 60fps recording at native resolution (4K)
-  - OCR frames sent as base64 JPEG at ~2fps
+  - OCR region crops (lobby/deploy/endgame) sent as small base64 JPEGs via
+    async double-buffered staging — never a synchronous GPU readback
+  - Full preview frames at a slow cadence, or on demand via frame_now
 
 Python handles:
-  - OCR detection (EasyOCR)
+  - OCR detection (winocr) on the pre-cropped regions
   - Start/stop commands based on game state
   - Screenshot management
   - Processing pipeline
@@ -55,9 +57,12 @@ class RustRecorder:
         self.recording_path: str | None = None
         self.last_error: str | None = None
 
-        # Latest OCR frame (JPEG bytes)
+        # Latest full preview frame (JPEG bytes)
         self._latest_frame: bytes | None = None
         self._frame_seq: int = 0
+        # Latest OCR region crops ({'lobby'|'deploy'|'endgame': jpeg_bytes})
+        self._latest_regions: dict[str, bytes] | None = None
+        self._regions_seq: int = 0
         self._frame_lock = threading.Lock()
 
         # Event callbacks
@@ -180,9 +185,18 @@ class RustRecorder:
         return confirmed
 
     def get_latest_frame(self) -> tuple[bytes | None, int]:
-        """Return (jpeg_bytes, sequence_number) for OCR detection."""
+        """Return (jpeg_bytes, sequence_number) for the full preview frame."""
         with self._frame_lock:
             return self._latest_frame, self._frame_seq
+
+    def get_latest_regions(self) -> tuple[dict[str, bytes] | None, int]:
+        """Return ({region: jpeg_bytes}, sequence_number) for OCR detection."""
+        with self._frame_lock:
+            return self._latest_regions, self._regions_seq
+
+    def request_full_frame(self):
+        """Ask the recorder for a fresh full preview frame on the next capture."""
+        self._send_command({"cmd": "frame_now"})
 
     # -- Internal ----------------------------------------------------------
 
@@ -264,7 +278,7 @@ class RustRecorder:
                 self.on_recording_stopped(path, duration, frames)
 
         elif evt_type == "frame":
-            # Decode base64 JPEG for OCR
+            # Full preview frame (UI + screenshot saves)
             b64 = event.get("jpeg_base64", "")
             if b64:
                 try:
@@ -274,6 +288,21 @@ class RustRecorder:
                         self._frame_seq += 1
                 except Exception as e:
                     print(f"[recorder] Frame decode error: {e}")
+
+        elif evt_type == "regions":
+            # OCR region crops — small JPEGs, one per scan region
+            try:
+                regions: dict[str, bytes] = {}
+                for key in ("lobby", "deploy", "endgame"):
+                    b64 = event.get(key) or ""
+                    if b64:
+                        regions[key] = base64.b64decode(b64)
+                if regions:
+                    with self._frame_lock:
+                        self._latest_regions = regions
+                        self._regions_seq += 1
+            except Exception as e:
+                print(f"[recorder] Region decode error: {e}")
 
         elif evt_type == "screenshot_saved":
             print(f"[recorder] Screenshot saved: {event.get('path')}")

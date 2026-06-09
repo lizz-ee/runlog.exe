@@ -1,5 +1,6 @@
 use std::io::{self, BufRead, Write};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -27,13 +28,49 @@ use windows::Win32::Graphics::Dxgi::Common::DXGI_SAMPLE_DESC;
 /// OCR frame interval in capture frames (~0.5s at 60fps in menus)
 const OCR_FRAME_INTERVAL: u64 = 30;
 /// Multiplier for OCR interval during recording (~3s at 60fps). RUN_COMPLETE
-/// can be visible for only a few seconds, so the staged recording path must
-/// sample faster than the shortest expected banner lifetime.
+/// can be visible for only a few seconds, so the recording path must sample
+/// faster than the shortest expected banner lifetime.
 const OCR_RECORD_INTERVAL_MULTIPLIER: u64 = 6;
 /// Initial JPEG buffer capacity
 const JPEG_BUF_CAPACITY: usize = 64 * 1024;
 /// JPEG encoding quality (1-100)
 const JPEG_QUALITY: u8 = 85;
+/// JPEG quality for full-resolution screenshot saves
+const SCREENSHOT_JPEG_QUALITY: u8 = 90;
+
+// Detection runs on the small region crops; full preview frames only feed the
+// UI (polled every 2s) and screenshot saves, so they ship on a slow cadence.
+// Python can request a fresh one at any time with the `frame_now` command.
+/// Full-frame cadence in OCR ticks while in menus (~2s at the 0.5s tick)
+const FULL_FRAME_EVERY_MENU_TICKS: u64 = 4;
+/// Full-frame cadence in OCR ticks while recording (~6s at the 3s tick)
+const FULL_FRAME_EVERY_RECORD_TICKS: u64 = 2;
+
+// ---------------------------------------------------------------------------
+// OCR scan regions — must match backend/app/detection/ocr.py
+//
+// Cropping at the source means the per-tick CPU work (mapped-memory copy,
+// BGRA→RGB conversion, JPEG encode, base64, IPC) touches ~18% of the frame
+// instead of all of it. The deploy region doubles as the postgame/center
+// region on the Python side.
+// ---------------------------------------------------------------------------
+
+struct RegionDef {
+    name: &'static str,
+    x1: f32,
+    y1: f32,
+    x2: f32,
+    y2: f32,
+}
+
+const OCR_REGIONS: [RegionDef; 3] = [
+    // OCR.LOBBY — bottom center, PREPARE/READY_UP buttons
+    RegionDef { name: "lobby", x1: 0.33, y1: 0.72, x2: 0.67, y2: 0.89 },
+    // OCR.DEPLOY — center screen, deployment loading screen (also postgame banner)
+    RegionDef { name: "deploy", x1: 0.35, y1: 0.38, x2: 0.65, y2: 0.65 },
+    // OCR.ENDGAME — upper center, //RUN_COMPLETE banner
+    RegionDef { name: "endgame", x1: 0.28, y1: 0.12, x2: 0.72, y2: 0.22 },
+];
 
 // ---------------------------------------------------------------------------
 // IPC messages
@@ -56,6 +93,8 @@ enum Command {
     Stop,
     #[serde(rename = "screenshot")]
     Screenshot { path: String },
+    #[serde(rename = "frame_now")]
+    FrameNow,
     #[serde(rename = "ocr_fast")]
     OcrFast { enabled: bool },
     #[serde(rename = "quit")]
@@ -81,6 +120,13 @@ enum Event {
     },
     #[serde(rename = "frame")]
     Frame { jpeg_base64: String },
+    #[serde(rename = "regions")]
+    Regions {
+        seq: u64,
+        lobby: String,
+        deploy: String,
+        endgame: String,
+    },
     #[serde(rename = "screenshot_saved")]
     ScreenshotSaved { path: String },
     #[serde(rename = "error")]
@@ -105,11 +151,27 @@ fn emit(event: &Event) {
 // Shared state between IPC thread and capture callback
 // ---------------------------------------------------------------------------
 
-struct OcrFrameData {
+/// Tightly packed (or pitched) BGRA pixels handed to the worker thread.
+struct RawImage {
     raw: Vec<u8>,
     width: usize,
     height: usize,
     row_pitch: usize,
+}
+
+/// Work shipped from the capture callback to the worker thread. All JPEG
+/// encoding, base64, and file I/O happens off the capture hot path.
+enum OcrJob {
+    Frames {
+        /// Downscale factor for OCR/preview output (2 for 4K capture, else 1)
+        scale: usize,
+        full: Option<RawImage>,
+        regions: Vec<(&'static str, RawImage)>,
+    },
+    SaveScreenshot {
+        path: String,
+        image: RawImage,
+    },
 }
 
 struct SharedState {
@@ -125,10 +187,12 @@ struct SharedState {
     should_quit: AtomicBool,
     screenshot_path: Mutex<Option<String>>,
     encoded_frames: AtomicU64,
-    /// Force fast direct OCR even during recording (after RUN_COMPLETE)
+    /// Shorten the OCR interval during recording (after RUN_COMPLETE)
     ocr_fast: AtomicBool,
-    ocr_pending: Mutex<Option<OcrFrameData>>,
-    ocr_notify: std::sync::Condvar,
+    /// One-shot request for a fresh full preview frame
+    frame_now: AtomicBool,
+    /// Channel to the OCR/encode worker thread
+    ocr_tx: Mutex<mpsc::Sender<OcrJob>>,
     /// OCR frame interval (capture frames) — env RUNLOG_OCR_INTERVAL
     ocr_interval_cfg: u64,
     /// OCR JPEG quality (1-100) — env RUNLOG_OCR_QUALITY
@@ -138,11 +202,15 @@ struct SharedState {
 // ---------------------------------------------------------------------------
 // Double-buffered staging pool — zero-stall GPU→CPU readback
 //
-// During recording, we cannot call frame.buffer() (synchronous CopyResource +
-// Map) on the hot path without stalling the GPU encoder pipeline. Instead we
-// issue an async CopyResource into one staging texture and, on the next OCR
-// interval, Map/read the OTHER staging texture whose copy has long since
-// completed. Data is one interval old (~3s) — fine for state detection.
+// We never call frame.buffer() (synchronous CopyResource + Map) on the
+// periodic OCR path — not in menus and not while recording — because the
+// stall it causes is shared with the game's GPU pipeline. Instead we issue an
+// async CopyResource into one staging texture and, on the next OCR interval,
+// Map/read the OTHER staging texture whose copy has long since completed.
+// Data is one interval old (0.5s in menus, ~3s while recording) — fine for
+// state detection. While mapped, we copy out only the bytes the pipeline
+// needs: the three OCR scan regions and, on full-frame ticks, a packed full
+// copy — not the whole pitched 4K surface every tick.
 // ---------------------------------------------------------------------------
 
 struct StagingPool {
@@ -231,58 +299,63 @@ impl StagingPool {
         }
     }
 
-    fn copy_and_read(&mut self, frame_texture: &ID3D11Texture2D) -> Option<OcrFrameData> {
+    /// Read the previously copied staging texture (async copy long since
+    /// complete — no stall), extracting only the OCR regions plus an optional
+    /// packed full frame, then issue the async copy for the current frame.
+    fn copy_and_extract(
+        &mut self,
+        frame_texture: &ID3D11Texture2D,
+        want_full: bool,
+    ) -> Option<(Option<RawImage>, Vec<(&'static str, RawImage)>)> {
         self.ensure_staging(frame_texture);
-        let ctx = match self.context.as_ref() {
-            Some(c) => c,
-            None => return None,
-        };
+        let ctx = self.context.as_ref()?;
 
         let read_idx = self.current;
         let write_idx = 1 - self.current;
 
-        let result = if self.ready[read_idx] {
-            let staging = match self.staging[read_idx].as_ref() {
-                Some(s) => s,
-                None => return None,
-            };
-            let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
-            let hr = unsafe {
-                ctx.Map(staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))
-            };
-            if hr.is_ok() {
-                let row_pitch = mapped.RowPitch as usize;
-                let total_bytes = match row_pitch.checked_mul(self.height as usize) {
-                    Some(t) => t,
-                    None => {
-                        eprintln!("[recorder] Buffer size overflow: {}x{}", row_pitch, self.height);
-                        unsafe { ctx.Unmap(staging, 0) };
-                        return None;
+        let mut result = None;
+        if self.ready[read_idx] {
+            if let Some(staging) = self.staging[read_idx].as_ref() {
+                let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
+                let hr = unsafe { ctx.Map(staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped)) };
+                if hr.is_ok() {
+                    if mapped.pData.is_null() {
+                        eprintln!("[recorder] Map returned null pointer");
+                    } else {
+                        let row_pitch = mapped.RowPitch as usize;
+                        let w = self.width as usize;
+                        let h = self.height as usize;
+                        match row_pitch.checked_mul(h) {
+                            Some(total_bytes) if row_pitch >= w * 4 => {
+                                let data = unsafe {
+                                    std::slice::from_raw_parts(mapped.pData as *const u8, total_bytes)
+                                };
+                                let mut regions = Vec::with_capacity(OCR_REGIONS.len());
+                                for def in &OCR_REGIONS {
+                                    if let Some(img) = extract_region(data, row_pitch, w, h, def) {
+                                        regions.push((def.name, img));
+                                    }
+                                }
+                                let full = if want_full {
+                                    extract_full(data, row_pitch, w, h)
+                                } else {
+                                    None
+                                };
+                                result = Some((full, regions));
+                            }
+                            _ => {
+                                eprintln!(
+                                    "[recorder] Bad staging dimensions: pitch={} {}x{}",
+                                    row_pitch, w, h
+                                );
+                            }
+                        }
                     }
-                };
-                if mapped.pData.is_null() {
-                    eprintln!("[recorder] Map returned null pointer");
                     unsafe { ctx.Unmap(staging, 0) };
-                    return None;
+                    self.ready[read_idx] = false;
                 }
-                let data = unsafe {
-                    std::slice::from_raw_parts(mapped.pData as *const u8, total_bytes)
-                };
-                let raw = data.to_vec();
-                unsafe { ctx.Unmap(staging, 0) };
-                self.ready[read_idx] = false;
-                Some(OcrFrameData {
-                    raw,
-                    width: self.width as usize,
-                    height: self.height as usize,
-                    row_pitch,
-                })
-            } else {
-                None
             }
-        } else {
-            None
-        };
+        }
 
         let staging_dst = match self.staging[write_idx].as_ref() {
             Some(s) => s,
@@ -290,11 +363,105 @@ impl StagingPool {
         };
         unsafe { ctx.CopyResource(staging_dst, frame_texture) };
         self.ready[write_idx] = true;
-
         self.current = write_idx;
 
         result
     }
+}
+
+/// Copy one scan region out of a mapped (pitched) BGRA surface into a tightly
+/// packed buffer. Per-row memcpy — no per-pixel work on the capture thread.
+fn extract_region(data: &[u8], row_pitch: usize, w: usize, h: usize, def: &RegionDef) -> Option<RawImage> {
+    let x1 = ((w as f32 * def.x1) as usize).min(w);
+    let x2 = ((w as f32 * def.x2) as usize).min(w);
+    let y1 = ((h as f32 * def.y1) as usize).min(h);
+    let y2 = ((h as f32 * def.y2) as usize).min(h);
+    if x2 <= x1 || y2 <= y1 {
+        return None;
+    }
+    let rw = x2 - x1;
+    let rh = y2 - y1;
+    let mut raw = Vec::with_capacity(rw * rh * 4);
+    for y in y1..y2 {
+        let start = y * row_pitch + x1 * 4;
+        let end = start + rw * 4;
+        if end > data.len() {
+            return None;
+        }
+        raw.extend_from_slice(&data[start..end]);
+    }
+    Some(RawImage { raw, width: rw, height: rh, row_pitch: rw * 4 })
+}
+
+/// Copy a full mapped surface into a tightly packed buffer (pitch stripped).
+fn extract_full(data: &[u8], row_pitch: usize, w: usize, h: usize) -> Option<RawImage> {
+    let mut raw = Vec::with_capacity(w * h * 4);
+    for y in 0..h {
+        let start = y * row_pitch;
+        let end = start + w * 4;
+        if end > data.len() {
+            return None;
+        }
+        raw.extend_from_slice(&data[start..end]);
+    }
+    Some(RawImage { raw, width: w, height: h, row_pitch: w * 4 })
+}
+
+/// Synchronous full-frame readback. Stalls the GPU pipeline briefly, so this
+/// is reserved for explicit one-shot requests (screenshots, frame_now) that
+/// fire on loading/stats screens — never on the periodic detection path.
+fn read_frame_raw(frame: &mut Frame<'_>) -> Option<RawImage> {
+    let mut buffer = match frame.buffer() {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("[recorder] frame.buffer() failed: {}", e);
+            return None;
+        }
+    };
+    let width = buffer.width() as usize;
+    let height = buffer.height() as usize;
+    let row_pitch = buffer.row_pitch() as usize;
+    let raw = buffer.as_raw_buffer().to_vec();
+    Some(RawImage { raw, width, height, row_pitch })
+}
+
+/// BGRA → RGB with optional integer downscale, then JPEG encode.
+/// Bounds are validated once up front so the row loops need no per-pixel checks.
+fn bgra_to_jpeg(img: &RawImage, scale: usize, quality: u8) -> Option<Vec<u8>> {
+    let scale = scale.max(1);
+    let ow = img.width / scale;
+    let oh = img.height / scale;
+    if ow == 0 || oh == 0 {
+        return None;
+    }
+    let last_row_start = (oh - 1) * scale * img.row_pitch;
+    if img.row_pitch < img.width * 4 || last_row_start + img.width * 4 > img.raw.len() {
+        eprintln!(
+            "[recorder] Frame buffer too small: {}x{} pitch={} len={}",
+            img.width, img.height, img.row_pitch, img.raw.len()
+        );
+        return None;
+    }
+
+    let mut rgb = vec![0u8; ow * oh * 3];
+    for y in 0..oh {
+        let src = &img.raw[y * scale * img.row_pitch..][..img.width * 4];
+        let dst = &mut rgb[y * ow * 3..][..ow * 3];
+        for x in 0..ow {
+            let si = x * scale * 4; // BGRA
+            let di = x * 3;
+            dst[di] = src[si + 2]; // R
+            dst[di + 1] = src[si + 1]; // G
+            dst[di + 2] = src[si]; // B
+        }
+    }
+
+    let mut jpeg_buf = Vec::with_capacity(JPEG_BUF_CAPACITY);
+    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_buf, quality);
+    encoder
+        .encode(&rgb, ow as u32, oh as u32, image::ExtendedColorType::Rgb8)
+        .ok()?;
+    Some(jpeg_buf)
 }
 
 // ---------------------------------------------------------------------------
@@ -311,6 +478,7 @@ struct Recorder {
     height: u32,
     ocr_interval: u64,
     staging_pool: StagingPool,
+    staged_tick: u64,
 }
 
 impl GraphicsCaptureApiHandler for Recorder {
@@ -329,6 +497,7 @@ impl GraphicsCaptureApiHandler for Recorder {
             height: 0,
             ocr_interval: interval,
             staging_pool: StagingPool::new(),
+            staged_tick: 0,
         })
     }
 
@@ -361,16 +530,33 @@ impl GraphicsCaptureApiHandler for Recorder {
             return Ok(());
         }
 
+        let ocr_scale: usize = if self.width >= 3000 { 2 } else { 1 };
+
+        // Screenshot request — raw readback here, JPEG encode + file write on
+        // the worker thread (encoding 4K on this callback would stall frame
+        // delivery to the video encoder).
         {
-            let mut ss_path = self.state.screenshot_path.lock().unwrap();
-            if let Some(path) = ss_path.take() {
-                drop(ss_path);
-                match frame.save_as_image(&path, windows_capture::frame::ImageFormat::Jpeg) {
-                    Ok(_) => emit(&Event::ScreenshotSaved { path }),
-                    Err(e) => emit(&Event::Error {
-                        message: format!("Screenshot failed: {}", e),
+            let path_opt = self.state.screenshot_path.lock().unwrap().take();
+            if let Some(path) = path_opt {
+                match read_frame_raw(frame) {
+                    Some(image) => self.queue_job(OcrJob::SaveScreenshot { path, image }),
+                    None => emit(&Event::Error {
+                        message: "Screenshot failed: could not read frame".into(),
                     }),
                 }
+            }
+        }
+
+        // On-demand fresh full preview frame (Python requests these when a
+        // detection hit needs a screenshot — loading/stats screens, never
+        // mid-combat). One synchronous readback, encode on the worker thread.
+        if self.state.frame_now.swap(false, Ordering::AcqRel) {
+            if let Some(img) = read_frame_raw(frame) {
+                self.queue_job(OcrJob::Frames {
+                    scale: ocr_scale,
+                    full: Some(img),
+                    regions: Vec::new(),
+                });
             }
         }
 
@@ -466,23 +652,30 @@ impl GraphicsCaptureApiHandler for Recorder {
             }
         }
 
-        // OCR frame capture:
-        //   - In menus (no encoder): direct frame.buffer() every ocr_interval (~0.5s)
-        //   - During recording: async double-buffered staging every 6*ocr_interval (~3s)
-        //   - After RUN_COMPLETE (ocr_fast on): direct path, fast interval
+        // OCR capture — always async double-buffered staging, so the GPU
+        // pipeline is never stalled by detection, in menus or in game:
+        //   - Menus (no encoder): every ocr_interval (~0.5s)
+        //   - Recording: every 6*ocr_interval (~3s)
+        //   - After RUN_COMPLETE (ocr_fast): every ocr_interval, full frame each tick
         let is_recording = self.encoder.is_some();
         let ocr_fast = self.state.ocr_fast.load(Ordering::Relaxed);
-        let use_staged = is_recording && !ocr_fast;
-        let interval = if use_staged {
+        let interval = if is_recording && !ocr_fast {
             self.ocr_interval.saturating_mul(OCR_RECORD_INTERVAL_MULTIPLIER)
         } else {
             self.ocr_interval
         };
         if interval > 0 && self.frame_count % interval == 0 {
-            if use_staged {
-                self.send_ocr_frame_staged(frame);
+            let want_full = if ocr_fast {
+                true
+            } else if is_recording {
+                self.staged_tick % FULL_FRAME_EVERY_RECORD_TICKS == 0
             } else {
-                self.send_ocr_frame(frame);
+                self.staged_tick % FULL_FRAME_EVERY_MENU_TICKS == 0
+            };
+            self.staged_tick += 1;
+            let frame_texture = unsafe { frame.as_raw_texture() };
+            if let Some((full, regions)) = self.staging_pool.copy_and_extract(frame_texture, want_full) {
+                self.queue_job(OcrJob::Frames { scale: ocr_scale, full, regions });
             }
         }
 
@@ -514,42 +707,9 @@ impl Recorder {
         self.recording_start = None;
     }
 
-    /// Direct OCR frame capture — used in menus when GPU is not under load.
-    /// frame.buffer() does a synchronous CopyResource + Map; fine when idle.
-    fn send_ocr_frame(&mut self, frame: &mut Frame<'_>) {
-        let mut buffer = match frame.buffer() {
-            Ok(b) => b,
-            Err(e) => {
-                eprintln!("[recorder] frame.buffer() failed: {}", e);
-                return;
-            }
-        };
-
-        let w = buffer.width() as usize;
-        let h = buffer.height() as usize;
-        let row_pitch = buffer.row_pitch() as usize;
-        let raw: Vec<u8> = buffer.as_raw_buffer().to_vec();
-        drop(buffer);
-
-        {
-            let mut pending = self.state.ocr_pending.lock().unwrap();
-            *pending = Some(OcrFrameData { raw, width: w, height: h, row_pitch });
-        }
-        self.state.ocr_notify.notify_one();
-    }
-
-    /// Zero-stall OCR during recording via double-buffered staging textures.
-    /// Reads the previous frame's staging (copy long since complete) and
-    /// issues an async CopyResource for the current frame. No GPU stall.
-    fn send_ocr_frame_staged(&mut self, frame: &mut Frame<'_>) {
-        let frame_texture = unsafe { frame.as_raw_texture() };
-
-        if let Some(ocr_data) = self.staging_pool.copy_and_read(frame_texture) {
-            {
-                let mut pending = self.state.ocr_pending.lock().unwrap();
-                *pending = Some(ocr_data);
-            }
-            self.state.ocr_notify.notify_one();
+    fn queue_job(&self, job: OcrJob) {
+        if let Ok(tx) = self.state.ocr_tx.lock() {
+            let _ = tx.send(job);
         }
     }
 }
@@ -623,6 +783,26 @@ fn set_high_priority() {
     }
 }
 
+/// Drop the OCR/encode worker below normal priority — its JPEG bursts must
+/// never preempt the game, the capture callback, or the video encoder.
+fn set_ocr_thread_priority() {
+    use std::ffi::c_void;
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetCurrentThread() -> *mut c_void;
+        fn SetThreadPriority(hThread: *mut c_void, nPriority: i32) -> i32;
+    }
+
+    const THREAD_PRIORITY_BELOW_NORMAL: i32 = -1;
+
+    unsafe {
+        if SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL) != 0 {
+            eprintln!("[recorder] OCR thread priority: BELOW_NORMAL");
+        }
+    }
+}
+
 fn main() {
     eprintln!("[recorder] runlog-recorder starting...");
 
@@ -662,6 +842,8 @@ fn main() {
     let min_update_interval = Duration::from_micros(1_000_000 / capture_fps as u64);
     eprintln!("[recorder] Capture rate cap: {}fps ({}us min interval)", capture_fps, min_update_interval.as_micros());
 
+    let (ocr_tx, ocr_rx) = mpsc::channel::<OcrJob>();
+
     let state = Arc::new(SharedState {
         window_title: Mutex::new(title.clone()),
         should_record: AtomicBool::new(false),
@@ -674,65 +856,73 @@ fn main() {
         screenshot_path: Mutex::new(None),
         encoded_frames: AtomicU64::new(0),
         ocr_fast: AtomicBool::new(false),
-        ocr_pending: Mutex::new(None),
-        ocr_notify: std::sync::Condvar::new(),
+        frame_now: AtomicBool::new(false),
+        ocr_tx: Mutex::new(ocr_tx),
         ocr_interval_cfg,
         ocr_jpeg_quality,
     });
 
-    // OCR processing thread
+    // OCR/encode worker thread — all BGRA→RGB conversion, JPEG encode, base64,
+    // and screenshot file writes happen here, never on the capture callback.
     let ocr_state = Arc::clone(&state);
     std::thread::spawn(move || {
+        set_ocr_thread_priority();
+        let quality = ocr_state.ocr_jpeg_quality;
+        let mut seq: u64 = 0;
         loop {
-            let frame_data = {
-                let mut pending = ocr_state.ocr_pending.lock().unwrap();
-                while pending.is_none() {
+            let job = match ocr_rx.recv_timeout(Duration::from_secs(1)) {
+                Ok(j) => j,
+                Err(mpsc::RecvTimeoutError::Timeout) => {
                     if ocr_state.should_quit.load(Ordering::Acquire) {
                         return;
                     }
-                    pending = match ocr_state.ocr_notify.wait_timeout(pending, std::time::Duration::from_secs(1)) {
-                        Ok((guard, _)) => guard,
-                        Err(e) => {
-                            eprintln!("[recorder] OCR mutex poisoned, exiting thread: {}", e);
-                            return;
-                        }
-                    };
+                    continue;
                 }
-                pending.take().unwrap()
+                Err(mpsc::RecvTimeoutError::Disconnected) => return,
             };
-
-            if frame_data.row_pitch < frame_data.width * 4 {
-                eprintln!("[recorder] Invalid row_pitch: {} < {} * 4", frame_data.row_pitch, frame_data.width);
-                continue;
-            }
-
-            // Downscale 4K → 1920×1080 for OCR frames — reduces IPC bandwidth ~4x.
-            let ocr_scale = if frame_data.width >= 3000 { 2 } else { 1 };
-            let ow = frame_data.width / ocr_scale;
-            let oh = frame_data.height / ocr_scale;
-
-            let mut rgb_buf = vec![0u8; ow * oh * 3];
-            for y in 0..oh {
-                let sy = y * ocr_scale;
-                let row_start = sy * frame_data.row_pitch;
-                for x in 0..ow {
-                    let sx = x * ocr_scale;
-                    let si = row_start + sx * 4; // BGRA
-                    let di = (y * ow + x) * 3;
-                    if si + 3 < frame_data.raw.len() && di + 2 < rgb_buf.len() {
-                        rgb_buf[di] = frame_data.raw[si + 2]; // R
-                        rgb_buf[di + 1] = frame_data.raw[si + 1]; // G
-                        rgb_buf[di + 2] = frame_data.raw[si]; // B
+            use base64::Engine;
+            match job {
+                OcrJob::Frames { scale, full, regions } => {
+                    if !regions.is_empty() {
+                        let mut lobby = String::new();
+                        let mut deploy = String::new();
+                        let mut endgame = String::new();
+                        for (name, img) in &regions {
+                            if let Some(jpeg) = bgra_to_jpeg(img, scale, quality) {
+                                let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg);
+                                match *name {
+                                    "lobby" => lobby = b64,
+                                    "deploy" => deploy = b64,
+                                    "endgame" => endgame = b64,
+                                    _ => {}
+                                }
+                            }
+                        }
+                        if !(lobby.is_empty() && deploy.is_empty() && endgame.is_empty()) {
+                            seq += 1;
+                            emit(&Event::Regions { seq, lobby, deploy, endgame });
+                        }
+                    }
+                    if let Some(img) = full {
+                        if let Some(jpeg) = bgra_to_jpeg(&img, scale, quality) {
+                            let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg);
+                            emit(&Event::Frame { jpeg_base64: b64 });
+                        }
                     }
                 }
-            }
-
-            let mut jpeg_buf = Vec::with_capacity(JPEG_BUF_CAPACITY);
-            let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_buf, ocr_state.ocr_jpeg_quality);
-            if encoder.encode(&rgb_buf, ow as u32, oh as u32, image::ExtendedColorType::Rgb8).is_ok() {
-                use base64::Engine;
-                let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg_buf);
-                emit(&Event::Frame { jpeg_base64: b64 });
+                OcrJob::SaveScreenshot { path, image } => {
+                    match bgra_to_jpeg(&image, 1, SCREENSHOT_JPEG_QUALITY) {
+                        Some(jpeg) => match std::fs::write(&path, &jpeg) {
+                            Ok(_) => emit(&Event::ScreenshotSaved { path }),
+                            Err(e) => emit(&Event::Error {
+                                message: format!("Screenshot save failed: {}", e),
+                            }),
+                        },
+                        None => emit(&Event::Error {
+                            message: "Screenshot encode failed".into(),
+                        }),
+                    }
+                }
             }
         }
     });
@@ -763,6 +953,9 @@ fn main() {
                 }
                 Ok(Command::Screenshot { path }) => {
                     *ipc_state.screenshot_path.lock().unwrap() = Some(path);
+                }
+                Ok(Command::FrameNow) => {
+                    ipc_state.frame_now.store(true, Ordering::Release);
                 }
                 Ok(Command::OcrFast { enabled }) => {
                     ipc_state.ocr_fast.store(enabled, Ordering::Relaxed);

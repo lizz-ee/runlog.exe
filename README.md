@@ -105,6 +105,7 @@ Everything tunable in one place. Sections:
 - **MediaFoundation encoding** — 60fps at native 4K, HEVC or H.264 (configurable)
 - **Privacy-safe** — captures only the Marathon window, never the desktop
 - **OCR state machine** — scan regions detect deployment (start), RUN_COMPLETE (timestamp), and lobby (stop)
+- **Zero-stall detection** — scan regions are cropped recorder-side and shipped as tiny JPEGs via async double-buffered staging textures; no synchronous GPU readbacks and no full-frame processing while you play
 - **Per-phase screenshots** — READY UP, RUN, DEPLOYING phases captured for shell/loadout identification
 
 ### Processing Modes

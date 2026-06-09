@@ -4,11 +4,13 @@ AutoCapture -- Automatic screen recording triggered by Marathon game state.
 Architecture:
   Rust binary (runlog-recorder.exe) handles:
     - WGC window capture (Marathon only, privacy safe)
-    - H.264 encoding via MediaFoundation HW encoder (zero-copy GPU, 60fps 4K)
-    - OCR frames sent as base64 JPEG at ~2fps
+    - HEVC/H.264 encoding via MediaFoundation HW encoder (zero-copy GPU, 60fps 4K)
+    - OCR region crops shipped as small base64 JPEGs via async double-buffered
+      staging textures — the game's GPU pipeline is never stalled
+    - Full preview frames at a slow cadence + on demand (frame_now)
 
   Python handles:
-    - OCR game state detection (EasyOCR)
+    - OCR game state detection (winocr) on the pre-cropped regions
     - Recording start/stop commands
     - Screenshot management
     - Processing pipeline (Sonnet analysis)
@@ -36,7 +38,7 @@ from datetime import datetime
 from PIL import Image
 import io
 
-from .detection.ocr import detect_game_state, DEPLOY_REGION
+from .detection.ocr import detect_game_state
 from .rust_recorder import RustRecorder
 
 MAX_P1_WORKERS = 4   # Phase 1 (fast stats extraction) — unconstrained
@@ -291,7 +293,7 @@ class AutoCapture:
     # -- Frame relay (OCR frames from Rust binary) -------------------------
 
     def _frame_relay(self):
-        """Relay OCR frames from Rust recorder to our frame store (~2fps)."""
+        """Relay full preview frames from Rust recorder to our frame store."""
         last_seq = -1
         while self._running:
             frame, seq = self._recorder.get_latest_frame()
@@ -302,6 +304,25 @@ class AutoCapture:
                     self._frame_seq += 1
             time.sleep(0.05)  # Poll fast — relay is just a reference copy, negligible CPU
         print("[capture] Frame relay stopped.")
+
+    def _get_fresh_frame(self, timeout: float = 2.0) -> bytes | None:
+        """Request an on-demand full frame from the recorder and wait for it.
+
+        Used when a detection hit needs a screenshot — full preview frames
+        normally arrive on a slow cadence, so we ask for a fresh one instead
+        of saving a stale frame. Falls back to the latest cached frame on
+        timeout.
+        """
+        with self._frame_lock:
+            start_seq = self._frame_seq
+        self._recorder.request_full_frame()
+        deadline = time.time() + timeout
+        while time.time() < deadline and self._running:
+            with self._frame_lock:
+                if self._frame_seq != start_seq:
+                    return self._latest_frame
+            time.sleep(0.05)
+        return self.get_latest_frame_jpeg()
 
     # -- OCR loop (state machine) ------------------------------------------
     # States: lobby → deploy → endgame → postgame → lobby
@@ -316,9 +337,11 @@ class AutoCapture:
     def _ocr_loop(self):
         """OCR state machine — one region at a time.
 
-        Always consumes Rust-side OCR frames via the relay. In menus the Rust
-        recorder pushes at ~2fps; during recording it uses double-buffered
-        staging textures (~3s cadence) so there are no GPU pipeline stalls.
+        Consumes pre-cropped scan regions from the Rust recorder (lobby/deploy/
+        endgame, ~18% of the frame's pixels). All readback on the Rust side is
+        async double-buffered staging, so detection never stalls the game's GPU
+        pipeline — in menus or in game. Full frames only ship on a slow cadence
+        for the UI and are requested on demand when a save needs one.
         """
         last_seq = -1
         self._scan_state = 'lobby'  # lobby | deploy | endgame | postgame
@@ -327,23 +350,20 @@ class AutoCapture:
         endgame_cycle = 0
 
         while self._running:
-            # ---- Acquire frame ------------------------------------------------
-            # frame_img: PIL.Image used for OCR (no encode roundtrip)
-            # frame_bytes: JPEG bytes, kept as None until a save actually needs them
-            frame_img: Image.Image | None = None
-            frame_bytes: bytes | None = None
-            with self._frame_lock:
-                frame_bytes = self._latest_frame
-                seq = self._frame_seq
-            if frame_bytes is None or seq == last_seq:
+            # ---- Acquire region crops -----------------------------------------
+            regions_jpeg, seq = self._recorder.get_latest_regions()
+            if not regions_jpeg or seq == last_seq:
                 time.sleep(0.1)
                 continue
             last_seq = seq
+            regions: dict[str, Image.Image] = {}
             try:
-                frame_img = Image.open(io.BytesIO(frame_bytes))
-                frame_img.load()  # force decode now so downstream ops are cheap
+                for name, data in regions_jpeg.items():
+                    img = Image.open(io.BytesIO(data))
+                    img.load()  # force decode now so downstream ops are cheap
+                    regions[name] = img
             except Exception as e:
-                print(f"[capture] frame decode failed: {e}")
+                print(f"[capture] region decode failed: {e}")
                 time.sleep(0.1)
                 continue
 
@@ -363,7 +383,7 @@ class AutoCapture:
             if self._scan_state == 'deploy':
                 deploy_cycle += 1
                 if deploy_cycle % 5 == 0:
-                    lobby_result = detect_game_state(frame_img, scan_mode='lobby')
+                    lobby_result = detect_game_state(regions, scan_mode='lobby')
                     if lobby_result and lobby_result['type'] in ('prepare', 'select_zone', 'ready_up'):
                         print(f"[capture] Lobby re-detected ({lobby_result['type']}) while in deploy — returning to lobby state")
                         self._scan_state = 'lobby'
@@ -380,7 +400,7 @@ class AutoCapture:
             if self._scan_state == 'endgame':
                 endgame_cycle += 1
                 if endgame_cycle % 5 == 0:
-                    lobby_result = detect_game_state(frame_img, scan_mode='lobby')
+                    lobby_result = detect_game_state(regions, scan_mode='lobby')
                     if lobby_result and lobby_result['type'] in ('prepare', 'select_zone', 'ready_up'):
                         print(f"[capture] Lobby re-detected ({lobby_result['type']}) while in endgame — missed RUN_COMPLETE, stopping recording")
                         self._scan_state = 'lobby'
@@ -393,9 +413,9 @@ class AutoCapture:
                 endgame_cycle = 0
 
             # ---- OCR ---------------------------------------------------------
-            result = detect_game_state(frame_img, scan_mode=self._scan_state)
+            result = detect_game_state(regions, scan_mode=self._scan_state)
             if self._running:
-                self._handle_detection(result, frame_img, frame_bytes)
+                self._handle_detection(result)
 
         print("[capture] OCR loop stopped.")
 
@@ -500,30 +520,18 @@ class AutoCapture:
                     print(f"[capture] Failed to move numbered buffer {i}: {e}")
         return moved
 
-    def _handle_detection(self, result: dict | None, frame_img: "Image.Image | None", frame_bytes: bytes | None):
+    def _handle_detection(self, result: dict | None):
         """Process OCR detection result — act on first match, no debounce.
 
-        frame_img: PIL image from the OCR cycle (always present on detection).
-        frame_bytes: JPEG bytes if already available (menu path from Rust);
-                     None during recording — encoded lazily below only if a save fires.
+        Detection runs on region crops, so saves fetch a full frame on demand:
+        the latest cached preview frame for static lobby screens (ready_up/
+        run/deploying), or a fresh on-demand frame from the recorder for
+        one-shot transitions (deploy/endgame/stats) where staleness matters.
         """
         det_type = result['type'] if result else None
 
         if not det_type:
             return
-
-        # Lazy-encode JPEG bytes only when a save actually fires (avoids the
-        # ~10ms encode on every OCR cycle during recording when no hit occurs).
-        SAVE_TYPES = {'ready_up', 'run', 'deploying', 'deploy', 'endgame', 'exfiltrated', 'eliminated'}
-        frame_jpeg: bytes | None = frame_bytes
-        if det_type in SAVE_TYPES and frame_jpeg is None and frame_img is not None:
-            try:
-                buf = io.BytesIO()
-                frame_img.save(buf, format="JPEG", quality=75)
-                frame_jpeg = buf.getvalue()
-            except Exception as e:
-                print(f"[capture] Lazy JPEG encode failed: {e}")
-                return
 
         # --- State transitions (simple toggle between 3 OCR regions) ---
         prev_state = self._scan_state
@@ -552,13 +560,16 @@ class AutoCapture:
             return
 
         # --- READY UP / RUN / DEPLOYING: one screenshot per phase ---
+        # Static lobby screens — the latest cached preview frame (≤2s old) is fine.
         if det_type in ('ready_up', 'run', 'deploying'):
-            try:
-                count = self._save_phase_screenshot('readyup', det_type, frame_jpeg)
-                slot = self._PHASE_SLOTS.get(det_type, '?')
-                print(f"[capture] Readyup screenshot: slot {slot}/3 ({det_type}), {count} total")
-            except Exception as e:
-                print(f"[capture] Failed to save readyup screenshot: {e}")
+            frame_jpeg = self.get_latest_frame_jpeg()
+            if frame_jpeg:
+                try:
+                    count = self._save_phase_screenshot('readyup', det_type, frame_jpeg)
+                    slot = self._PHASE_SLOTS.get(det_type, '?')
+                    print(f"[capture] Readyup screenshot: slot {slot}/3 ({det_type}), {count} total")
+                except Exception as e:
+                    print(f"[capture] Failed to save readyup screenshot: {e}")
 
         # --- DEPLOY: 3-shot burst + start recording + move readyup buffer ---
         elif det_type == 'deploy' and not self._recording:
@@ -587,34 +598,24 @@ class AutoCapture:
                     with open(os.path.join(screenshots_dir, "metadata.json"), "w") as f:
                         _json.dump({"is_ranked": True}, f)
 
-                # Shot 1: immediate (may catch contract screen — too early)
-                self._save_deploy_shot(screenshots_dir, "deploy_1", frame_jpeg)
-                print(f"[capture] Deploy shot 1/3 saved: {map_name}")
+                # Shot 1: fresh frame now (may catch contract screen — too early)
+                frame_jpeg = self._get_fresh_frame()
+                if frame_jpeg:
+                    self._save_deploy_shot(screenshots_dir, "deploy_1", frame_jpeg)
+                    print(f"[capture] Deploy shot 1/3 saved: {map_name}")
 
-                # Shots 2 & 3: wait for genuinely new frames (2s apart like stats)
+                # Shots 2 & 3: fresh on-demand frames, 2s apart (like stats)
                 def _delayed_deploy_shots():
-                    prev_seq = self._frame_seq
-                    # Shot 2: wait ~2s for a new frame
                     time.sleep(2.0)
-                    for _ in range(10):
-                        if self._frame_seq != prev_seq:
-                            break
-                        time.sleep(0.1)
-                    frame2 = self._latest_frame
+                    frame2 = self._get_fresh_frame()
                     if frame2:
                         self._save_deploy_shot(screenshots_dir, "deploy_2", frame2)
-                        print(f"[capture] Deploy shot 2/3 saved (seq {self._frame_seq})")
-                    # Shot 3: wait another ~2s
-                    prev_seq = self._frame_seq
+                        print(f"[capture] Deploy shot 2/3 saved")
                     time.sleep(2.0)
-                    for _ in range(10):
-                        if self._frame_seq != prev_seq:
-                            break
-                        time.sleep(0.1)
-                    frame3 = self._latest_frame
+                    frame3 = self._get_fresh_frame()
                     if frame3:
                         self._save_deploy_shot(screenshots_dir, "deploy_3", frame3)
-                        print(f"[capture] Deploy shot 3/3 saved (seq {self._frame_seq})")
+                        print(f"[capture] Deploy shot 3/3 saved")
 
                 threading.Thread(target=_delayed_deploy_shots, daemon=True).start()
 
@@ -629,7 +630,10 @@ class AutoCapture:
             self._recorder.set_ocr_fast(True)
             print(f"[capture] RUN_COMPLETE at {elapsed:.1f}s into recording")
 
-            if self._recording_path:
+            # The banner is brief and the staged detection frame is a few
+            # seconds old — grab a fresh full frame for the screenshot.
+            frame_jpeg = self._get_fresh_frame()
+            if self._recording_path and frame_jpeg:
                 screenshots_dir = os.path.join(os.path.dirname(self._recording_path), "screenshots")
                 os.makedirs(screenshots_dir, exist_ok=True)
                 with open(os.path.join(screenshots_dir, "endgame.jpg"), "wb") as f:
@@ -638,8 +642,6 @@ class AutoCapture:
 
                 # Crop the damage widget (Neural Link Severed / death screen)
                 try:
-                    from PIL import Image
-                    import io
                     img = Image.open(io.BytesIO(frame_jpeg))
                     w, h = img.size
                     crop = img.crop((int(w * 0.74), int(h * 0.17), int(w * 0.97), int(h * 0.75)))
@@ -655,34 +657,26 @@ class AutoCapture:
                 screenshots_dir = os.path.join(os.path.dirname(self._recording_path), "screenshots")
                 os.makedirs(screenshots_dir, exist_ok=True)
 
-                # Shot 1: immediate (banner screen)
-                self._save_stats_shot(screenshots_dir, "stats_1", frame_jpeg)
-                print(f"[capture] Stats shot 1/3 saved ({det_type})")
+                # Shot 1: fresh frame now (banner screen)
+                frame_jpeg = self._get_fresh_frame()
+                if frame_jpeg:
+                    self._save_stats_shot(screenshots_dir, "stats_1", frame_jpeg)
+                    print(f"[capture] Stats shot 1/3 saved ({det_type})")
 
                 # Shots 2 & 3: faster timing to catch stats before player clicks to PROGRESS
                 def _delayed_stats_shots():
-                    prev_seq = self._frame_seq
                     # Shot 2: wait ~1s for stats animation to complete
                     time.sleep(1.0)
-                    for _ in range(10):
-                        if self._frame_seq != prev_seq:
-                            break
-                        time.sleep(0.1)
-                    frame2 = self._latest_frame
+                    frame2 = self._get_fresh_frame()
                     if frame2:
                         self._save_stats_shot(screenshots_dir, "stats_2", frame2)
-                        print(f"[capture] Stats shot 2/3 saved (seq {self._frame_seq})")
+                        print(f"[capture] Stats shot 2/3 saved")
                     # Shot 3: wait another ~1.5s
-                    prev_seq = self._frame_seq
                     time.sleep(1.5)
-                    for _ in range(10):
-                        if self._frame_seq != prev_seq:
-                            break
-                        time.sleep(0.1)
-                    frame3 = self._latest_frame
+                    frame3 = self._get_fresh_frame()
                     if frame3:
                         self._save_stats_shot(screenshots_dir, "stats_3", frame3)
-                        print(f"[capture] Stats shot 3/3 saved (seq {self._frame_seq})")
+                        print(f"[capture] Stats shot 3/3 saved")
 
                 threading.Thread(target=_delayed_stats_shots, daemon=True).start()
 
