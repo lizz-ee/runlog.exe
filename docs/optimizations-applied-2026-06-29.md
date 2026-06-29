@@ -169,6 +169,14 @@ All changes are on `main`. Each was verified to compile (`cargo check`, `py_comp
 - **Validate before trusting:** enable it, then confirm Phase-1 stats (kills/loot/coords/loadout)
   still extract correctly across several real runs vs the default.
 
+### 16. HUD overlay: static REC dot instead of a 1.2s pulse  *(audit R3)*
+- **File:** `frontend/electron/main.js` (overlay CSS — removed `animation: pulse` + the keyframes).
+- **Why:** The always-on-top overlay ran a continuous 1.2s opacity pulse on the REC symbol for the
+  **entire run**, forcing a per-frame recomposite of a topmost layered window — real battery/heat/
+  frame-timing cost on long sessions and laptops. A solid red dot reads as "recording" without
+  animating. *(Caveat from the audit: this does NOT restore independent-flip — any topmost overlay
+  demotes a borderless game to composed-flip regardless; it only stops the continuous repaint.)*
+
 ---
 
 ## Deferred (designed, not shipped — higher risk / needs your live-deploy testing)

@@ -165,10 +165,12 @@ body { background: transparent; overflow: hidden; user-select: none; -webkit-app
 #aux { color: rgba(200,255,0,0.25); font-size: 9px; letter-spacing: 0.25em; }
 #bar.rec { border-color: rgba(255,60,60,0.3); }
 #bar.rec::after { background: linear-gradient(90deg, rgba(255,60,60,0.4), transparent 60%); }
-#bar.rec #sym { color: rgba(255,60,60,0.7); animation: pulse 1.2s infinite; }
+/* Static REC dot — the 1.2s opacity pulse forced a recomposite of the
+   always-on-top overlay every frame for the whole run (battery/heat/frame-timing
+   cost on long sessions). A solid dot reads as "recording" without animating. */
+#bar.rec #sym { color: rgba(255,60,60,0.95); }
 #bar.rec #main { color: rgba(255,60,60,0.75); }
 #bar.rec #aux { color: rgba(255,60,60,0.25); }
-@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.2} }
 #wrap { position: relative; display: inline-flex; flex-direction: column; align-items: flex-start; }
 #notif { background: rgba(5,5,8,0.92); border: 1px solid rgba(0,255,255,0.3);
          padding: 0 10px; font: 700 9px 'JetBrains Mono', monospace; letter-spacing: 0.2em;
