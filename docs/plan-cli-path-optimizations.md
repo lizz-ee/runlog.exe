@@ -63,8 +63,8 @@ multi-minute run, even at 1440p — and it's slow/expensive regardless of ping.
   in-flight case (Part 2); but the GB payload hurts cost/latency on every API-mode run.
 
 ### Verdict
-Ship **1A** as a tiny, contained change after a one-run accuracy check. It's the
-80% of the CLI-path win for ~one line. 1B/1C are cleanup.
+**1A is SHIPPED** (`FRAME_RESOLUTION_MAX = 1568`) — the 80% of the CLI-path win for
+one constant. Validate Phase-1 stat accuracy on one real run. 1B/1C remain.
 
 ---
 
@@ -129,7 +129,7 @@ real "process a backlog, then deploy" sequence before trusting the re-queue.
 ---
 
 ## Suggested order
-1. **1A** (frame-res cap) — tiny, after a one-run accuracy check. Biggest CLI-upload win.
+1. ~~**1A** (frame-res cap)~~ — **SHIPPED** (`FRAME_RESOLUTION_MAX = 1568`); validate stat accuracy on one run.
 2. **1C** (replace the Phase-2 whole-mp4 API upload with sampled frames) — kills a GB-scale payload.
 3. **Part 2** (in-flight CLI abort) — the meatier one; do it as its own change with the
    backlog→deploy validation.

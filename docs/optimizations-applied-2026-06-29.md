@@ -125,6 +125,21 @@ All changes are on `main`. Each was verified to compile (`cargo check`, `py_comp
   would do the same downscale anyway. Small images pass through untouched; fail-soft to raw bytes
   if Pillow can't read the file. **API path only** — the CLI path reads files itself (see Deferred).
 
+### 12. CLI-path frame extraction capped at 1568px  *(payload shrink — CLI path, item 1A)*
+- **File:** `backend/app/video_processor.py` (`FRAME_RESOLUTION_MAX` 3840 → 1568).
+- **Why:** The CLI reads analysis frames from disk (`--add-dir`), so the lever is the on-disk
+  extraction width, not the upload. `extract_key_frames` wrote `start_*/end_*.jpg` at native
+  width; the `fps=5` end-frame pass is the "hundreds of frames" flood. Capping extraction at
+  1568px (`min(native, 1568)`, never upscales) is **quality-neutral** — the API downscales past
+  ~1568px anyway, so the model sees identical pixels — while shrinking every CLI-uploaded frame.
+- **Validate:** the end-frame pass reads the PROGRESS/LOADOUT REPORT tabs; confirm Phase-1 stat
+  accuracy on one real run (deploy/spawn-coords are read from full-res *screenshots*, unaffected).
+- Plan for the rest (1C whole-mp4 API path, in-flight CLI abort): `docs/plan-cli-path-optimizations.md`.
+
+---
+
+## Deferred (designed, not shipped — higher risk / needs your live-deploy testing)
+
 Per the "minimal live fixes" rule, these were intentionally **not** scattered onto the live
 path blind:
 
@@ -143,10 +158,10 @@ path blind:
 - **Audio (optional future):** process-specific loopback is now shipped (#8 above). Still open:
   moving audio into the Rust recorder for sample-accurate A/V sync + Python-thread removal
   (blocked on the `windows-capture` audio path — confirm the original disable reason first).
-- **Upload payload shrink — CLI path** (the API path is shipped, #11). The Claude CLI reads
-  frames itself from disk (`--add-dir`), so shrinking its uploads means downscaling at the
-  ffmpeg *extraction* step — intertwined with the CLI-agent extraction (`video_processor.py:1411-1428`);
-  needs investigation + live test. Also retire the base64-whole-video API path (`ai_client.py:367`).
+- **Upload payload shrink — remaining** (API path #11 + CLI frame-res cap #12 are shipped). Still
+  open: **1C** — replace the Phase-2 whole-mp4 API upload (`run_api_prompt(video_path=…)`,
+  `video_processor.py:1528`/`2276`, base64s the entire file) with sampled frames; **1B** —
+  downscaled screenshot copies for the CLI (low payoff). See `docs/plan-cli-path-optimizations.md`.
 
 ---
 

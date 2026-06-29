@@ -73,7 +73,11 @@ def _run_claude_cli(cmd: list[str], timeout: int, label: str) -> str:
 
 
 # -- Frame extraction settings (easy to tune) -------------------------------
-FRAME_RESOLUTION_MAX = 3840   # never upscale beyond source resolution
+# Cap extracted analysis-frame width at the long edge the Claude API downscales
+# to anyway (~1568px): quality-neutral (the model sees the same pixels) but cuts
+# the fps=5 end-frame upload flood that dominates CLI Phase-1 payload. The
+# min(native, cap) in _frame_resolution still never upscales a smaller source.
+FRAME_RESOLUTION_MAX = 1568
 FRAME_DURATION_START = 90     # seconds from start (loading screen can be 0-90s depending on session spawn wait)
 FRAME_FPS_START = 0.5         # deployment loading screen — static, 0.5fps is plenty (~45 frames)
 FRAME_FPS_END = 5             # post-match tabs — flip fast, need higher fps
@@ -95,7 +99,8 @@ def _get_video_resolution(video_path: str) -> int | None:
 
 
 def _frame_resolution(video_path: str) -> int:
-    """Determine frame extraction resolution: use native, never upscale."""
+    """Determine frame extraction width: min(native, FRAME_RESOLUTION_MAX). Never
+    upscales a smaller source; caps larger ones at the API's downscale long-edge."""
     native = _get_video_resolution(video_path)
     if native and native <= FRAME_RESOLUTION_MAX:
         print(f"[processor] Video is {native}px wide — extracting at native resolution")
