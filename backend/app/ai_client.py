@@ -311,6 +311,42 @@ async def run_cli_prompt_async(
 # API Prompt Execution
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# The Anthropic API downscales images past ~1568px on the long edge before the
+# model sees them, so uploading anything larger just wastes upload bandwidth and
+# latency (and, mid-match, ping) for no quality gain. Shrink client-side to that
+# cap — quality-neutral, since the API would do the same downscale anyway.
+_API_IMAGE_MAX_EDGE = 1568
+
+
+def _encode_image_for_api(path: str, max_edge: int = _API_IMAGE_MAX_EDGE) -> tuple[str, str]:
+    """Return (media_type, base64) for an image, shrinking it to max_edge on the
+    long side first. Falls back to the raw file bytes if Pillow can't read it."""
+    try:
+        import io
+
+        from PIL import Image
+
+        with Image.open(path) as im:
+            w, h = im.size
+            if max(w, h) > max_edge:
+                scale = max_edge / float(max(w, h))
+                im = im.convert("RGB").resize(
+                    (max(1, round(w * scale)), max(1, round(h * scale))),
+                    Image.Resampling.LANCZOS,
+                )
+                buf = io.BytesIO()
+                im.save(buf, format="JPEG", quality=90)
+                return "image/jpeg", base64.b64encode(buf.getvalue()).decode("utf-8")
+    except Exception:
+        pass
+    with open(path, "rb") as f:
+        data = f.read()
+    ext = path.rsplit(".", 1)[-1].lower()
+    media_type = "image/jpeg" if ext in ("jpg", "jpeg") else (
+        f"image/{ext}" if ext in ("png", "gif", "webp") else "image/png")
+    return media_type, base64.b64encode(data).decode("utf-8")
+
+
 def run_api_prompt(
     prompt: str,
     *,
@@ -352,13 +388,7 @@ def run_api_prompt(
 
         if images:
             for path in images:
-                with open(path, "rb") as f:
-                    data = f.read()
-                ext = path.split(".")[-1].lower()
-                media_type = f"image/{ext}" if ext in ("png", "jpeg", "jpg", "gif", "webp") else "image/png"
-                if ext == "jpg":
-                    media_type = "image/jpeg"
-                b64 = base64.b64encode(data).decode("utf-8")
+                media_type, b64 = _encode_image_for_api(path)
                 content.append({
                     "type": "image",
                     "source": {"type": "base64", "media_type": media_type, "data": b64},

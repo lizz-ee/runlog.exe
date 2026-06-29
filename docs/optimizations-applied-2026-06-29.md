@@ -116,9 +116,14 @@ All changes are on `main`. Each was verified to compile (`cargo check`, `py_comp
   worker drains in ms); drops only happen under a reader stall, where a missed periodic OCR tick
   is harmless.
 
----
-
-## Deferred (designed, not shipped — higher risk / needs your live-deploy testing)
+### 11. API upload image downscale  *(claude-mode payload shrink — API path)*
+- **File:** `backend/app/ai_client.py` (`_encode_image_for_api`).
+- **Why:** `run_api_prompt` base64-encoded images at full resolution. The Anthropic API already
+  downscales images past ~1568px on the long edge before the model sees them, so sending 4K
+  frames wasted upload bandwidth + latency (and, mid-match, ping) for **zero** quality gain.
+  Now images are shrunk to 1568px (JPEG q90) client-side first — quality-neutral, since the API
+  would do the same downscale anyway. Small images pass through untouched; fail-soft to raw bytes
+  if Pillow can't read the file. **API path only** — the CLI path reads files itself (see Deferred).
 
 Per the "minimal live fixes" rule, these were intentionally **not** scattered onto the live
 path blind:
@@ -138,9 +143,10 @@ path blind:
 - **Audio (optional future):** process-specific loopback is now shipped (#8 above). Still open:
   moving audio into the Rust recorder for sample-accurate A/V sync + Python-thread removal
   (blocked on the `windows-capture` audio path — confirm the original disable reason first).
-- **Upload payload shrink** (downscale frames to ~1280–1920px long edge; retire the
-  base64-whole-video API path) — real bandwidth/ping win in claude mode, but intertwined with
-  the CLI-agent extraction path (`video_processor.py:1411-1428`); needs investigation + live test.
+- **Upload payload shrink — CLI path** (the API path is shipped, #11). The Claude CLI reads
+  frames itself from disk (`--add-dir`), so shrinking its uploads means downscaling at the
+  ffmpeg *extraction* step — intertwined with the CLI-agent extraction (`video_processor.py:1411-1428`);
+  needs investigation + live test. Also retire the base64-whole-video API path (`ai_client.py:367`).
 
 ---
 
