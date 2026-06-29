@@ -27,10 +27,15 @@ class AudioSidecarStatus:
 class AudioSidecarRecorder:
     """Record default speaker loopback audio to a PCM WAV file."""
 
-    def __init__(self, sample_rate: int = 48000, channels: int = 2, chunk_seconds: float = 0.5):
+    def __init__(self, sample_rate: int = 48000, channels: int = 2, chunk_seconds: float = 0.5,
+                 target_image: str = "Marathon.exe"):
         self.sample_rate = sample_rate
         self.channels = channels
         self.chunk_frames = max(1024, int(sample_rate * chunk_seconds))
+        # Process whose audio we capture. Process loopback scopes the WAV to just
+        # this app (and its children), so Discord/music/notifications never get
+        # muxed into clips. Falls back to whole-system loopback if unavailable.
+        self.target_image = target_image
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._lock = threading.Lock()
@@ -85,6 +90,41 @@ class AudioSidecarRecorder:
         return None
 
     def _record_loop(self, wav_path: str) -> None:
+        # Preferred: capture only the game's audio (Marathon-only), so other apps
+        # (Discord, music, notifications) never leak into clips. Falls back to
+        # whole-system loopback if process loopback is unavailable (older Windows,
+        # no device, init failure).
+        if self._try_process_loopback(wav_path):
+            return
+        self._record_loop_system(wav_path)
+
+    def _try_process_loopback(self, wav_path: str) -> bool:
+        """Run WASAPI per-process loopback for the target game. Returns True if it
+        captured (or stopped cleanly with data), False to fall back to system audio."""
+        try:
+            from . import wasapi_loopback
+        except Exception:
+            return False
+        pid = wasapi_loopback.find_process_id(self.target_image)
+        if not pid:
+            print(f"[audio] {self.target_image} not found for process loopback; using system audio")
+            return False
+        try:
+            wasapi_loopback.record_process_loopback(
+                pid, wav_path, self._stop, self.sample_rate, self.channels
+            )
+            print(f"[audio] captured {self.target_image}-only audio (process loopback)")
+            return True
+        except Exception as e:
+            # Init failed before the WAV was opened → clean fallback. If a WAV was
+            # already written, keep it (it's the game's audio) rather than overwrite.
+            if os.path.exists(wav_path) and os.path.getsize(wav_path) > 44:
+                print(f"[audio] process loopback ended after capture: {e}")
+                return True
+            print(f"[audio] process loopback unavailable ({e}); falling back to system audio")
+            return False
+
+    def _record_loop_system(self, wav_path: str) -> None:
         try:
             import soundcard as sc
         except Exception as e:

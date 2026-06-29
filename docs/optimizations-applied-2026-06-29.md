@@ -74,6 +74,22 @@ All changes are on `main`. Each was verified to compile (`cargo check`, `py_comp
   and frame-time percentiles, with a guided A/B `compare` mode to prove a change moved — or
   didn't move — Marathon's frame pacing. Observation-only; touches no app process.
 
+### 8. Audio privacy — Marathon-only loopback  *(addendum tenant; UNTESTED here)*
+- **Files:** new `backend/app/wasapi_loopback.py`; `backend/app/audio_sidecar.py`.
+- **Why:** The sidecar used `soundcard`'s default-speaker loopback, which records **all** system
+  audio (Discord, music, notifications) and permanently muxes it into every clip — a real
+  privacy/quality bug, not just perf. New `wasapi_loopback.py` does Windows per-process loopback
+  (`ActivateAudioInterfaceAsync` + `AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK` via ctypes)
+  keyed to Marathon's PID, so only the game's audio is captured.
+- **Fail-soft:** all COM init happens before the WAV is opened; on *any* failure (older Windows,
+  no device, init error) it falls back to the previous whole-system loopback — recording never
+  regresses. The addendum's "move audio into the Rust recorder" alternative was **not** taken:
+  `TODO.md` documents the `windows-capture` audio path blocks, and process loopback in the Python
+  sidecar gets the privacy win without that risk.
+- **Validated here:** struct ABI sizes/offsets (WAVEFORMATEX=18, PROPVARIANT=24), GUID parsing,
+  the COM completion-handler vtable, process enumeration. **NOT validated:** the actual capture
+  (needs Marathon running + an audio device) — confirm a clip's audio is game-only on your box.
+
 ---
 
 ## Deferred (designed, not shipped — higher risk / needs your live-deploy testing)
@@ -92,10 +108,9 @@ path blind:
   detection-latency caveat; tune `ocr.py:91-95` thresholds first.
 - **Disk-I/O: same-physical-drive warning** in STOR.CONFIG (HDD seek-thrash); lower recorder
   write I/O priority on detected HDD.
-- **Audio tenant:** move sidecar audio into the Rust recorder for sample-accurate A/V sync +
-  thread removal, paired with **process-specific loopback** for privacy parity with the
-  window-scoped video (today it records *all* system audio). Confirm the original disable
-  reason first.
+- **Audio (optional future):** process-specific loopback is now shipped (#8 above). Still open:
+  moving audio into the Rust recorder for sample-accurate A/V sync + Python-thread removal
+  (blocked on the `windows-capture` audio path — confirm the original disable reason first).
 - **Bound/coalesce the Rust worker job channel** (drop-oldest) — memory-safety guard (R19 half 2).
 - **Upload payload shrink** (downscale frames to ~1280–1920px long edge; retire the
   base64-whole-video API path).
