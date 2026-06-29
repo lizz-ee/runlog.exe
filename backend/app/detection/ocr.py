@@ -1,16 +1,17 @@
 """
 OCR detection for Marathon game state.
 
-Three scan regions:
+Three scan regions, cropped at the source by the Rust recorder:
   - OCR.DEPLOY (center)  — map name on deployment loading screen → START recording
   - OCR.ENDGAME (upper)  — //RUN_COMPLETE banner → log timestamp for stats extraction
   - OCR.LOBBY (bottom)   — PREPARE/READY_UP buttons → STOP recording / capture loadout
 
+The recorder ships only these crops (~18% of the frame's pixels) over IPC for
+detection, so no full-frame decode or crop happens on the hot path here.
+
 Uses Windows.Media.Ocr via winocr (~16ms per call, hardware-accelerated).
 EasyOCR is NOT used here — it stays in the alpha stats pipeline only.
 """
-
-import io
 
 from PIL import Image, ImageStat
 
@@ -49,6 +50,8 @@ def _ocr_pil(img: Image.Image, label: str = "") -> str:
 
 
 # -- Scan regions (percentage of screen dimensions) ---------------------------
+# Reference only on this side — the actual cropping happens in the Rust
+# recorder. MUST stay in sync with OCR_REGIONS in backend/recorder/src/main.rs.
 
 # OCR.DEPLOY — center screen, deployment loading screen (map name + coordinates)
 DEPLOY_REGION = (0.35, 0.38, 0.65, 0.65)
@@ -59,39 +62,54 @@ ENDGAME_REGION = (0.28, 0.12, 0.72, 0.22)
 # OCR.LOBBY — bottom center, PREPARE/READY_UP buttons
 LOBBY_REGION = (0.33, 0.72, 0.67, 0.89)
 
+# OCR.KILLFEED — upper left, "[Player] eliminated [Target]" feed
+KILLFEED_REGION = (0.01, 0.15, 0.30, 0.38)
+
 # Known map names for deployment detection
 MAP_NAMES = ["PERIMETER", "OUTPOST", "DIRE MARSH", "CRYO ARCHIVE"]
 
 
-def _crop_region(img: Image.Image, region: tuple) -> Image.Image:
-    """Crop a percentage-based region from an image."""
-    w, h = img.size
-    x1, y1, x2, y2 = region
-    return img.crop((int(w * x1), int(h * y1), int(w * x2), int(h * y2)))
+def detect_kill_feed(img: "Image.Image | None") -> list[str]:
+    """Scan the kill feed crop for elimination lines.
+
+    Returns the raw OCR lines containing an elimination ("X eliminated Y").
+    Used during recording to log combat timestamps for Phase 2 — purely
+    additive hints, so OCR misses are harmless.
+    """
+    if img is None:
+        return []
+    try:
+        text = _ocr_pil(img, "")
+        if not text or "ELIMINAT" not in text:
+            return []
+        return [ln.strip() for ln in text.splitlines() if "ELIMINAT" in ln and ln.strip()]
+    except Exception as e:
+        print(f"[ocr] Kill feed error: {e}")
+        return []
 
 
-def _looks_like_run_complete(img: Image.Image) -> bool:
+def _looks_like_run_complete(banner: Image.Image) -> bool:
     """Detect the RUN_COMPLETE banner visually before trying OCR."""
-    crop = _crop_region(img, ENDGAME_REGION).convert("RGB")
-    mean_r, mean_g, mean_b = ImageStat.Stat(crop).mean[:3]
+    mean_r, mean_g, mean_b = ImageStat.Stat(banner.convert("RGB")).mean[:3]
     brightness = (mean_r + mean_g + mean_b) / 3
     return brightness > 150 and mean_g > 180 and mean_g > mean_b * 1.2
 
 
-def detect_game_state(frame: "Image.Image | bytes", scan_mode: str = "lobby") -> dict | None:
+def detect_game_state(regions: "dict[str, Image.Image]", scan_mode: str = "lobby") -> dict | None:
     """Scan ONE OCR region based on current state machine mode.
 
-    Accepts either a PIL.Image (preferred — skips decode) or raw JPEG bytes.
+    regions: pre-cropped scan-region images from the recorder, keyed
+    'lobby' | 'deploy' | 'endgame'. The deploy crop doubles as the
+    postgame/center-screen region.
 
     scan_mode: 'lobby' | 'deploy' | 'endgame' | 'postgame'
 
     Returns a detection dict or None.
     """
     try:
-        img = frame if isinstance(frame, Image.Image) else Image.open(io.BytesIO(frame))
-
         if scan_mode == "deploy":
-            text = _ocr_pil(_crop_region(img, DEPLOY_REGION), "DEPLOY")
+            img = regions.get("deploy")
+            text = _ocr_pil(img, "DEPLOY") if img else ""
             if text:
                 for map_name in MAP_NAMES:
                     if map_name in text:
@@ -101,7 +119,8 @@ def detect_game_state(frame: "Image.Image | bytes", scan_mode: str = "lobby") ->
             return None
 
         if scan_mode == "postgame":
-            text = _ocr_pil(_crop_region(img, DEPLOY_REGION), "POSTGAME")
+            img = regions.get("deploy")
+            text = _ocr_pil(img, "POSTGAME") if img else ""
             if text:
                 if "EXFILTRAT" in text:
                     return {"type": "exfiltrated", "map_name": None, "text": text}
@@ -110,15 +129,18 @@ def detect_game_state(frame: "Image.Image | bytes", scan_mode: str = "lobby") ->
             return None
 
         if scan_mode == "endgame":
-            if _looks_like_run_complete(img):
+            banner = regions.get("endgame")
+            if banner is not None and _looks_like_run_complete(banner):
                 return {"type": "endgame", "map_name": None, "text": "VISUAL_RUN_COMPLETE"}
 
-            text = _ocr_pil(_crop_region(img, ENDGAME_REGION), "ENDGAME")
+            text = _ocr_pil(banner, "ENDGAME") if banner else ""
             if text and "RUN" in text and "COMPLETE" in text:
                 return {"type": "endgame", "map_name": None, "text": text}
-            # RUN_COMPLETE banner is brief (~2s) and can be missed by the 2s mss interval.
-            # Fall back to checking the center region for ELIMINATED/EXFILTRATED directly.
-            text2 = _ocr_pil(_crop_region(img, DEPLOY_REGION), "ENDGAME_CENTER")
+            # RUN_COMPLETE banner is brief (~2s) and can be missed at the staged
+            # sampling interval. Fall back to checking the center region for
+            # ELIMINATED/EXFILTRATED directly.
+            center = regions.get("deploy")
+            text2 = _ocr_pil(center, "ENDGAME_CENTER") if center else ""
             if text2:
                 if "EXFILTRAT" in text2:
                     return {"type": "exfiltrated", "map_name": None, "text": text2}
@@ -127,7 +149,8 @@ def detect_game_state(frame: "Image.Image | bytes", scan_mode: str = "lobby") ->
             return None
 
         # 'lobby' — scan LOBBY region
-        text = _ocr_pil(_crop_region(img, LOBBY_REGION), "LOBBY")
+        img = regions.get("lobby")
+        text = _ocr_pil(img, "LOBBY") if img else ""
         if text:
             if "EXFILTRAT" in text:
                 return {"type": "exfiltrated", "map_name": None, "text": text}

@@ -1282,6 +1282,97 @@ Convert timestamps like "0:05:30" or "5:30" to seconds (e.g. 330). Output ONLY t
     raise RuntimeError("Phase 2 formatter failed after all retries")
 
 
+# -- Combat hot zones (kill feed events logged during recording) -------------
+
+def _load_combat_events(video_path: str) -> list[dict]:
+    """Load kill feed events from the .events sidecar (JSONL written live
+    during recording). Returns [] when absent — all consumers degrade to the
+    flat extraction path."""
+    events = []
+    path = video_path + ".events"
+    try:
+        if os.path.exists(path):
+            with open(path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        event = json.loads(line)
+                    except ValueError:
+                        continue
+                    if isinstance(event.get("t"), (int, float)):
+                        events.append(event)
+    except Exception as e:
+        print(f"[processor-p2] Failed to read events sidecar: {e}")
+    return events
+
+
+def _build_hot_zones(events: list[dict], duration: float | None,
+                     endgame_ts: float | None = None,
+                     pre: float = 8.0, post: float = 8.0,
+                     max_zones: int = 25) -> list[tuple[int, int]]:
+    """Merge event timestamps (±pre/post seconds) into combat windows.
+
+    Returns [(start_sec, end_sec), ...] sorted and non-overlapping. The
+    endgame timestamp is included so death/extraction is always covered.
+    """
+    points = sorted(e["t"] for e in events)
+    if endgame_ts:
+        points.append(endgame_ts)
+        points.sort()
+    if not points:
+        return []
+
+    zones: list[list[float]] = []
+    for t in points:
+        start = max(0.0, t - pre)
+        end = t + post
+        if duration:
+            end = min(end, duration)
+        if zones and start <= zones[-1][1]:
+            zones[-1][1] = max(zones[-1][1], end)
+        else:
+            zones.append([start, end])
+
+    return [(int(s), int(max(e - s, 1)) + int(s)) for s, e in zones[:max_zones]]
+
+
+def _get_video_duration(video_path: str) -> float | None:
+    try:
+        probe = subprocess.run(
+            ['ffprobe', '-v', 'quiet', '-show_entries',
+             'format=duration', '-of', 'csv=p=0', video_path],
+            capture_output=True, text=True, timeout=10,
+        )
+        return float(probe.stdout.strip())
+    except Exception:
+        return None
+
+
+def _read_endgame_ts(video_path: str) -> float | None:
+    try:
+        with open(video_path + ".endgame") as f:
+            return float(f.read().strip())
+    except Exception:
+        return None
+
+
+def _events_context_block(events: list[dict]) -> str:
+    """Human-readable kill feed event list for the Phase 2 prompts."""
+    if not events:
+        return ""
+    lines = []
+    for e in events[:40]:
+        t = int(e["t"])
+        lines.append(f"  [{t // 60}:{t % 60:02d}] {e.get('text', 'elimination')}")
+    return (
+        "\nCONFIRMED KILL FEED EVENTS (OCR'd live from the HUD during the run — "
+        "treat these timestamps as ground truth for eliminations):\n"
+        + "\n".join(lines) + "\n"
+    )
+
+
 def _analyze_phase2_with_cli(video_path: str, run_id: int | None = None) -> dict:
     """Phase 2 narrative analysis via two CLI calls.
 
@@ -1300,20 +1391,56 @@ def _analyze_phase2_with_cli(video_path: str, run_id: int | None = None) -> dict
     abs_path = os.path.abspath(video_path).replace("\\", "/")
     phase1_context = _get_phase1_context(run_id)
 
+    # Smart frame extraction: when the live kill feed gave us confirmed combat
+    # timestamps, sample those windows densely (2fps) and the rest sparsely
+    # (1 frame per 4s) instead of a flat 1fps pass over the whole video —
+    # fewer frames to read, better detail exactly where the fights are.
+    events = _load_combat_events(video_path)
+    zones = _build_hot_zones(
+        events, _get_video_duration(video_path), endgame_ts=_read_endgame_ts(video_path)
+    ) if events else []
+    events_context = _events_context_block(events)
+
+    def _drawtext(offset: int | None = None) -> str:
+        # Burned-in timestamp overlay. Combat passes seek with -ss, which
+        # resets PTS — the offset arg keeps the visible timestamps real.
+        ts = "%{pts\\:hms}" if offset is None else "%{pts\\:hms\\:" + str(offset) + "}"
+        return ("drawtext=text='" + ts + "':x=10:y=10:fontsize=36:fontcolor=white:"
+                "box=1:boxcolor=black@0.5:boxborderw=5")
+
+    if zones:
+        zone_cmds = "\n".join(
+            f'   ffmpeg -ss {zs} -t {max(1, ze - zs)} -i VIDEO -vf "fps=2,{_drawtext(zs)}" -q:v 3 OUTPUT_DIR/zone{i:02d}_%03d.jpg'
+            for i, (zs, ze) in enumerate(zones, 1)
+        )
+        extraction_step = (
+            "2. Extract frames with this two-pass plan (the combat windows are confirmed from the live kill feed):\n"
+            "   Base pass — 1 frame every 4 seconds for overall context:\n"
+            f'   ffmpeg -i VIDEO -vf "fps=0.25,{_drawtext()}" -q:v 3 OUTPUT_DIR/base_%04d.jpg\n'
+            "   Combat passes — 2fps inside each confirmed combat window:\n"
+            f"{zone_cmds}\n"
+            "   Every frame has its real MM:SS timestamp burned into the top-left corner (the combat passes use a pts offset so the timestamps stay correct)."
+        )
+    else:
+        extraction_step = (
+            "2. Extract frames at 1fps using ffmpeg with burned-in timestamps. Use this exact command:\n"
+            f'   ffmpeg -i VIDEO -vf "fps=1,{_drawtext()}" -q:v 3 OUTPUT_DIR/frame_%04d.jpg\n'
+            "   This overlays MM:SS timestamps on each frame so you can read exact times directly from the images."
+        )
+
     # ── Call 1: Analyst (expensive, video + frames) ──
     analyst_prompt = f"""There is a gameplay video file at: {abs_path}
 
 Use ffmpeg to extract frames from the video, then read them to analyze the gameplay. Steps:
 1. Use ffprobe to get the video duration
-2. Extract frames at 1fps using ffmpeg with burned-in timestamps. Use this exact command:
-   ffmpeg -i VIDEO -vf "fps=1,drawtext=text='%{{pts\\:hms}}':x=10:y=10:fontsize=36:fontcolor=white:box=1:boxcolor=black@0.5:boxborderw=5" -q:v 3 OUTPUT_DIR/frame_%04d.jpg
-   This overlays MM:SS timestamps on each frame so you can read exact times directly from the images.
+{extraction_step}
 3. Read the extracted frames — the timestamp is BURNED INTO each frame in the top-left corner. Use THESE visible timestamps for your highlight timestamps, not frame index math.
 4. After analyzing ALL frames, output your full analysis.
 
 You do NOT need to output JSON. Just output plain text analysis.
 
 {phase1_context}
+{events_context}
 
 You are analyzing a recorded Marathon (Bungie 2026 extraction shooter) gameplay run.
 The run's stats have ALREADY been extracted by Phase 1. Do NOT extract stats. This is ONLY for narrative analysis.
@@ -1391,6 +1518,12 @@ def _analyze_phase2_with_api(video_path: str, run_id: int | None = None) -> dict
 
     phase1_context = _get_phase1_context(run_id)
     prompt_text = f"{phase1_context}\n\n{PHASE2_PROMPT}" if phase1_context else PHASE2_PROMPT
+
+    # Confirmed kill feed timestamps (logged live during the run) help the
+    # model anchor highlights even when it samples the video sparsely.
+    events_context = _events_context_block(_load_combat_events(video_path))
+    if events_context:
+        prompt_text = f"{prompt_text}\n{events_context}"
 
     result = ai_client.run_api_prompt(
         prompt_text,
