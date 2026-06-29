@@ -33,8 +33,10 @@ const OCR_FRAME_INTERVAL: u64 = 30;
 const OCR_RECORD_INTERVAL_MULTIPLIER: u64 = 6;
 /// Initial JPEG buffer capacity
 const JPEG_BUF_CAPACITY: usize = 64 * 1024;
-/// JPEG encoding quality (1-100)
-const JPEG_QUALITY: u8 = 85;
+/// JPEG encoding quality (1-100). Used for OCR region crops and the preview
+/// frame; kept high so winocr reads small HUD text cleanly (JPEG artifacts at
+/// lower Q hurt thin glyphs). Override per-run with RUNLOG_OCR_QUALITY.
+const JPEG_QUALITY: u8 = 95;
 /// JPEG quality for full-resolution screenshot saves
 const SCREENSHOT_JPEG_QUALITY: u8 = 90;
 
@@ -483,6 +485,10 @@ struct Recorder {
     ocr_interval: u64,
     staging_pool: StagingPool,
     staged_tick: u64,
+    /// Consecutive send_frame errors. Used to coalesce the error event so a
+    /// persistently failing encoder cannot storm stdout at the frame rate from
+    /// inside the capture callback (which would stall frame delivery).
+    encode_errors: u64,
 }
 
 impl GraphicsCaptureApiHandler for Recorder {
@@ -502,6 +508,7 @@ impl GraphicsCaptureApiHandler for Recorder {
             ocr_interval: interval,
             staging_pool: StagingPool::new(),
             staged_tick: 0,
+            encode_errors: 0,
         })
     }
 
@@ -640,18 +647,28 @@ impl GraphicsCaptureApiHandler for Recorder {
             let frames_before = self.state.encoded_frames.load(Ordering::Relaxed);
             match encoder.send_frame(frame) {
                 Ok(_) => {
+                    self.encode_errors = 0;
                     let n = self.state.encoded_frames.fetch_add(1, Ordering::Relaxed) + 1;
                     if n <= 3 || n % 300 == 0 {
                         eprintln!("[recorder] Frame {} encoded OK ({}x{})", n, frame.width(), frame.height());
                     }
                 }
                 Err(e) => {
+                    self.encode_errors += 1;
                     if frames_before < 5 {
                         eprintln!("[recorder] send_frame FAILED at frame {}: {}", frames_before, e);
                     }
-                    emit(&Event::Error {
-                        message: format!("Encode error: {}", e),
-                    });
+                    // Coalesce: surface only the FIRST error of a failure run to
+                    // Python (plus a throttled stderr heartbeat). Emitting on
+                    // every frame would flood stdout from the capture hot path at
+                    // the frame rate while the encoder is already broken.
+                    if self.encode_errors == 1 {
+                        emit(&Event::Error {
+                            message: format!("Encode error: {}", e),
+                        });
+                    } else if self.encode_errors % 300 == 0 {
+                        eprintln!("[recorder] send_frame still failing after {} consecutive frames: {}", self.encode_errors, e);
+                    }
                 }
             }
         }
@@ -748,7 +765,11 @@ fn find_marathon_window() -> Option<Window> {
 // Main
 // ---------------------------------------------------------------------------
 
-fn set_high_priority() {
+/// Configure the recorder PROCESS scheduling: NORMAL priority class (NOT high —
+/// we never want the recorder to starve the game) plus EcoQoS / power throttling
+/// DISABLED so the capture+encode pipeline is never parked on an E-core or
+/// clocked down mid-recording. (Despite the legacy name, this never set HIGH.)
+fn configure_process_priority() {
     use std::ffi::c_void;
 
     #[link(name = "kernel32")]
@@ -807,10 +828,33 @@ fn set_ocr_thread_priority() {
     }
 }
 
+/// Nudge the WGC message-pump / capture thread (this thread, which blocks in
+/// Recorder::start) just above the game's base priority so a busy system cannot
+/// preempt frame delivery between WGC callbacks. Insurance for CPU contention
+/// only — it does nothing for GPU/NVENC saturation, where send_frame blocks on
+/// the GPU regardless of thread priority.
+fn set_capture_thread_above_normal() {
+    use std::ffi::c_void;
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetCurrentThread() -> *mut c_void;
+        fn SetThreadPriority(hThread: *mut c_void, nPriority: i32) -> i32;
+    }
+
+    const THREAD_PRIORITY_ABOVE_NORMAL: i32 = 1;
+
+    unsafe {
+        if SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL) != 0 {
+            eprintln!("[recorder] Capture/pump thread priority: ABOVE_NORMAL");
+        }
+    }
+}
+
 fn main() {
     eprintln!("[recorder] runlog-recorder starting...");
 
-    set_high_priority();
+    configure_process_priority();
 
     let window = loop {
         if let Some(w) = find_marathon_window() {
@@ -990,6 +1034,9 @@ fn main() {
         ColorFormat::Bgra8,
         Arc::clone(&state),
     );
+
+    // This thread becomes the WGC message pump / capture thread inside start().
+    set_capture_thread_above_normal();
 
     match Recorder::start(settings) {
         Ok(_) => eprintln!("[recorder] Capture ended normally"),

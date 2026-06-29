@@ -38,6 +38,7 @@ from datetime import datetime
 from PIL import Image
 import io
 
+from . import perf
 from .detection.ocr import detect_game_state, detect_kill_feed
 from .rust_recorder import RustRecorder
 from .audio_sidecar import AudioSidecarRecorder
@@ -100,6 +101,11 @@ class AutoCapture:
         self._p2_active_lock = threading.Lock()
         self._p2_waiting: list[tuple[str, int]] = []  # [(filepath, run_id), ...]
         self._p2_max_workers: int = MAX_P2_WORKERS
+
+        # Processing mode — "alpha" (local), "hybrid" (local + Claude fallback),
+        # "claude" (network only). Used by the game-impact gate: claude-mode P1
+        # uploads, so it must be held while the game is open like P2.
+        self._processor_mode: str = "alpha"
 
         # Auto-run flags — can be paused via SYS.CONFIG
         self._auto_p1: bool = True   # submit to P1 pool automatically
@@ -170,6 +176,7 @@ class AutoCapture:
         self._p2_max_workers = p2_workers
         self._auto_p1 = get_config_value("auto_p1") if get_config_value("auto_p1") is not None else True
         self._auto_p2 = get_config_value("auto_p2") if get_config_value("auto_p2") is not None else True
+        self._processor_mode = get_config_value("processor_mode") or "alpha"
         self._pause_processing_while_game_running = (
             get_config_value("pause_processing_while_game_running")
             if get_config_value("pause_processing_while_game_running") is not None
@@ -178,11 +185,15 @@ class AutoCapture:
         print(f"[capture] Processing pools: P1={p1_workers} workers, P2={p2_workers} workers")
         print(f"[capture] Auto-run: P1={self._auto_p1}, P2={self._auto_p2}")
         print(f"[capture] Game-impact guard: {self._pause_processing_while_game_running}")
+        # initializer pins every worker thread to EcoQoS + below-normal so the
+        # heavy torch/OCR/cv2 work runs on E-cores and yields to the game.
         self._p1_executor = ThreadPoolExecutor(
-            max_workers=p1_workers, thread_name_prefix="p1-processor"
+            max_workers=p1_workers, thread_name_prefix="p1-processor",
+            initializer=perf.eco_qos_init,
         )
         self._p2_executor = ThreadPoolExecutor(
-            max_workers=p2_workers, thread_name_prefix="p2-processor"
+            max_workers=p2_workers, thread_name_prefix="p2-processor",
+            initializer=perf.eco_qos_init,
         )
         self._dispatcher_thread = threading.Thread(
             target=self._dispatcher_loop, daemon=True, name="dispatcher"
@@ -303,6 +314,7 @@ class AutoCapture:
 
     def _frame_relay(self):
         """Relay full preview frames from Rust recorder to our frame store."""
+        perf.set_thread_eco_qos()
         last_seq = -1
         while self._running:
             frame, seq = self._recorder.get_latest_frame()
@@ -352,6 +364,7 @@ class AutoCapture:
         pipeline — in menus or in game. Full frames only ship on a slow cadence
         for the UI and are requested on demand when a save needs one.
         """
+        perf.set_thread_eco_qos()  # live detection rides E-cores, yields to the game
         last_seq = -1
         self._scan_state = 'lobby'  # lobby | deploy | endgame | postgame
         self._state_changed_at = time.time()
@@ -745,9 +758,9 @@ class AutoCapture:
         # Load recording settings from config
         from .api.settings_api import get_config_value
         encoder = get_config_value("encoder") or "hevc"
-        bitrate_mbps = get_config_value("bitrate") or 30
-        fps = get_config_value("fps") or 60
-        resolution = get_config_value("resolution") or "native"
+        bitrate_mbps = get_config_value("bitrate") or 20
+        fps = get_config_value("fps") or 30
+        resolution = get_config_value("resolution") or "1440p"
         audio_enabled = get_config_value("audio_capture")
         if audio_enabled is None:
             audio_enabled = True
@@ -802,6 +815,11 @@ class AutoCapture:
     def _stop_recording(self):
         """Stop recording and queue the file for processing."""
         self._recorder.stop_recording()
+        # Reset the RUN_COMPLETE fast-OCR mode. Rust only auto-clears it at the
+        # next encoder start (possibly several runs away), so without this the
+        # between-run menus keep shipping a full preview frame every ~0.5s
+        # instead of ~2s — 4x the idle encode/base64/IPC work.
+        self._recorder.set_ocr_fast(False)
         audio_path = self._audio.stop()
 
         duration = time.time() - self._recording_start
@@ -1033,13 +1051,15 @@ class AutoCapture:
     def _processing_gate_active(self, phase: str = "p2") -> bool:
         """True when new work should be held to protect gameplay.
 
-        P1 is allowed in menus because it primarily uses captured screenshots.
-        P2/media work remains gated while Marathon is open under the game-impact
-        guard because it performs video scans, ffmpeg work, and clip generation.
+        Local (alpha) P1 is allowed in menus because it only does CPU work on
+        captured screenshots. In claude mode P1 IS network — it uploads frames to
+        the Claude API/CLI — so for an online shooter it must be held under the
+        game-impact guard like P2, or a prior run's upload contends with the live
+        match's ping. P2/media work (video scans, ffmpeg, clips) is always gated.
         """
         if self._recording:
             return True
-        if phase == "p1":
+        if phase == "p1" and self._processor_mode != "claude":
             return False
         return self._heavy_processing_blocked_by_game()
 

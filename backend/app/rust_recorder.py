@@ -144,6 +144,12 @@ class RustRecorder:
             except subprocess.TimeoutExpired:
                 self._proc.kill()
         self._proc = None
+        # The game-impact guard keys off window_name; a stopped recorder has no
+        # window, so clear it (and dims) instead of leaving a stale value that
+        # would keep heavy processing blocked after the game closed.
+        self.window_name = None
+        self.width = 0
+        self.height = 0
         print("[recorder] Stopped")
 
     def start_recording(

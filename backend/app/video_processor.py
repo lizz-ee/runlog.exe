@@ -1636,8 +1636,8 @@ def cut_clips(source_path: str, clips_dir: str, highlights: list[dict], run_time
         filename = f"clip_{tag}_{clip_type}_{i+1}.mp4"
         clip_path = os.path.join(run_clips_dir, filename)
 
-        # Stream copy — no re-encoding, instant cuts at native resolution.
-        # Source is already proper H.264 MP4 from Rust recorder.
+        # Stream copy — no re-encoding, instant cuts at the recorded resolution.
+        # Source is already a hardware-encoded HEVC (default) or H.264 MP4 from the Rust recorder.
         cmd = [
             'ffmpeg', '-y', '-hide_banner', '-loglevel', 'warning',
             '-ss', str(start),

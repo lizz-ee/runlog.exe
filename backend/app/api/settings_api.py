@@ -41,9 +41,9 @@ class ConfigUpdate(BaseModel):
 # Defaults for all configurable settings
 DEFAULTS = {
     "encoder": "hevc",
-    "bitrate": 50,         # Mbps
-    "fps": 60,
-    "resolution": "native",  # native | 1440p | 1080p | 720p
+    "bitrate": 20,         # Mbps — 1440p30 HEVC is visually ~transparent at 20; cuts live disk write + post-run decode vs the old 50
+    "fps": 30,             # 30 is plenty for an OCR + clip-review tool and halves every per-frame in-game + post-run cost; opt back to 60 in SYS.CONFIG
+    "resolution": "1440p",  # native | 1440p | 1080p | 720p — 1440p cuts the shared-engine BGRA→NV12 convert/scale + NVENC load vs native 4K
     "audio_capture": True,  # Sidecar loopback audio capture for Alpha P2/clips
     "p1_workers": 4,
     "p2_workers": 1,
