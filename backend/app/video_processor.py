@@ -529,6 +529,37 @@ Read ALL of these images, then analyze them and follow these instructions:
     return _extract_json(output)
 
 
+def _maybe_downscale_for_cli(paths, dest_dir, max_edge=1568):
+    """If dest_dir is set (cli_downscale_uploads is on), write <=max_edge JPEG
+    copies of `paths` into dest_dir and return those paths; otherwise return the
+    originals unchanged (the default). The Claude API downscales images past
+    ~1568px anyway, so when on this only trims upload bandwidth. Fail-soft per
+    image — keeps the original on any error. Off by default because these
+    screenshots feed accuracy-critical Phase-1 stat reads."""
+    if not dest_dir:
+        return paths
+    out = []
+    for p in paths:
+        try:
+            from PIL import Image
+            with Image.open(p) as im:
+                w, h = im.size
+                if max(w, h) <= max_edge:
+                    out.append(p)
+                    continue
+                scale = max_edge / float(max(w, h))
+                im = im.convert("RGB").resize(
+                    (max(1, round(w * scale)), max(1, round(h * scale))),
+                    Image.Resampling.LANCZOS,
+                )
+                dst = os.path.join(dest_dir, os.path.basename(p))
+                im.save(dst, format="JPEG", quality=90)
+                out.append(os.path.abspath(dst).replace("\\", "/"))
+        except Exception:
+            out.append(p)
+    return out
+
+
 def _analyze_with_screenshots(deploy_jpg: str, readyup_jpg: str, frames_dir: str) -> dict:
     """New Phase 1: two focused CLI calls using screenshots + end frames.
 
@@ -544,6 +575,19 @@ def _analyze_with_screenshots(deploy_jpg: str, readyup_jpg: str, frames_dir: str
     analysis = {}
     screenshot_dir = os.path.dirname(deploy_jpg)
     model = ai_client.get_model_config("capture")["cli"]
+
+    # Opt-in (cli_downscale_uploads, default off): downscale CLI Phase-1 uploads
+    # to 1568px. Off by default — these screenshots feed accuracy-critical stat
+    # reads (kills/loot/spawn-coords) and the API caps at 1568 anyway, so verify
+    # extraction accuracy on real runs before enabling.
+    cli_dir = None
+    try:
+        from .api.settings_api import get_config_value
+        if get_config_value("cli_downscale_uploads"):
+            import tempfile
+            cli_dir = tempfile.mkdtemp(prefix="runlog_cli_")
+    except Exception:
+        cli_dir = None
 
     # =========================================================================
     # Phase 1: Three parallel calls (1A, 2A, 3A)
@@ -573,6 +617,7 @@ def _analyze_with_screenshots(deploy_jpg: str, readyup_jpg: str, frames_dir: str
         if os.path.exists(crop):
             imgs_1a.append(os.path.abspath(crop).replace("\\", "/"))
 
+    imgs_1a = _maybe_downscale_for_cli(imgs_1a, cli_dir)
     prompt_1a = f"""Read these Marathon (2026 extraction shooter) pre-deployment screenshots:
 {chr(10).join(f'- {p}' for p in imgs_1a)}
 
@@ -605,6 +650,8 @@ Return ONLY valid JSON, no explanation."""
         dep_crop = os.path.join(screenshot_dir, "deploying_crop.jpg")
         if os.path.exists(dep_crop):
             imgs_2a.append(os.path.abspath(dep_crop).replace("\\", "/"))
+
+    imgs_2a = _maybe_downscale_for_cli(imgs_2a, cli_dir)
 
     # Shell reference images
     shell_refs = ""
@@ -655,6 +702,7 @@ Return ONLY valid JSON:
         if os.path.exists(crop):
             imgs_3a.append(os.path.abspath(crop).replace("\\", "/"))
 
+    imgs_3a = _maybe_downscale_for_cli(imgs_3a, cli_dir)
     prompt_3a = f"""Read the spawn coordinates from these Marathon deployment loading screen screenshots:
 {chr(10).join(f'- {p}' for p in imgs_3a)}
 
@@ -721,11 +769,10 @@ DOUBLE-CHECK your reading before returning. If unsure about ANY digit, return nu
 
     if all_end_frames or endgame_screenshots:
         # Prepend endgame screenshots to the first batch — they show who killed the player
-        all_images = endgame_screenshots + all_end_frames
+        all_images = _maybe_downscale_for_cli(endgame_screenshots + all_end_frames, cli_dir)
         print(f"[processor] {len(endgame_screenshots)} endgame screenshots + {len(all_end_frames)} end frames")
 
         # Save copies of end frames to screenshots folder for debugging
-        import shutil
         screenshots_dir = os.path.dirname(deploy_jpg) if os.path.exists(deploy_jpg) else None
         if screenshots_dir:
             endframes_dir = os.path.join(screenshots_dir, "endframes")
@@ -793,6 +840,8 @@ These are from the END of a Marathon run — stats screens, death screen, loadou
                 print(f"[processor] Still missing: {missing} — sending next batch")
 
     if not analysis:
+        if cli_dir:
+            shutil.rmtree(cli_dir, ignore_errors=True)
         raise RuntimeError("Both CLI calls returned no data")
 
     # Ensure required fields exist
@@ -804,6 +853,8 @@ These are from the END of a Marathon run — stats screens, death screen, loadou
     analysis.setdefault('stats_tab_found', analysis.get('kills') is not None)
     analysis.setdefault('loadout_tab_found', analysis.get('primary_weapon') is not None)
 
+    if cli_dir:
+        shutil.rmtree(cli_dir, ignore_errors=True)
     return analysis
 
 

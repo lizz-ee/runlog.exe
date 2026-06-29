@@ -133,4 +133,4 @@ deploy" sequence** — confirm the run resumes and completes after the match
 1. ~~**1A** (frame-res cap)~~ — **SHIPPED** (`FRAME_RESOLUTION_MAX = 1568`); validate stat accuracy on one run.
 2. **1C** (replace the Phase-2 whole-mp4 API upload with sampled frames) — kills a GB-scale payload.
 3. ~~**Part 2** (in-flight CLI abort)~~ — **SHIPPED**; validate with the backlog→deploy sequence.
-4. **1B** (screenshot copies) — only if 1A isn't enough.
+4. ~~**1B** (screenshot copies)~~ — **SHIPPED behind `cli_downscale_uploads` (default off)**; enable + validate stat accuracy before trusting.

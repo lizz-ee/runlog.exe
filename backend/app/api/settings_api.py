@@ -51,6 +51,7 @@ DEFAULTS = {
     "auto_p2": True,       # Auto-run Phase 2 (narrative + clips) when Phase 1 finishes
     "pause_processing_while_game_running": True,
     "processor_mode": "alpha",  # "alpha" (local), "hybrid" (local + Claude fallback), "claude" (API/CLI only)
+    "cli_downscale_uploads": False,  # downscale CLI Phase-1 screenshots to 1568px before upload (opt-in; the API caps there anyway, but verify stat-read accuracy first)
     "auth_mode": "api",    # "api" or "cli"
     "model": "sonnet",     # "sonnet" or "haiku"
     "uplink_model": "haiku",  # "haiku" or "sonnet" for UPLINK chat/briefing

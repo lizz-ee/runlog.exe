@@ -157,6 +157,18 @@ All changes are on `main`. Each was verified to compile (`cargo check`, `py_comp
 - **Validate:** the backlog→deploy sequence — process a queue, deploy mid-upload, confirm the run
   resumes and completes after the match (not marked error, clips regenerate cleanly).
 
+### 15. CLI screenshot downscale — behind a default-off flag  *(item 1B)*
+- **Files:** `backend/app/api/settings_api.py` (`cli_downscale_uploads: False`); `backend/app/video_processor.py`
+  (`_maybe_downscale_for_cli`, wired into the four Phase-1 CLI image lists).
+- **Why:** The CLI still uploads full-res *screenshots* via `--add-dir`. 1568px copies are
+  quality-neutral (the API caps there anyway), but these feed the **accuracy-critical** Phase-1
+  stat reads (kills/loot/spawn-coords/gamertags — the code labels them "direct 4K screen captures …
+  read stats FIRST"). So it ships **off by default**: when off, `_maybe_downscale_for_cli` returns
+  the originals unchanged (verified exact passthrough) — zero change to the stat path. Flip
+  `cli_downscale_uploads` on in settings to A/B it; temp copies are cleaned up on both exits.
+- **Validate before trusting:** enable it, then confirm Phase-1 stats (kills/loot/coords/loadout)
+  still extract correctly across several real runs vs the default.
+
 ---
 
 ## Deferred (designed, not shipped — higher risk / needs your live-deploy testing)
@@ -175,10 +187,9 @@ path blind:
 - **Audio (optional future):** process-specific loopback is now shipped (#8 above). Still open:
   moving audio into the Rust recorder for sample-accurate A/V sync + Python-thread removal
   (blocked on the `windows-capture` audio path — confirm the original disable reason first).
-- **1B — downscaled screenshot copies for the CLI** (API path #11, CLI frame cap #12, Phase-2 API
-  sampling #13 all shipped). The CLI still uploads full-res *screenshots* via `--add-dir`; 1568px
-  copies would be quality-neutral (the API downscales anyway) but it's a handful of images and
-  touches the working Phase-1 CLI call sites. See `docs/plan-cli-path-optimizations.md`.
+- **Enable & validate `cli_downscale_uploads` (1B, #15)** — shipped behind a default-off flag.
+  Turn it on only after confirming Phase-1 stat-read accuracy on real runs (it touches the
+  accuracy-critical screenshots).
 
 ---
 
