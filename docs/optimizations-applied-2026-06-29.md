@@ -92,17 +92,37 @@ All changes are on `main`. Each was verified to compile (`cargo check`, `py_comp
 
 ---
 
+### 9. In-flight decoder backgrounding + HDD storage warning  *(in-flight P0 + disk tenant)*
+- **Files:** `backend/app/perf.py` (`background_inflight_decoders`, `set_pid_background`,
+  `_iter_child_pids`, `storage_incurs_seek_penalty`); `backend/app/capture.py`
+  (`_start_recording` hook, `_storage_warning` + `get_status`).
+- **In-flight:** when a match starts, any in-flight ffmpeg/ffprobe children (a prior run's
+  decode that overlapped from a lobby gap) are dropped to **IDLE priority + EcoQoS** so they
+  yield to the game. Deliberately **not** suspended — a frozen child would let the parent
+  `subprocess.run(timeout=…)` clock fire and fail the job. New heavy work is already
+  gate-blocked during a match, so this one hook covers the whole overlap case without
+  touching the ~13 ffmpeg spawn sites.
+- **Disk:** `storage_incurs_seek_penalty()` (IOCTL_STORAGE_QUERY_PROPERTY) flags recordings on
+  a spinning HDD at startup → logs a warning + `status.storage_warning` for the UI. The
+  classic same-spindle-as-the-game stutter cause. *(Probe returned `None`/inconclusive on the
+  dev box — validate on a real HDD; it never false-warns.)*
+
+---
+
 ## Deferred (designed, not shipped — higher risk / needs your live-deploy testing)
 
 Per the "minimal live fixes" rule, these were intentionally **not** scattered onto the live
 path blind:
 
-- **True in-flight preemption** (abort/suspend a *running* ffmpeg decode or claude CLI upload
-  the instant a match starts). Needs a tracked-subprocess registry + idempotent re-queue
-  (the `.p1done`/`.encoded` markers already make re-queue safe). The new gate prevents *new*
-  claude work during a match; the residual is a job already in-flight when the match starts.
-- **ffmpeg-child below-normal priority** — wire `perf.BG_CREATIONFLAGS` into the ~13 ffmpeg
-  spawn sites (one coherent pass, but it touches the live decode path).
+- **True in-flight *abort*** of a running **claude CLI upload** on match-start (the in-flight
+  ffmpeg case is now handled by priority-lowering, #9). Network uploads can't just be
+  deprioritized — they need SIGTERM + idempotent re-queue (the `.p1done`/`.encoded` markers
+  make re-queue safe). The gate already prevents *new* claude work during a match.
+- **ffmpeg-child below-normal priority at spawn** — wire `perf.BG_CREATIONFLAGS` into the ~13
+  ffmpeg spawn sites. Mostly redundant now for game-impact (the overlap case is covered by #9);
+  only affects post-game processing priority.
+- **Recorder write I/O priority on detected HDD** (`PROCESS_MODE_BACKGROUND_BEGIN` / low
+  I/O-priority byte-stream) — the write-side companion to the #9 HDD *warning*.
 - **R4 — OCR-light in-run detection** (move kill-feed OCR to Phase 2; gate endgame/center
   winocr behind the cheap ImageStat check). Watch the ~3s→~15s worst-case RUN_COMPLETE
   detection-latency caveat; tune `ocr.py:91-95` thresholds first.

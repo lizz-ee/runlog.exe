@@ -110,6 +110,10 @@ class AutoCapture:
         # Auto-run flags — can be paused via SYS.CONFIG
         self._auto_p1: bool = True   # submit to P1 pool automatically
         self._auto_p2: bool = True   # submit to P2 pool automatically after P1
+
+        # Set once at start if recordings live on a spinning HDD (seek-thrash
+        # stutter risk when shared with the game). Surfaced in status for the UI.
+        self._storage_warning: str | None = None
         self._pause_processing_while_game_running: bool = True
         self._p2_held: list[tuple[str, int]] = []  # items held when auto_p2 is off
         self._dismissed_files: set[str] = set()    # filenames dismissed from queue
@@ -199,6 +203,19 @@ class AutoCapture:
             target=self._dispatcher_loop, daemon=True, name="dispatcher"
         )
         self._dispatcher_thread.start()
+
+        # One-time storage-drive check — warn if recordings live on a spinning HDD
+        # (seek-thrash stutter risk if it's the same drive the game streams from).
+        try:
+            if perf.storage_incurs_seek_penalty(self.clips_dir):
+                self._storage_warning = (
+                    "Recordings are on a spinning HDD — if it's the same drive the "
+                    "game streams from, expect occasional stutter. Move recordings to "
+                    "an SSD or a second drive in SYS.CONFIG > STOR.CONFIG."
+                )
+                print(f"[capture] STORAGE WARNING: {self._storage_warning}")
+        except Exception:
+            pass
 
         # Auto-resume unprocessed recordings (after executors are ready)
         self._resume_unprocessed()
@@ -296,6 +313,7 @@ class AutoCapture:
             "auto_p2": self._auto_p2,
             "pause_processing_while_game_running": self._pause_processing_while_game_running,
             "processing_paused_for_game": self._heavy_processing_blocked_by_game(),
+            "storage_warning": self._storage_warning,
         }
 
     def get_latest_frame_jpeg(self) -> bytes | None:
@@ -789,6 +807,17 @@ class AutoCapture:
             self._recording_start = time.time()
             self._recording_path = path
             self._recent_kill_feed = {}
+            # A prior run's heavy ffmpeg/ffprobe could still be decoding from a
+            # lobby gap. The gate blocks NEW heavy work during a match, but can't
+            # stop in-flight work — drop those children to IDLE/EcoQoS so they
+            # yield to the game (no suspend: a frozen child would trip the parent
+            # subprocess.run timeout and fail the job).
+            try:
+                n = perf.background_inflight_decoders(os.getpid())
+                if n:
+                    print(f"[capture] Match started — dropped {n} in-flight ffmpeg/ffprobe to background")
+            except Exception:
+                pass
             res_label = f"{resolution}" if target_height else "native"
             print(f"[capture] Recording to: {path} ({encoder.upper()}, {bitrate_mbps}Mbps, {fps}fps, {res_label})")
             if self._audio.active:
