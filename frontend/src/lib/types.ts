@@ -230,6 +230,7 @@ export interface CaptureStatus {
   auto_p2: boolean
   pause_processing_while_game_running: boolean
   processing_paused_for_game: boolean
+  storage_warning?: string | null
 }
 
 export interface ProcessingItem {

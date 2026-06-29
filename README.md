@@ -33,7 +33,7 @@ Complete history of every run. Each row shows shell, map, spawn, PvE and PvP kil
 
 ![RUN.LOG — Run History](docs/screenshots/run_log.png)
 
-Expand any run for the full breakdown — squad, weapons, inventory value change, killed-by with full damage contributors, and auto-generated highlight clips with sprite sheet hover scrub. Built-in video player with custom clip editor — set IN/OUT markers, name your clip, instant stream copy from the original 4K footage. AI debrief narrative at the bottom grades and recaps the run.
+Expand any run for the full breakdown — squad, weapons, inventory value change, killed-by with full damage contributors, and auto-generated highlight clips with sprite sheet hover scrub. Built-in video player with custom clip editor — set IN/OUT markers, name your clip, instant stream copy from the original footage. AI debrief narrative at the bottom grades and recaps the run.
 
 ![RUN.LOG — Expanded Run](docs/screenshots/run_log_expanded.png)
 
@@ -102,7 +102,7 @@ Everything tunable in one place. Sections:
 
 ### Capture Engine
 - **Rust binary** (`runlog-recorder.exe`) — Windows Graphics Capture API, zero-copy GPU pipeline
-- **MediaFoundation encoding** — 60fps at native 4K, HEVC or H.264 (configurable)
+- **MediaFoundation encoding** — hardware HEVC/H.264, configurable up to 60fps / native 4K (defaults to 1440p30 for a low-overhead OCR + clip-review workflow; change in SYS.CONFIG → REC.CONFIG)
 - **Privacy-safe** — captures only the Marathon window, never the desktop
 - **OCR state machine** — scan regions detect deployment (start), RUN_COMPLETE (timestamp), and lobby (stop)
 - **Zero-stall detection** — scan regions are cropped recorder-side and shipped as tiny JPEGs via async double-buffered staging textures; no synchronous GPU readbacks and no full-frame processing while you play

@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { getSettings, setApiKey, testApiKey, removeApiKey, updateConfig, migrateStorage, browseFolder, getCliStatus, cliLogin, cliLogout, getCliLatestVersion, cliUpdate, setAutoPhase } from '../lib/api'
+import { getSettings, getCaptureStatus, setApiKey, testApiKey, removeApiKey, updateConfig, migrateStorage, browseFolder, getCliStatus, cliLogin, cliLogout, getCliLatestVersion, cliUpdate, setAutoPhase } from '../lib/api'
 import type { AppSettings } from '../lib/api'
 import type { OverlaySettings } from '../lib/types'
 
@@ -125,6 +125,7 @@ export default function Settings() {
   const [cliUpdating, setCliUpdating] = useState(false)
   const [migrating, setMigrating] = useState(false)
   const [migrateResult, setMigrateResult] = useState<string | null>(null)
+  const [storageWarning, setStorageWarning] = useState<string | null>(null)
   // Snapshot of original values for restart-required keys. Populated on the
   // first change of each key. If the user dismisses the toast without
   // restarting, every key in this map is reverted (UI + backend) to its
@@ -134,6 +135,7 @@ export default function Settings() {
 
   useEffect(() => {
     getSettings().then(setConfig).catch((e) => console.error('[Settings] fetch settings failed:', e))
+    getCaptureStatus().then(s => setStorageWarning(s.storage_warning || null)).catch(() => {})
     checkCli()
 
     const runlog = (window as any).runlog
@@ -458,6 +460,13 @@ export default function Settings() {
         <div className="flex-1 border border-m-border bg-m-card">
           <SectionHeader tag="STOR.CONFIG" title="STORAGE" desc="Where recordings, clips, and screenshots are saved." />
           <div className="px-5 py-4 space-y-4">
+            {storageWarning && (
+              <div className="border border-m-yellow/40 bg-m-yellow/5 px-3 py-2">
+                <p className="text-[9px] font-mono text-m-yellow tracking-wider leading-relaxed">
+                  ⚠ {storageWarning}
+                </p>
+              </div>
+            )}
             <SettingRow label="MEDIA PATH">
               <button
                 className="px-3 py-1 text-2xs font-mono border border-m-border hover:border-m-green hover:text-m-green text-m-text-muted transition-colors"
@@ -549,12 +558,25 @@ export default function Settings() {
               />
             </SettingRow>
 
+            {config.processor_mode !== 'alpha' && (
+              <SettingRow label="UPLOAD SHRINK">
+                <ToggleButton
+                  options={[{ value: 'on', label: 'ON' }, { value: 'off', label: 'OFF' }]}
+                  value={config.cli_downscale_uploads ? 'on' : 'off'}
+                  onChange={v => saveConfig('cli_downscale_uploads', v === 'on')}
+                />
+              </SettingRow>
+            )}
+
             <div className="pt-1 border-t border-m-border/30">
               <p className="text-[9px] font-mono text-m-text-muted tracking-wider">
                 ALPHA = LOCAL OCR + ML (FREE, OFFLINE, &lt;2s)<br/>
                 HYBRID = LOCAL FIRST, CLAUDE FALLBACK (~$0.01/RUN)<br/>
                 CLAUDE = API/CLI ONLY (PAID, MOST ACCURATE)<br/>
                 <span className="text-m-green">ALPHA RECOMMENDED FOR MOST USERS</span>
+                {config.processor_mode !== 'alpha' && (
+                  <><br/><span className="text-m-yellow/60">UPLOAD SHRINK = 1568PX FRAMES BEFORE UPLOAD (LESS BANDWIDTH/PING — VERIFY STATS)</span></>
+                )}
               </p>
             </div>
           </div>

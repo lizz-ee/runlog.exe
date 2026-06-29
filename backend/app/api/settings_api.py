@@ -92,6 +92,7 @@ def get_settings():
         "auto_p2": saved.get("auto_p2", DEFAULTS["auto_p2"]),
         "pause_processing_while_game_running": saved.get("pause_processing_while_game_running", DEFAULTS["pause_processing_while_game_running"]),
         "processor_mode": saved.get("processor_mode", DEFAULTS["processor_mode"]),
+        "cli_downscale_uploads": saved.get("cli_downscale_uploads", DEFAULTS["cli_downscale_uploads"]),
         "auth_mode": saved.get("auth_mode", DEFAULTS["auth_mode"]),
         "model": saved.get("model", DEFAULTS["model"]),
         "uplink_model": saved.get("uplink_model", DEFAULTS["uplink_model"]),
@@ -185,7 +186,7 @@ def update_config(body: ConfigUpdate):
         if body.key == "fps" and value not in (30, 60):
             raise HTTPException(status_code=400, detail="Invalid fps: must be 30 or 60")
 
-    if body.key in ("auto_p1", "auto_p2", "pause_processing_while_game_running") and not isinstance(value, bool):
+    if body.key in ("auto_p1", "auto_p2", "pause_processing_while_game_running", "cli_downscale_uploads") and not isinstance(value, bool):
         raise HTTPException(status_code=400, detail=f"Invalid {body.key}: must be true or false")
 
     # Special handling for storage_path — validate directory exists

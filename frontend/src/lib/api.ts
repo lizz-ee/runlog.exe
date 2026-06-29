@@ -77,6 +77,7 @@ export interface AppSettings {
   auto_p2: boolean
   pause_processing_while_game_running: boolean
   processor_mode: string
+  cli_downscale_uploads?: boolean
   auth_mode: string
   model: string
   uplink_model?: string
