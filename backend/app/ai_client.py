@@ -21,6 +21,7 @@ from typing import Generator
 
 import anthropic
 
+from . import cli_registry
 from .config import settings
 
 
@@ -259,24 +260,27 @@ def run_cli_prompt(
         cmd, stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=cli_env(),
     )
-
+    cli_registry.register(proc)  # abortable if a match starts mid-upload
     try:
-        stdout, stderr = proc.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.communicate()
-        raise RuntimeError(f"CLI timed out after {timeout}s")
+        try:
+            stdout, stderr = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+            raise RuntimeError(f"CLI timed out after {timeout}s")
 
-    result = stdout.decode("utf-8", errors="replace").strip() if stdout else ""
-    error_text = stderr.decode("utf-8", errors="replace").strip() if stderr else ""
+        result = stdout.decode("utf-8", errors="replace").strip() if stdout else ""
+        error_text = stderr.decode("utf-8", errors="replace").strip() if stderr else ""
 
-    if is_auth_failure(result) or is_auth_failure(error_text):
-        raise RuntimeError("Claude CLI is not authenticated. Go to SYS.CONFIG and click LOGIN, or run `claude auth login` in your terminal.")
-    if proc.returncode != 0:
-        detail = error_text or result or f"exit code {proc.returncode}"
-        raise RuntimeError(f"Claude CLI failed: {detail[:500]}")
+        if is_auth_failure(result) or is_auth_failure(error_text):
+            raise RuntimeError("Claude CLI is not authenticated. Go to SYS.CONFIG and click LOGIN, or run `claude auth login` in your terminal.")
+        if proc.returncode != 0:
+            detail = error_text or result or f"exit code {proc.returncode}"
+            raise RuntimeError(f"Claude CLI failed: {detail[:500]}")
 
-    return result
+        return result
+    finally:
+        cli_registry.unregister(proc)
 
 
 async def run_cli_prompt_async(

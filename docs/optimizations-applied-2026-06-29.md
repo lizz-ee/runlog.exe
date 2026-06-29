@@ -134,7 +134,28 @@ All changes are on `main`. Each was verified to compile (`cargo check`, `py_comp
   ~1568px anyway, so the model sees identical pixels — while shrinking every CLI-uploaded frame.
 - **Validate:** the end-frame pass reads the PROGRESS/LOADOUT REPORT tabs; confirm Phase-1 stat
   accuracy on one real run (deploy/spawn-coords are read from full-res *screenshots*, unaffected).
-- Plan for the rest (1C whole-mp4 API path, in-flight CLI abort): `docs/plan-cli-path-optimizations.md`.
+- Plan for the rest: `docs/plan-cli-path-optimizations.md`.
+
+### 13. Phase-2 API path samples frames instead of the whole mp4  *(payload shrink — item 1C)*
+- **File:** `backend/app/video_processor.py` (`_analyze_phase2_with_api`, `_extract_phase2_frames_for_api`, hoisted `_drawtext`).
+- **Why:** The Phase-2 narrative API fallback base64'd the **entire mp4** inline
+  (`run_api_prompt(video_path=…)`) — hundreds of MB to GBs. It now samples the same timestamp-burned
+  frames the CLI analyst uses (0.25fps base + 2fps in confirmed combat windows), keeps all combat
+  frames, subsamples the base pass to ≤100 images, and sends those (auto-downscaled to 1568px by
+  #11). Temp frames cleaned in `finally`.
+- **Validate:** narrative/highlight quality on a real API-mode run (sampled frames vs whole video).
+
+### 14. In-flight CLI abort on match-start  *(the residual network P0)*
+- **Files:** new `backend/app/cli_registry.py`; `ai_client.py` + `video_processor.py` (register live
+  CLI `Popen`s); `capture.py` (abort hook in `_start_recording`, requeue/re-hold in P1/P2).
+- **Why:** The gate blocks *new* claude work during a match, but a prior run's upload already
+  mid-flight kept contending with the game's ping. A network upload can't be deprioritized (#9's
+  trick is CPU-only) or safely suspended (the parent timeout keeps ticking) — so on match-start we
+  `terminate()` every live CLI. The killed worker **re-queues** (P1, idempotent via `.p1done`) or
+  **re-holds** (P2, drained when recording stops) rather than marking the run failed; `_recording`
+  is the abort-vs-genuine-failure signal. No busy-spin (dispatcher sleeps 2s on a gated requeue).
+- **Validate:** the backlog→deploy sequence — process a queue, deploy mid-upload, confirm the run
+  resumes and completes after the match (not marked error, clips regenerate cleanly).
 
 ---
 
@@ -143,10 +164,6 @@ All changes are on `main`. Each was verified to compile (`cargo check`, `py_comp
 Per the "minimal live fixes" rule, these were intentionally **not** scattered onto the live
 path blind:
 
-- **True in-flight *abort*** of a running **claude CLI upload** on match-start (the in-flight
-  ffmpeg case is now handled by priority-lowering, #9). Network uploads can't just be
-  deprioritized — they need SIGTERM + idempotent re-queue (the `.p1done`/`.encoded` markers
-  make re-queue safe). The gate already prevents *new* claude work during a match.
 - **ffmpeg-child below-normal priority at spawn** — wire `perf.BG_CREATIONFLAGS` into the ~13
   ffmpeg spawn sites. Mostly redundant now for game-impact (the overlap case is covered by #9);
   only affects post-game processing priority.
@@ -158,10 +175,10 @@ path blind:
 - **Audio (optional future):** process-specific loopback is now shipped (#8 above). Still open:
   moving audio into the Rust recorder for sample-accurate A/V sync + Python-thread removal
   (blocked on the `windows-capture` audio path — confirm the original disable reason first).
-- **Upload payload shrink — remaining** (API path #11 + CLI frame-res cap #12 are shipped). Still
-  open: **1C** — replace the Phase-2 whole-mp4 API upload (`run_api_prompt(video_path=…)`,
-  `video_processor.py:1528`/`2276`, base64s the entire file) with sampled frames; **1B** —
-  downscaled screenshot copies for the CLI (low payoff). See `docs/plan-cli-path-optimizations.md`.
+- **1B — downscaled screenshot copies for the CLI** (API path #11, CLI frame cap #12, Phase-2 API
+  sampling #13 all shipped). The CLI still uploads full-res *screenshots* via `--add-dir`; 1568px
+  copies would be quality-neutral (the API downscales anyway) but it's a handful of images and
+  touches the working Phase-1 CLI call sites. See `docs/plan-cli-path-optimizations.md`.
 
 ---
 

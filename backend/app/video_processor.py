@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 
 from .config import settings
 from . import ai_client
+from . import cli_registry
 
 
 def _check_ffmpeg():
@@ -47,29 +48,33 @@ def _run_claude_cli(cmd: list[str], timeout: int, label: str) -> str:
         stderr=subprocess.PIPE,
         env=ai_client.cli_env(),
     )
+    cli_registry.register(proc)  # abortable if a match starts mid-upload
     try:
-        stdout, stderr = proc.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.communicate()
-        raise RuntimeError(f"{label} timed out")
+        try:
+            stdout, stderr = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+            raise RuntimeError(f"{label} timed out")
 
-    output = stdout.decode("utf-8", errors="replace").strip() if stdout else ""
-    error_text = stderr.decode("utf-8", errors="replace").strip() if stderr else ""
-    if error_text:
-        print(f"[processor cli stderr] {label}: {error_text[:500]}")
+        output = stdout.decode("utf-8", errors="replace").strip() if stdout else ""
+        error_text = stderr.decode("utf-8", errors="replace").strip() if stderr else ""
+        if error_text:
+            print(f"[processor cli stderr] {label}: {error_text[:500]}")
 
-    if ai_client.is_auth_failure(output) or ai_client.is_auth_failure(error_text):
-        raise RuntimeError(
-            "Claude CLI is not authenticated. Go to SYS.CONFIG and click LOGIN, "
-            "or run `claude auth login` in your terminal."
-        )
+        if ai_client.is_auth_failure(output) or ai_client.is_auth_failure(error_text):
+            raise RuntimeError(
+                "Claude CLI is not authenticated. Go to SYS.CONFIG and click LOGIN, "
+                "or run `claude auth login` in your terminal."
+            )
 
-    if proc.returncode != 0:
-        detail = error_text or output or f"exit code {proc.returncode}"
-        raise RuntimeError(f"{label} failed: {detail[:500]}")
+        if proc.returncode != 0:
+            detail = error_text or output or f"exit code {proc.returncode}"
+            raise RuntimeError(f"{label} failed: {detail[:500]}")
 
-    return output
+        return output
+    finally:
+        cli_registry.unregister(proc)
 
 
 # -- Frame extraction settings (easy to tune) -------------------------------

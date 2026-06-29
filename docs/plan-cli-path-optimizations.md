@@ -120,17 +120,17 @@ So "kill + put back on the queue" is safe **for P1**. P2 needs a check (below).
   `video_processor.py` (`_run_claude_cli` register), `capture.py` (abort hook +
   task-level re-queue-on-abort). All Windows-testable only on a live run.
 
-### Verdict
-Worth doing for `claude`/`hybrid` users on online play (it's the real residual
-ping risk), but it's a **multi-file change on the live processing path** — build
-behind the registry abstraction, land it in one focused PR, and validate with a
-real "process a backlog, then deploy" sequence before trusting the re-queue.
+### Verdict — SHIPPED
+Built as designed: `cli_registry.py` (register/unregister/abort_all), registration
+in both CLI spawn points, an abort hook in `_start_recording`, and requeue (P1) /
+re-hold (P2) on `_recording`. **Validate with a real "process a backlog, then
+deploy" sequence** — confirm the run resumes and completes after the match
+(not marked error) and clips regenerate cleanly.
 
 ---
 
 ## Suggested order
 1. ~~**1A** (frame-res cap)~~ — **SHIPPED** (`FRAME_RESOLUTION_MAX = 1568`); validate stat accuracy on one run.
 2. **1C** (replace the Phase-2 whole-mp4 API upload with sampled frames) — kills a GB-scale payload.
-3. **Part 2** (in-flight CLI abort) — the meatier one; do it as its own change with the
-   backlog→deploy validation.
+3. ~~**Part 2** (in-flight CLI abort)~~ — **SHIPPED**; validate with the backlog→deploy sequence.
 4. **1B** (screenshot copies) — only if 1A isn't enough.

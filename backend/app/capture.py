@@ -39,6 +39,7 @@ from PIL import Image
 import io
 
 from . import perf
+from . import cli_registry
 from .detection.ocr import detect_game_state, detect_kill_feed
 from .rust_recorder import RustRecorder
 from .audio_sidecar import AudioSidecarRecorder
@@ -818,6 +819,16 @@ class AutoCapture:
                     print(f"[capture] Match started — dropped {n} in-flight ffmpeg/ffprobe to background")
             except Exception:
                 pass
+            # Kill any in-flight Claude CLI upload from a prior run — its bandwidth
+            # contends with the live match's ping, and (unlike ffmpeg) a network
+            # upload can't be deprioritized. The killed worker re-queues the run
+            # (P1) or re-holds it (P2); both resume after the match.
+            try:
+                aborted = cli_registry.abort_all()
+                if aborted:
+                    print(f"[capture] Match started — aborted {aborted} in-flight CLI upload(s) for re-queue")
+            except Exception:
+                pass
             res_label = f"{resolution}" if target_height else "native"
             print(f"[capture] Recording to: {path} ({encoder.upper()}, {bitrate_mbps}Mbps, {fps}fps, {res_label})")
             if self._audio.active:
@@ -1311,6 +1322,10 @@ class AutoCapture:
             with self._processing_lock:
                 self._last_process_result = result
             if result["status"] != "success":
+                if self._recording:
+                    print(f"[p1] Aborted for match — re-queuing {os.path.basename(filepath)}")
+                    self._process_queue.put(filepath)
+                    return
                 self._update_processing_item(filepath, "error")
                 print(f"[p1] Failed: {result}")
                 return
@@ -1364,6 +1379,10 @@ class AutoCapture:
             self._submit_phase2(filepath, run_id)
 
         except Exception as e:
+            if self._recording:
+                print(f"[p1] Aborted for match — re-queuing {os.path.basename(filepath)}")
+                self._process_queue.put(filepath)
+                return
             self._update_processing_item(filepath, "error")
             print(f"[p1] Error: {e}")
 
@@ -1459,6 +1478,14 @@ class AutoCapture:
                 self._auto_save_recording(filepath, run_id)
                 # Remove from processing queue — item vanishes
                 self.remove_processing_item(os.path.basename(filepath))
+            elif self._recording:
+                # Aborted mid-upload to protect the match — re-hold; the held list
+                # is drained and re-submitted when recording stops. Re-runs
+                # regenerate the deterministically-named clips cleanly.
+                print(f"[p2] Aborted for match — re-holding run #{run_id}")
+                with self._p2_active_lock:
+                    self._p2_held.append((filepath, run_id))
+                self._update_processing_item(filepath, "phase1_done", run_id=run_id)
             else:
                 print(f"[p2] Failed: {p2_result}")
                 self._update_processing_item(filepath, "error", run_id=run_id, p2_failed=True)
@@ -1471,8 +1498,14 @@ class AutoCapture:
                     pass
 
         except Exception as e:
-            self._update_processing_item(filepath, "error", run_id=run_id)
-            print(f"[p2] Error: {e}")
+            if self._recording:
+                print(f"[p2] Aborted for match — re-holding run #{run_id}")
+                with self._p2_active_lock:
+                    self._p2_held.append((filepath, run_id))
+                self._update_processing_item(filepath, "phase1_done", run_id=run_id)
+            else:
+                self._update_processing_item(filepath, "error", run_id=run_id)
+                print(f"[p2] Error: {e}")
         finally:
             self._p2_finished()
 
