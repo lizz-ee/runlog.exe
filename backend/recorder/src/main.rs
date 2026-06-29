@@ -197,8 +197,10 @@ struct SharedState {
     ocr_fast: AtomicBool,
     /// One-shot request for a fresh full preview frame
     frame_now: AtomicBool,
-    /// Channel to the OCR/encode worker thread
-    ocr_tx: Mutex<mpsc::Sender<OcrJob>>,
+    /// Channel to the OCR/encode worker thread. Bounded + try_send (see
+    /// queue_job) so a stalled Python reader can't grow this unbounded or block
+    /// the capture callback.
+    ocr_tx: Mutex<mpsc::SyncSender<OcrJob>>,
     /// OCR frame interval (capture frames) — env RUNLOG_OCR_INTERVAL
     ocr_interval_cfg: u64,
     /// OCR JPEG quality (1-100) — env RUNLOG_OCR_QUALITY
@@ -729,8 +731,23 @@ impl Recorder {
     }
 
     fn queue_job(&self, job: OcrJob) {
+        static DROPPED: AtomicU64 = AtomicU64::new(0);
         if let Ok(tx) = self.state.ocr_tx.lock() {
-            let _ = tx.send(job);
+            match tx.try_send(job) {
+                Ok(()) => {}
+                // Worker is behind (a stalled Python reader backs up the OS pipe).
+                // Shed this stale preview/region job instead of growing memory
+                // unbounded or blocking the capture callback. OCR is periodic so a
+                // missed tick is harmless; screenshots are rare and Python retries
+                // them on timeout.
+                Err(mpsc::TrySendError::Full(_)) => {
+                    let n = DROPPED.fetch_add(1, Ordering::Relaxed) + 1;
+                    if n % 60 == 1 {
+                        eprintln!("[recorder] OCR worker backlog full — dropped {} stale job(s)", n);
+                    }
+                }
+                Err(mpsc::TrySendError::Disconnected(_)) => {}
+            }
         }
     }
 }
@@ -890,7 +907,10 @@ fn main() {
     let min_update_interval = Duration::from_micros(1_000_000 / capture_fps as u64);
     eprintln!("[recorder] Capture rate cap: {}fps ({}us min interval)", capture_fps, min_update_interval.as_micros());
 
-    let (ocr_tx, ocr_rx) = mpsc::channel::<OcrJob>();
+    // Bounded: 16 jobs of headroom. In normal operation the worker drains in
+    // milliseconds so this is never near full; it only fills if the Python
+    // reader stalls, at which point queue_job sheds stale jobs (try_send).
+    let (ocr_tx, ocr_rx) = mpsc::sync_channel::<OcrJob>(16);
 
     let state = Arc::new(SharedState {
         window_title: Mutex::new(title.clone()),

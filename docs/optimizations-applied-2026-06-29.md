@@ -107,6 +107,15 @@ All changes are on `main`. Each was verified to compile (`cargo check`, `py_comp
   classic same-spindle-as-the-game stutter cause. *(Probe returned `None`/inconclusive on the
   dev box — validate on a real HDD; it never false-warns.)*
 
+### 10. Bounded recorder worker channel  *(R19 half 2 — memory safety)*
+- **File:** `backend/recorder/src/main.rs`.
+- **Why:** The OCR/encode worker used an unbounded `mpsc` channel; a stalled Python reader would
+  back up the OS pipe, block the worker on flush, and grow the queue without limit. Now a bounded
+  `sync_channel(16)` + `try_send` sheds stale preview/region jobs (drop-oldest) — never grows
+  unbounded, never blocks the capture callback. 16 is never near full in normal operation (the
+  worker drains in ms); drops only happen under a reader stall, where a missed periodic OCR tick
+  is harmless.
+
 ---
 
 ## Deferred (designed, not shipped — higher risk / needs your live-deploy testing)
@@ -126,14 +135,12 @@ path blind:
 - **R4 — OCR-light in-run detection** (move kill-feed OCR to Phase 2; gate endgame/center
   winocr behind the cheap ImageStat check). Watch the ~3s→~15s worst-case RUN_COMPLETE
   detection-latency caveat; tune `ocr.py:91-95` thresholds first.
-- **Disk-I/O: same-physical-drive warning** in STOR.CONFIG (HDD seek-thrash); lower recorder
-  write I/O priority on detected HDD.
 - **Audio (optional future):** process-specific loopback is now shipped (#8 above). Still open:
   moving audio into the Rust recorder for sample-accurate A/V sync + Python-thread removal
   (blocked on the `windows-capture` audio path — confirm the original disable reason first).
-- **Bound/coalesce the Rust worker job channel** (drop-oldest) — memory-safety guard (R19 half 2).
 - **Upload payload shrink** (downscale frames to ~1280–1920px long edge; retire the
-  base64-whole-video API path).
+  base64-whole-video API path) — real bandwidth/ping win in claude mode, but intertwined with
+  the CLI-agent extraction path (`video_processor.py:1411-1428`); needs investigation + live test.
 
 ---
 
