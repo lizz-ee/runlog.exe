@@ -1406,13 +1406,6 @@ def _analyze_phase2_with_cli(video_path: str, run_id: int | None = None) -> dict
     ) if events else []
     events_context = _events_context_block(events)
 
-    def _drawtext(offset: int | None = None) -> str:
-        # Burned-in timestamp overlay. Combat passes seek with -ss, which
-        # resets PTS — the offset arg keeps the visible timestamps real.
-        ts = "%{pts\\:hms}" if offset is None else "%{pts\\:hms\\:" + str(offset) + "}"
-        return ("drawtext=text='" + ts + "':x=10:y=10:fontsize=36:fontcolor=white:"
-                "box=1:boxcolor=black@0.5:boxborderw=5")
-
     if zones:
         zone_cmds = "\n".join(
             f'   ffmpeg -ss {zs} -t {max(1, ze - zs)} -i VIDEO -vf "fps=2,{_drawtext(zs)}" -q:v 3 OUTPUT_DIR/zone{i:02d}_%03d.jpg'
@@ -1516,27 +1509,96 @@ Output all three steps as plain text. Do NOT output JSON."""
     return _phase2_format_to_json(raw_analysis, phase1_context, hud_verification=hud_verification)
 
 
-def _analyze_phase2_with_api(video_path: str, run_id: int | None = None) -> dict:
-    """Send video to API for Phase 2 narrative analysis (fallback)."""
-    size_mb = os.path.getsize(video_path) / (1024 * 1024)
-    print(f"[processor-p2] Sending {size_mb:.1f}MB video to API for narrative...")
+def _drawtext(offset: int | None = None) -> str:
+    """ffmpeg drawtext filter that burns the real MM:SS timestamp into the frame's
+    top-left corner. Combat passes seek with -ss (which resets PTS), so the offset
+    arg keeps the visible timestamps absolute. Shared by the CLI and API Phase-2 paths."""
+    ts = "%{pts\\:hms}" if offset is None else "%{pts\\:hms\\:" + str(offset) + "}"
+    return ("drawtext=text='" + ts + "':x=10:y=10:fontsize=36:fontcolor=white:"
+            "box=1:boxcolor=black@0.5:boxborderw=5")
 
-    phase1_context = _get_phase1_context(run_id)
-    prompt_text = f"{phase1_context}\n\n{PHASE2_PROMPT}" if phase1_context else PHASE2_PROMPT
 
-    # Confirmed kill feed timestamps (logged live during the run) help the
-    # model anchor highlights even when it samples the video sparsely.
-    events_context = _events_context_block(_load_combat_events(video_path))
-    if events_context:
-        prompt_text = f"{prompt_text}\n{events_context}"
+def _extract_phase2_frames_for_api(video_path: str, frames_dir: str, max_frames: int = 100) -> list[str]:
+    """Extract timestamp-burned sampled frames for the API Phase-2 path, mirroring
+    the CLI analyst's sampling: a sparse 0.25fps base pass plus dense 2fps passes
+    inside confirmed combat windows. Lets the API path reason over a few MB of
+    frames instead of base64-ing the entire multi-GB mp4. All combat-zone frames
+    are kept (they hold the highlights); the base pass is subsampled to fit the
+    per-request budget (Anthropic accepts up to 100 images)."""
+    os.makedirs(frames_dir, exist_ok=True)
+    events = _load_combat_events(video_path)
+    duration = _get_video_duration(video_path)
+    zones = _build_hot_zones(
+        events, duration, endgame_ts=_read_endgame_ts(video_path)
+    ) if events else []
 
-    result = ai_client.run_api_prompt(
-        prompt_text,
-        video_path=video_path,
-        model=ai_client.get_model_config("capture")["api"],
-        max_tokens=4096,
+    # Base pass — 1 frame every 4s for overall context.
+    subprocess.run(
+        ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error', '-i', video_path,
+         '-vf', f'fps=0.25,{_drawtext()}', '-q:v', '4',
+         os.path.join(frames_dir, 'base_%04d.jpg')],
+        capture_output=True, text=True, timeout=600,
     )
-    return _extract_json(result)
+    # Combat passes — 2fps inside each confirmed window (pts offset keeps ts real).
+    for i, (zs, ze) in enumerate(zones, 1):
+        subprocess.run(
+            ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
+             '-ss', str(zs), '-t', str(max(1, ze - zs)), '-i', video_path,
+             '-vf', f'fps=2,{_drawtext(zs)}', '-q:v', '3',
+             os.path.join(frames_dir, f'zone{i:02d}_%03d.jpg')],
+            capture_output=True, text=True, timeout=300,
+        )
+
+    zone_frames = sorted(glob_mod.glob(os.path.join(frames_dir, 'zone*.jpg')))[:max_frames]
+    base_frames = sorted(glob_mod.glob(os.path.join(frames_dir, 'base_*.jpg')))
+    budget = max(0, max_frames - len(zone_frames))
+    if base_frames and budget and len(base_frames) > budget:
+        step = len(base_frames) / budget
+        base_frames = [base_frames[int(i * step)] for i in range(budget)]
+    elif not budget:
+        base_frames = []
+    return sorted(zone_frames + base_frames)
+
+
+def _analyze_phase2_with_api(video_path: str, run_id: int | None = None) -> dict:
+    """Phase 2 narrative via API (fallback). Samples timestamp-burned frames and
+    sends those (a few MB, auto-downscaled to 1568px by the API encoder) instead
+    of base64-ing the whole mp4 — which was hundreds of MB to GBs on the wire."""
+    phase1_context = _get_phase1_context(run_id)
+    events_context = _events_context_block(_load_combat_events(video_path))
+
+    frames_dir = os.path.join(os.path.dirname(os.path.abspath(video_path)), "_p2frames_api")
+    try:
+        frames = _extract_phase2_frames_for_api(video_path, frames_dir)
+        if not frames:
+            raise RuntimeError("no frames extracted for API Phase 2")
+        total_mb = sum(os.path.getsize(f) for f in frames) / (1024 * 1024)
+        print(f"[processor-p2] Sending {len(frames)} sampled frames ({total_mb:.1f}MB) to API for narrative...")
+
+        frame_note = (
+            f"You are given {len(frames)} sampled frames from a gameplay run. Each frame has its "
+            "real MM:SS timestamp burned into the TOP-LEFT corner — use those visible timestamps for "
+            "all highlight timings (the frames are not necessarily in time order).\n\n"
+        )
+        prompt_text = frame_note
+        if phase1_context:
+            prompt_text += f"{phase1_context}\n\n"
+        prompt_text += PHASE2_PROMPT
+        if events_context:
+            prompt_text += f"\n{events_context}"
+
+        result = ai_client.run_api_prompt(
+            prompt_text,
+            images=frames,
+            model=ai_client.get_model_config("capture")["api"],
+            max_tokens=4096,
+        )
+        return _extract_json(result)
+    finally:
+        try:
+            shutil.rmtree(frames_dir, ignore_errors=True)
+        except Exception:
+            pass
 
 
 def analyze_video_phase2(video_path: str, run_id: int | None = None) -> dict:
