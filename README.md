@@ -89,7 +89,7 @@ A lightweight, always-on-top **HUD overlay** mirrors capture status while you pl
 
 Everything tunable in one place. Sections:
 
-- **REC.CONFIG** — encoder (HEVC/H.264), bitrate, FPS
+- **REC.CONFIG** — encoder (HEVC/H.264), bitrate, FPS, resolution (native/1440p/1080p/720p), game-audio capture on/off
 - **PROC.CONFIG** — Phase 1 and Phase 2 worker concurrency, auto-process toggles
 - **STOR.CONFIG** — move recordings, clips, and screenshots to any folder with one-click migration
 - **PROC.MODE** — ALPHA (local, free, offline), HYBRID (local-first with Claude fallback), or CLAUDE (API/CLI only)
@@ -104,6 +104,7 @@ Everything tunable in one place. Sections:
 - **Rust binary** (`runlog-recorder.exe`) — Windows Graphics Capture API, zero-copy GPU pipeline
 - **MediaFoundation encoding** — hardware HEVC/H.264, configurable up to 60fps / native 4K (defaults to 1440p30 for a low-overhead OCR + clip-review workflow; change in SYS.CONFIG → REC.CONFIG)
 - **Privacy-safe** — captures only the Marathon window, never the desktop
+- **Game-only audio** — optional WASAPI *per-process* loopback records Marathon's audio (not Discord, music, or notifications), muxed into the recording as AAC in the processing lane; falls back to whole-system loopback if per-process capture is unavailable, and toggles off entirely in SYS.CONFIG → REC.CONFIG
 - **OCR state machine** — scan regions detect deployment (start), RUN_COMPLETE (timestamp), and lobby (stop)
 - **Zero-stall detection** — scan regions are cropped recorder-side and shipped as tiny JPEGs via async double-buffered staging textures; no synchronous GPU readbacks and no full-frame processing while you play
 - **Per-phase screenshots** — READY UP, RUN, DEPLOYING phases captured for shell/loadout identification
@@ -111,12 +112,13 @@ Everything tunable in one place. Sections:
 ### Processing Modes
 runlog.exe ships with three interchangeable processors, swappable at any time in SYS.CONFIG:
 
-- **ALPHA (default)** — fully local. winocr for HUD/stats, template matching for map/weapons, a trained shell classifier for identity, rule-based grading. Free, offline, ~<2s per run.
+- **ALPHA (default)** — fully local. winocr for HUD/stats, template matching for map/weapons, a trained shell classifier for identity, rule-based grading, and audio-energy + kill-feed analysis for highlight detection. Free, offline, ~<2s per run.
 - **HYBRID** — runs ALPHA first, falls back to Claude for any fields the local pipeline can't resolve. Typical cost ~$0.01/run.
 - **CLAUDE** — full AI pipeline. Phase 1 fires parallel calls for map + loadout/identity, shell ID (reference-image matching against the 7 classes), and spawn coordinates, then a sequential call for kills, deaths, loot, weapons, and damage contributors. Phase 2 runs chain-of-thought video analysis for grade, narrative, and highlight timestamps.
 
 ### Highlight Clips
 - Auto-generated from Phase 2 — every PvP kill, death, revive, and extraction clipped
+- Signal-guided — a live kill-feed OCR log and per-run audio-energy analysis pinpoint combat windows, so clips land on real fights and Phase 2 gets confirmed kill timestamps as ground truth
 - Chain-of-thought prompting reduces hallucinated clips
 - Custom clip editor with IN/OUT markers on any video
 - Stream copy from original footage — no re-encoding, instant cuts
@@ -137,6 +139,7 @@ runlog.exe ships with three interchangeable processors, swappable at any time in
 | Database | SQLite (local-first, auto-backup) |
 | AI | Claude API (Sonnet/Haiku) or Claude CLI |
 | Capture | Rust (WGC + MediaFoundation HEVC/H.264) |
+| Audio | WASAPI per-process loopback (game-only) |
 | OCR | winocr (Windows.Media.Ocr) |
 | Video | FFmpeg |
 

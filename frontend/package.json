@@ -41,6 +41,7 @@
   "build": {
     "appId": "com.runlog.exe",
     "productName": "runlog",
+    "npmRebuild": false,
     "directories": {
       "output": "../release"
     },

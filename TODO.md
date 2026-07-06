@@ -27,14 +27,15 @@
 Phase 1 (Quick Wins) and Phase 2 (Chain-of-Thought) are complete.
 
 ### Phase 3: Audio Energy Analysis
-**BLOCKED on audio capture** — recordings are currently silent: the Rust recorder
-encodes with audio disabled, and `windows-capture` does not capture audio itself
-(the app must feed WASAPI loopback buffers via `send_frame_with_audio`; its audio
-path blocks on the buffer channel, so silence injection is required or the encoder
-stalls). `AudioAnalyzer` (backend/app/alpha/audio_analyzer.py, numpy — no librosa
-needed) is already implemented and wired into ALPHA highlights; it activates
-automatically once recordings have an audio track.
-- [ ] WASAPI loopback capture in the recorder (A/V sync + silence injection + opt-in setting — system audio may include voice chat)
+**UNBLOCKED — audio capture shipped.** Recordings now carry a game-audio track: a Python
+sidecar (`backend/app/audio_sidecar.py`) records Marathon-only audio via WASAPI
+*per-process* loopback (`backend/app/wasapi_loopback.py`), and Phase 2 muxes the WAV into
+the MP4 as AAC (`_mux_sidecar_audio` in `video_processor.py`). Toggle in SYS.CONFIG →
+REC.CONFIG → AUDIO (`audio_capture`, default on). `AudioAnalyzer`
+(backend/app/alpha/audio_analyzer.py, numpy — no librosa) is wired into ALPHA highlights
+and reads the sidecar WAV automatically.
+- [x] ~~WASAPI loopback capture + opt-in setting~~ — shipped in the Python sidecar (Marathon-only process loopback → whole-system fallback → off). Process loopback captures game audio only, so voice chat never leaks in.
+- [ ] Optional: move audio into the Rust recorder for sample-accurate A/V sync + one less Python thread (blocked on the `windows-capture` audio path — confirm the original disable reason first). Sidecar sync is good enough today.
 - [x] ~~Add `librosa` dependency~~ — RMS + spectral energy implemented with numpy in `AudioAnalyzer`
 - [x] Hot zones → combat-region context for Phase 2 (done via kill feed events, see Phase 4)
 - [x] Smart frame extraction — 2fps in confirmed combat windows, 0.25fps elsewhere (done via kill feed events)

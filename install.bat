@@ -352,35 +352,50 @@ set CSC_IDENTITY_AUTO_DISCOVERY=false
 :: Stop running packaged processes so release files are not locked and stale.
 taskkill /IM runlog.exe /F >nul 2>&1
 taskkill /IM runlog-recorder.exe /F >nul 2>&1
-:: Clean prior build output so electron-builder starts fresh
+
+:: electron-builder 26.x intermittently fails its "searching for node modules"
+:: dependency scan on the FIRST packaging run ("No JSON content found in
+:: output"): the collector races the native-dep install @electron/rebuild kicks
+:: off just before it, leaving an EMPTY release\win-unpacked (no runlog.exe). A
+:: re-run with the deps already settled succeeds. So build with up to 3 attempts,
+:: cleaning stale output before each, and only fail if all three miss.
+set "BUILD_ATTEMPT=0"
+
+:build_release
+set /a BUILD_ATTEMPT+=1
 if exist "%ROOT%release" (
     echo  Cleaning prior release/ output...
     rmdir /s /q "%ROOT%release" 2>nul
 )
-if exist "%FRONTEND%\dist" (
-    rmdir /s /q "%FRONTEND%\dist" 2>nul
-)
-echo  Building frontend + packaging installer...
+if exist "%FRONTEND%\dist" rmdir /s /q "%FRONTEND%\dist" 2>nul
+echo  Building frontend + packaging [attempt %BUILD_ATTEMPT% of 3]...
 call npm run dist 2>&1
-if exist "%ROOT%release\win-unpacked\runlog.exe" (
-    echo.
-    echo  Build complete.
-    :: Set icon on exe using rcedit
-    echo  Setting icon on exe...
-    if not exist "%TOOLS%" mkdir "%TOOLS%"
-    if not exist "%TOOLS%\rcedit-x64.exe" (
-        powershell -Command "Invoke-WebRequest -Uri 'https://github.com/electron/rcedit/releases/download/v2.0.0/rcedit-x64.exe' -OutFile '%TOOLS%\rcedit-x64.exe'; Unblock-File -Path '%TOOLS%\rcedit-x64.exe'" 2>nul
-    )
-    if exist "%TOOLS%\rcedit-x64.exe" (
-        powershell -Command "Unblock-File -Path '%TOOLS%\rcedit-x64.exe'" 2>nul
-        "%TOOLS%\rcedit-x64.exe" "%ROOT%release\win-unpacked\runlog.exe" --set-icon "%FRONTEND%\electron\icon.ico" 2>&1
-        if not errorlevel 1 echo  Icon embedded.
-    )
-) else (
-    echo.
-    echo  ERROR: Build failed. Check output above.
-    set /a ERRORS+=1
+if exist "%ROOT%release\win-unpacked\runlog.exe" goto :build_done
+if %BUILD_ATTEMPT% lss 3 (
+    echo  Attempt %BUILD_ATTEMPT% produced no runlog.exe ^(electron-builder dep-scan flake^); retrying...
+    goto :build_release
 )
+echo.
+echo  ERROR: Build failed after %BUILD_ATTEMPT% attempts. Check output above.
+set /a ERRORS+=1
+goto :build_after
+
+:build_done
+echo.
+echo  Build complete on attempt %BUILD_ATTEMPT%.
+:: Set icon on exe using rcedit
+echo  Setting icon on exe...
+if not exist "%TOOLS%" mkdir "%TOOLS%"
+if not exist "%TOOLS%\rcedit-x64.exe" (
+    powershell -Command "Invoke-WebRequest -Uri 'https://github.com/electron/rcedit/releases/download/v2.0.0/rcedit-x64.exe' -OutFile '%TOOLS%\rcedit-x64.exe'; Unblock-File -Path '%TOOLS%\rcedit-x64.exe'" 2>nul
+)
+if exist "%TOOLS%\rcedit-x64.exe" (
+    powershell -Command "Unblock-File -Path '%TOOLS%\rcedit-x64.exe'" 2>nul
+    "%TOOLS%\rcedit-x64.exe" "%ROOT%release\win-unpacked\runlog.exe" --set-icon "%FRONTEND%\electron\icon.ico" 2>&1
+    if not errorlevel 1 echo  Icon embedded.
+)
+
+:build_after
 
 :: ===========================================================
 :: PHASE 4: SAVE PYTHON PATH
