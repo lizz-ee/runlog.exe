@@ -1,7 +1,8 @@
 """
 OCR detection for Marathon game state.
 
-Three scan regions, cropped at the source by the Rust recorder:
+Small scan regions, cropped at the source by the Rust recorder:
+  - OCR.HUD (top band)      — persistent timer/location → reliable late attach
   - OCR.DEPLOY (center)  — map name on deployment loading screen → START recording
   - OCR.ENDGAME (upper)  — //RUN_COMPLETE banner → log timestamp for stats extraction
   - OCR.LOBBY (bottom)   — PREPARE/READY_UP buttons → STOP recording / capture loadout
@@ -12,6 +13,9 @@ detection, so no full-frame decode or crop happens on the hot path here.
 Uses Windows.Media.Ocr via winocr (~16ms per call, hardware-accelerated).
 EasyOCR is NOT used here — it stays in the alpha stats pipeline only.
 """
+
+import re
+import time
 
 from PIL import Image, ImageStat
 
@@ -27,6 +31,23 @@ except ImportError:
 # Minimum crop width before OCR — ensures text is large enough to read reliably.
 # At 1080p the lobby crop is ~650px wide; winocr struggles below ~800px.
 _MIN_OCR_WIDTH = 800
+_OCR_LOG_STATE: dict[str, tuple[str, float]] = {}
+_OCR_LOG_CHANGE_INTERVAL = 5.0
+_OCR_LOG_HEARTBEAT_INTERVAL = 60.0
+
+
+def _log_ocr_text(label: str, text: str) -> None:
+    """Keep OCR diagnostics useful without writing the same lobby line every second."""
+    now = time.monotonic()
+    previous = _OCR_LOG_STATE.get(label)
+    should_log = (
+        previous is None
+        or (text != previous[0] and now - previous[1] >= _OCR_LOG_CHANGE_INTERVAL)
+        or now - previous[1] >= _OCR_LOG_HEARTBEAT_INTERVAL
+    )
+    if should_log:
+        print(f"[ocr] {label}: {text[:120]!r}")
+        _OCR_LOG_STATE[label] = (text, now)
 
 
 def _ocr_pil(img: Image.Image, label: str = "") -> str:
@@ -42,7 +63,7 @@ def _ocr_pil(img: Image.Image, label: str = "") -> str:
         result = _winocr_sync(img, "en")
         text = (result.get("text") or "").upper().strip()
         if text and label:
-            print(f"[ocr] {label}: {text[:120]!r}")
+            _log_ocr_text(label, text)
         return text
     except Exception as e:
         print(f"[ocr] Error ({label}): {e}")
@@ -60,13 +81,71 @@ DEPLOY_REGION = (0.35, 0.38, 0.65, 0.65)
 ENDGAME_REGION = (0.28, 0.12, 0.72, 0.22)
 
 # OCR.LOBBY — bottom center, PREPARE/READY_UP buttons
-LOBBY_REGION = (0.33, 0.72, 0.67, 0.89)
+LOBBY_REGION = (0.33, 0.55, 0.67, 0.96)
+
+# OCR.CREW — collapsed SOLO/DUOS/TRIOS selector above the RUN button.
+CREW_REGION = (0.14, 0.50, 0.88, 0.70)
 
 # OCR.KILLFEED — upper left, "[Player] eliminated [Target]" feed
 KILLFEED_REGION = (0.01, 0.15, 0.30, 0.38)
 
 # Known map names for deployment detection
 MAP_NAMES = ["PERIMETER", "OUTPOST", "DIRE MARSH", "CRYO ARCHIVE"]
+
+
+def crew_size_from_text(text: str) -> int | None:
+    """Return the unambiguous selected crew size from selector OCR.
+
+    The expanded menu shows all three labels, so multiple matches are
+    deliberately ignored. The collapsed selector shows only the active mode.
+    """
+    normalized = (text or "").upper()
+    matches = set()
+    if re.search(r"\bS[O0]L[O0]\b", normalized):
+        matches.add(1)
+    if re.search(r"\bDU[O0]S?\b", normalized):
+        matches.add(2)
+    if re.search(r"\bTRI[O0]S?\b", normalized):
+        matches.add(3)
+    return next(iter(matches)) if len(matches) == 1 else None
+
+
+def detect_crew_size(img: "Image.Image | None") -> int | None:
+    """Read SOLO/DUOS/TRIOS from the collapsed pre-run selector."""
+    if img is None:
+        return None
+    try:
+        return crew_size_from_text(_ocr_pil(img, "CREW"))
+    except Exception as e:
+        print(f"[ocr] Crew size error: {e}")
+        return None
+
+
+def detect_map_variant(img: "Image.Image | None") -> str | None:
+    """Read the selected Dire Marsh contract variant from a full lobby frame.
+
+    The contract chip is in the top-right and explicitly reads
+    ``DIRE MARSH (NIGHT)`` for the night rotation. A plain ``DIRE MARSH`` chip
+    is the day rotation. This is intentionally a one-shot pre-deploy probe,
+    not part of the recurring hot OCR path.
+    """
+    if img is None:
+        return None
+    try:
+        w, h = img.size
+        contract = img.crop((
+            int(w * 0.68),
+            0,
+            int(w * 0.99),
+            int(h * 0.12),
+        ))
+        text = _ocr_pil(contract, "MAP_VARIANT")
+        if "DIRE" not in text or "MARSH" not in text:
+            return None
+        return "Night" if "NIGHT" in text else "Day"
+    except Exception as e:
+        print(f"[ocr] Map variant error: {e}")
+        return None
 
 
 def detect_kill_feed(img: "Image.Image | None") -> list[str]:
@@ -114,7 +193,13 @@ def detect_game_state(regions: "dict[str, Image.Image]", scan_mode: str = "lobby
                 for map_name in MAP_NAMES:
                     if map_name in text:
                         is_ranked = "RANKED" in text or "RANK" in text
+                        map_variant = None
+                        if map_name == "DIRE MARSH":
+                            # The night contract/deployment label is explicit
+                            # ("DIRE MARSH (NIGHT)"). Plain DIRE MARSH is Day.
+                            map_variant = "Night" if "NIGHT" in text else "Day"
                         return {"type": "deploy", "map_name": map_name,
+                                "map_variant": map_variant,
                                 "is_ranked": is_ranked, "text": text}
             return None
 
@@ -149,6 +234,27 @@ def detect_game_state(regions: "dict[str, Image.Image]", scan_mode: str = "lobby
             return None
 
         # 'lobby' — scan LOBBY region
+        # The persistent top HUD is the authoritative late-attach signal. The
+        # old center-screen phrases are transient and can leave an already
+        # running match unrecorded for many minutes.
+        hud = regions.get("hud")
+        hud_text = _ocr_pil(hud, "HUD") if hud else ""
+        if hud_text:
+            has_run_timer = bool(
+                re.search(r"\b(?:[0-2]?\d)\s*[:;]\s*[0-5]\d\b", hud_text)
+            )
+            has_run_hud_phrase = any(
+                phrase in hud_text
+                for phrase in (
+                    "EXFILS LOADING",
+                    "MINUTES REMAIN",
+                    "SIGNAL JAMMED",
+                    "REINFORCEMENTS INCOMING",
+                )
+            )
+            if has_run_timer or has_run_hud_phrase:
+                return {"type": "in_run", "map_name": None, "text": hud_text}
+
         img = regions.get("lobby")
         text = _ocr_pil(img, "LOBBY") if img else ""
         if text:
@@ -156,6 +262,12 @@ def detect_game_state(regions: "dict[str, Image.Image]", scan_mode: str = "lobby
                 return {"type": "exfiltrated", "map_name": None, "text": text}
             if "ELIMINATED" in text or "ELIMINAT" in text:
                 return {"type": "eliminated", "map_name": None, "text": text}
+            # Late attach: RunLog may launch after the short deployment/map
+            # title has already disappeared. These phrases are combat-HUD
+            # signals, not lobby controls, and let capture begin for the
+            # remainder of an already active run.
+            if "RUNNER DOWN" in text or "MINUTES REMAIN" in text:
+                return {"type": "in_run", "map_name": None, "text": text}
             if "DEPLOYING" in text:
                 return {"type": "deploying", "map_name": None, "text": text}
             if "RUN" in text and "COMPLETE" not in text and "RUN TIME" not in text and "RUNNER" not in text:

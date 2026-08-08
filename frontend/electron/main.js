@@ -3,12 +3,27 @@ const path = require('path')
 const fs = require('fs')
 const http = require('http')
 const { BackendManager, API_PORT } = require('./backend-manager')
-const { RecordingManager } = require('./recording-manager')
 
 // Auto-updater — uncomment when code signing + GitHub releases are configured
 // const { initAutoUpdater } = require('./auto-updater')
 
 const isDev = !app.isPackaged
+
+function loadDesktopSettings() {
+  try {
+    const settingsPath = path.join(app.getPath('userData'), 'settings.json')
+    return JSON.parse(fs.readFileSync(settingsPath, 'utf-8'))
+  } catch {
+    return {}
+  }
+}
+
+// Hardware acceleration remains the default: Chromium's software compositor
+// costs substantially more CPU and memory on a 4K desktop. Keep an opt-out in
+// SYS.CONFIG for driver-specific troubleshooting (restart required).
+if (!isDev && loadDesktopSettings().hardware_acceleration === false) {
+  app.disableHardwareAcceleration()
+}
 
 // ── Window state persistence ─────────────────────────────────────────
 const stateFile = path.join(app.getPath('userData'), 'window-state.json')
@@ -28,9 +43,9 @@ function saveWindowState() {
 
 let mainWindow = null
 let overlayWindow = null
+let latestOverlayState = { state: '', detail: '' }
 let tray = null
 let backendManager = null
-let recordingManager = null
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -46,11 +61,23 @@ const OVERLAY_SIZES = {
 function loadOverlaySettings() {
   try {
     return JSON.parse(fs.readFileSync(overlaySettingsFile, 'utf-8'))
-  } catch { return { enabled: true, corner: 'top-left' } }
+  } catch { return { enabled: true, corner: 'top-left', autoHideMain: false } }
 }
 
 function saveOverlaySettings(settings) {
   try { fs.writeFileSync(overlaySettingsFile, JSON.stringify(settings)) } catch {}
+}
+
+function autoHideMainForGameplay() {
+  const settings = loadOverlaySettings()
+  // Opt-in only. Older settings files do not contain autoHideMain, and must
+  // not inherit the old focus-driven behavior that made Snipping Tool,
+  // Alt-Tab, or clicking another app hide RunLog to the tray.
+  if (settings.autoHideMain !== true) return
+  if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible()) return
+
+  mainWindow.hide()
+  console.log('[performance] Dashboard hidden while Marathon is active; capture and HUD remain running')
 }
 
 function getOverlayDims() {
@@ -118,10 +145,14 @@ function createOverlay() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      backgroundThrottling: false,
+      backgroundThrottling: true,
+      spellcheck: false,
       preload: path.join(__dirname, 'overlay-preload.js'),
     },
   })
+  // The NVIDIA fast recorder captures the game display directly. Keep RunLog's
+  // own HUD out of the resulting video while it remains visible to the player.
+  overlayWindow.setContentProtection(true)
   overlayWindow.setIgnoreMouseEvents(true)
   overlayWindow.setAlwaysOnTop(true, 'screen-saver')  // Highest z-level — stays above fullscreen games
   overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
@@ -252,12 +283,36 @@ if (window.overlayBridge) {
   overlayWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(overlayHTML))
   overlayWindow.webContents.on('did-finish-load', () => {
     setOverlayAlign(corner)
+    if (latestOverlayState.state) {
+      overlayWindow?.webContents.send(
+        'overlay-state',
+        latestOverlayState.state,
+        latestOverlayState.detail,
+      )
+    }
   })
 }
 
 function updateOverlay(state, detail) {
+  latestOverlayState = {
+    state: state || '',
+    detail: (detail || '').toString(),
+  }
   if (!overlayWindow) return
-  overlayWindow.webContents.send('overlay-state', state || '', (detail || '').toString())
+  overlayWindow.webContents.send(
+    'overlay-state',
+    latestOverlayState.state,
+    latestOverlayState.detail,
+  )
+}
+
+function notifyOverlay(message, duration = 4000) {
+  if (!overlayWindow || overlayWindow.isDestroyed()) return
+  overlayWindow.webContents.send(
+    'overlay-notification',
+    (message || '').toString(),
+    duration,
+  )
 }
 
 function showNotification(title, body) {
@@ -276,6 +331,93 @@ function getCaptureStatus() {
     req.on('error', () => resolve(null))
     req.setTimeout(2000, () => { req.destroy(); resolve(null) })
   })
+}
+
+function formatOverlayDuration(totalSeconds) {
+  const seconds = Math.max(0, Math.floor(Number(totalSeconds) || 0))
+  const minutes = Math.floor(seconds / 60)
+  return `${minutes}:${String(seconds % 60).padStart(2, '0')}`
+}
+
+let lastAuthoritativeRecording = false
+let overlaySuppressedAfterRecording = false
+let overlayPreviewUntil = 0
+let processingSnapshotInitialized = false
+let previousProcessingItems = new Map()
+
+async function reconcileOverlayFromBackend() {
+  const status = await getCaptureStatus()
+  if (!status) return
+
+  const settings = loadOverlaySettings()
+  const isRecording = Boolean(status.recording)
+  const recordingStarted = isRecording && !lastAuthoritativeRecording
+  const recordingStopped = !isRecording && lastAuthoritativeRecording
+  const previewActive = Date.now() < overlayPreviewUntil
+
+  // Marathon presence and recording state come only from the Python engine.
+  // The React dashboard can be hidden, throttled, or not loaded at all.
+  if (!status.window_found && !previewActive) {
+    overlaySuppressedAfterRecording = false
+    if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.close()
+  } else if (settings.enabled) {
+    if (recordingStarted) overlaySuppressedAfterRecording = false
+    if (recordingStopped && settings.closeWhenDone) {
+      overlaySuppressedAfterRecording = true
+      if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.close()
+    } else if (!overlaySuppressedAfterRecording || isRecording || previewActive) {
+      createOverlay()
+    }
+  }
+
+  let state = 'active'
+  let detail = 'WATCHING'
+  if (isRecording) {
+    state = 'recording'
+    detail = formatOverlayDuration(status.recording_seconds)
+    if (status.recording_health === 'degraded' || status.recording_health === 'stalled') {
+      detail += `|ENC ${Number(status.recording_submitted_fps_recent || 0).toFixed(1)} FPS`
+    } else if (status.last_detection === 'endgame') detail += '|RUN.COMPLETE'
+    else if (status.last_detection === 'exfiltrated') detail += '|EXFILTRATED'
+    else if (status.last_detection === 'eliminated') detail += '|ELIMINATED'
+  } else if (status.active && status.last_detection) {
+    detail = status.last_detection === 'run'
+      ? 'RUN.EXE'
+      : String(status.last_detection).toUpperCase().replaceAll('_', '.')
+  }
+
+  // Avoid repainting the transparent always-on-top window unless the visible
+  // state actually changed.
+  if (
+    latestOverlayState.state !== state
+    || latestOverlayState.detail !== detail
+  ) {
+    updateOverlay(state, detail)
+  }
+
+  if (recordingStarted) autoHideMainForGameplay()
+  lastAuthoritativeRecording = isRecording
+
+  // Processing notifications are also backend-derived, so they continue when
+  // the dashboard renderer is sleeping behind the game.
+  const currentProcessingItems = new Map(
+    (status.processing_items || []).map(item => [item.file, item.status]),
+  )
+  if (processingSnapshotInitialized) {
+    for (const [file, itemStatus] of currentProcessingItems) {
+      if (
+        itemStatus === 'phase1_done'
+        && previousProcessingItems.get(file) !== 'phase1_done'
+      ) {
+        notifyOverlay('NEW STATS AVAILABLE')
+      }
+    }
+    const completed = [...previousProcessingItems.keys()]
+      .some(file => !currentProcessingItems.has(file))
+    if (completed) notifyOverlay('RUN PROCESSED')
+  }
+  previousProcessingItems = currentProcessingItems
+  processingSnapshotInitialized = true
 }
 
 async function checkProcessingActive() {
@@ -314,7 +456,24 @@ async function refreshPowerBlocker() {
 }
 
 async function confirmQuitIfProcessing() {
-  const activeCount = await checkProcessingActive()
+  const status = await getCaptureStatus()
+  const isRecording = Boolean(status?.recording)
+  const items = status?.processing_items || []
+  const activeCount = items.filter(i => !['done', 'error', 'queued'].includes(i.status)).length
+
+  if (isRecording && mainWindow && !mainWindow.isDestroyed()) {
+    const { response } = await dialog.showMessageBox(mainWindow, {
+      type: 'warning',
+      buttons: ['Cancel', 'Finalize & Quit'],
+      defaultId: 0,
+      cancelId: 0,
+      title: 'Recording Active',
+      message: 'A Marathon recording is still active.',
+      detail: 'RunLog will stop capture and finalize the MP4 before the background engine exits.',
+    })
+    if (response !== 1) return false
+  }
+
   if (activeCount > 0 && mainWindow && !mainWindow.isDestroyed()) {
     const { response } = await dialog.showMessageBox(mainWindow, {
       type: 'warning',
@@ -333,6 +492,78 @@ async function confirmQuitIfProcessing() {
 function sendToRenderer(channel, data) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(channel, data)
+  }
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;')
+}
+
+function showFatalRendererError(code, message, detail = '') {
+  console.error(`[renderer] ${code}: ${message}${detail ? ` (${detail})` : ''}`)
+  if (!mainWindow || mainWindow.isDestroyed()) return
+
+  const safeCode = escapeHtml(code)
+  const safeMessage = escapeHtml(message)
+  const safeDetail = escapeHtml(detail)
+  mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
+    <!DOCTYPE html>
+    <html><head><meta charset="utf-8"><style>
+      body { margin: 0; background: #050508; color: #ff5555; font-family: Consolas, monospace;
+             display: flex; align-items: center; justify-content: center; height: 100vh; }
+      main { max-width: 640px; padding: 32px; border: 1px solid #ff555544; background: #0a0a0f; }
+      h1 { margin: 0 0 14px; font-size: 20px; letter-spacing: .18em; }
+      .code { color: #c8ff00; font-size: 11px; letter-spacing: .12em; }
+      p { color: #999; font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+    </style></head><body><main>
+      <h1>RUNLOG.EXE</h1>
+      <p class="code">// ${safeCode}</p>
+      <p>${safeMessage}</p>
+      ${safeDetail ? `<p>${safeDetail}</p>` : ''}
+      <p>Rebuild with <strong>npm run dist</strong>. The package verifier now rejects releases without the renderer bundle.</p>
+    </main></body></html>
+  `)}`)
+}
+
+async function loadRenderer() {
+  const indexPath = path.join(__dirname, '../dist/index.html')
+  if (!fs.existsSync(indexPath)) {
+    showFatalRendererError('RENDERER.BUNDLE.MISSING', 'The packaged UI entry point was not found.', indexPath)
+    return false
+  }
+
+  try {
+    await mainWindow.loadFile(indexPath)
+    // Poll from the main process rather than waiting on requestAnimationFrame.
+    // Chromium can suspend animation frames while Marathon occludes the window;
+    // that is desirable for gameplay performance, but must never block startup.
+    let probe = null
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      probe = await mainWindow.webContents.executeJavaScript(`
+        (() => {
+          const root = document.getElementById('root')
+          return {
+            rootChildren: root ? root.childElementCount : 0,
+            bodyText: document.body.innerText.slice(0, 120),
+          }
+        })()
+      `)
+      if (probe?.rootChildren > 0) break
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    if (!probe || probe.rootChildren < 1) {
+      throw new Error(`React root did not render (${probe?.bodyText || 'no body text'})`)
+    }
+    console.log(`[renderer] Ready: ${probe.rootChildren} root child, "${probe.bodyText.replace(/\s+/g, ' ')}"`)
+    return true
+  } catch (error) {
+    showFatalRendererError('RENDERER.LOAD.FAILED', error.message, indexPath)
+    return false
   }
 }
 
@@ -355,6 +586,7 @@ function createWindow() {
       contextIsolation: true,
       webSecurity: true,
       preload: path.join(__dirname, 'preload.js'),
+      spellcheck: false,
       // backgroundThrottling stays ON (default): detection runs in the Python
       // backend, not this renderer, and SSE/IPC events (which drive the HUD
       // overlay) are never throttled — only timers and painting are. Letting
@@ -377,6 +609,24 @@ function createWindow() {
     mainWindow.loadURL('http://localhost:5173')
   }
 
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    // ERR_ABORTED is expected when the boot page is replaced by the app.
+    if (isMainFrame && errorCode !== -3) {
+      showFatalRendererError('RENDERER.NAVIGATION.FAILED', `${errorDescription} (${errorCode})`, validatedURL)
+    }
+  })
+  // Prevent accidental desktop/privacy capture if the user alt-tabs while a
+  // direct display recording is active.
+  mainWindow.setContentProtection(true)
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    showFatalRendererError('RENDERER.PROCESS.GONE', details.reason, `exitCode=${details.exitCode}`)
+  })
+  mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    if (level >= 2) console.error(`[renderer console] ${message} (${sourceId}:${line})`)
+  })
+  mainWindow.on('unresponsive', () => {
+    console.error('[renderer] Main window became unresponsive')
+  })
   mainWindow.on('close', (e) => {
     if (!app.isQuitting) {
       e.preventDefault()
@@ -402,8 +652,7 @@ function createTray() {
         const canQuit = await confirmQuitIfProcessing()
         if (!canQuit) return
         app.isQuitting = true
-        if (recordingManager) recordingManager.stop()
-        if (backendManager) backendManager.stop()
+        if (backendManager) await backendManager.stop()
         app.quit()
       },
     },
@@ -438,6 +687,11 @@ app.whenReady().then(async () => {
   // processing). Re-checked every 30s; resolves to idle if the backend is down.
   setInterval(refreshPowerBlocker, 30000)
   refreshPowerBlocker()
+  // Main-process reconciliation is independent of the hidden/occluded React
+  // renderer. This prevents the HUD timer from freezing and guarantees REC is
+  // cleared within two seconds after the backend finalizes a recording.
+  setInterval(reconcileOverlayFromBackend, 2000)
+  reconcileOverlayFromBackend()
 
   // Auto-updater — uncomment when code signing + GitHub releases are configured
   // initAutoUpdater(mainWindow)
@@ -572,7 +826,7 @@ app.whenReady().then(async () => {
 
     const started = await backendManager.start()
     if (started) {
-      mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
+      await loadRenderer()
     } else {
       mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
         <!DOCTYPE html>
@@ -592,48 +846,15 @@ app.whenReady().then(async () => {
     }
   }
 
-  // Start recording manager (monitors Marathon, controls capture)
-  // Delay startup so frontend finishes initial data load first —
-  // WGC + OCR model loading + resume queue all compete for resources on launch
-  const startRecordingManager = () => {
-    recordingManager = new RecordingManager((status, message) => {
-      console.log(`[recording] ${status}: ${message}`)
-      sendToRenderer('recording-status', { status, message })
-
-      // Update overlay for key events
-      if (status === 'recording_started') {
-        updateOverlay('recording', '')
-      } else if (status === 'recording_stopped') {
-        // Let App.tsx control overlay via last_detection state
-      } else if (status === 'run_processed') {
-        // Let App.tsx control overlay via last_detection state
-      } else if (status === 'active') {
-        createOverlay()
-        updateOverlay('active', 'WATCHING')
-      }
-    }, API_PORT)
-    recordingManager.start()
-    console.log('=== runlog.exe ===')
-    console.log('  Auto-capture active')
-    console.log('  Recording starts when deployment screen detected')
-  }
-
-  if (!isDev) {
-    // Production: only start if backend is up, delay 5s for frontend to finish loading
-    if (backendManager && await backendManager._healthCheck()) {
-      setTimeout(startRecordingManager, 5000)
-    } else {
-      console.log('[recording] Backend not ready, skipping recording manager')
-    }
-  } else {
-    // Dev: start immediately (backend managed manually)
-    startRecordingManager()
-  }
+  console.log('=== runlog.exe ===')
+  console.log('  Background capture engine active')
+  console.log('  Recording starts when deployment screen is detected')
 })
 
 app.on('will-quit', () => {
-  if (recordingManager) recordingManager.stop()
-  if (backendManager) backendManager.stop()
+  // Explicit quit/relaunch paths await graceful finalization before reaching
+  // here. This is only the crash/OS-shutdown fallback.
+  if (backendManager) backendManager.stop(false)
 })
 
 app.on('window-all-closed', () => {})
@@ -666,8 +887,7 @@ ipcMain.on('window-close', async () => {
       mainWindow.hide()
     } else {
       app.isQuitting = true
-      if (recordingManager) recordingManager.stop()
-      if (backendManager) backendManager.stop()
+      if (backendManager) await backendManager.stop()
       app.quit()
     }
   } else {
@@ -676,13 +896,6 @@ ipcMain.on('window-close', async () => {
 })
 ipcMain.on('get-api-base-url', (event) => {
   event.returnValue = isDev ? '' : `http://127.0.0.1:${API_PORT}`
-})
-ipcMain.on('overlay-update', (_event, state, detail) => {
-  updateOverlay(state, detail)
-})
-ipcMain.on('overlay-notify', (_event, message, duration) => {
-  if (!overlayWindow) return
-  overlayWindow.webContents.send('overlay-notification', (message || '').toString(), duration || 4000)
 })
 ipcMain.on('overlay-toggle', (_event, enabled) => {
   const settings = loadOverlaySettings()
@@ -698,9 +911,11 @@ ipcMain.on('overlay-toggle', (_event, enabled) => {
 })
 ipcMain.on('overlay-preview', () => {
   if (overlayWindow) {
+    overlayPreviewUntil = 0
     overlayWindow.close()
     overlayWindow = null
   } else {
+    overlayPreviewUntil = Date.now() + 5000
     createOverlay()
     updateOverlay('active', 'PREVIEW')
   }
@@ -774,6 +989,12 @@ ipcMain.on('overlay-set-close-when-done', (_event, enabled) => {
   saveOverlaySettings(settings)
 })
 
+ipcMain.on('overlay-set-auto-hide-main', (_event, enabled) => {
+  const settings = loadOverlaySettings()
+  settings.autoHideMain = Boolean(enabled)
+  saveOverlaySettings(settings)
+})
+
 let _overlayPosTimeout = null
 ipcMain.on('overlay-set-position', (_event, xPercent, yPercent) => {
   // Move overlay window if it exists
@@ -822,8 +1043,7 @@ ipcMain.on('app-relaunch', async () => {
   const canQuit = await confirmQuitIfProcessing()
   if (!canQuit) return
   app.isQuitting = true
-  if (recordingManager) recordingManager.stop()
-  if (backendManager) backendManager.stop()
+  if (backendManager) await backendManager.stop()
   app.relaunch()
   app.quit()
 })

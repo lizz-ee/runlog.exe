@@ -8,6 +8,7 @@ Provides start/stop/status/frame endpoints for the singleton capture engine.
 import os
 import subprocess
 import mimetypes
+import threading
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response, JSONResponse
@@ -21,6 +22,7 @@ router = APIRouter()
 # -- Module-level singleton --------------------------------------------
 
 _engine: AutoCapture | None = None
+_engine_lock = threading.Lock()
 
 # Large media files (recordings, clips) use the configurable storage path.
 # This defaults to AppData but can be set to any directory (e.g. D:\RunLog)
@@ -118,26 +120,35 @@ def _get_engine() -> AutoCapture:
     return _engine
 
 
+def ensure_engine_started() -> AutoCapture:
+    """Create/start the backend-owned capture engine exactly once."""
+    global _engine
+    with _engine_lock:
+        if _engine is None:
+            _engine = AutoCapture(
+                recordings_dir=RECORDINGS_DIR,
+                clips_dir=CLIPS_DIR,
+            )
+        _engine.start()
+        return _engine
+
+
+def shutdown_engine():
+    """Stop the singleton during an intentional backend shutdown."""
+    global _engine
+    with _engine_lock:
+        if _engine is not None:
+            _engine.stop()
+            _engine = None
+
+
 # -- Endpoints ---------------------------------------------------------
 
 @router.post("/start")
 def capture_start():
-    """Create and start the AutoCapture engine (singleton). Restarts recorder if no window found."""
-    global _engine
-    if _engine is None:
-        _engine = AutoCapture(
-            recordings_dir=RECORDINGS_DIR,
-            clips_dir=CLIPS_DIR,
-        )
-    status = _engine.start()
-    # If recorder is running but has no window, restart it to re-search
-    if _engine._running and not _engine._recorder.window_name and _engine._recorder.is_running:
-        _engine._recorder.stop()
-        _engine._recorder.start()
-        if _engine._recorder.window_name:
-            print(f"[capture] Recorder re-found window: {_engine._recorder.window_name}")
-            status = _engine.get_status()
-    return JSONResponse(content=status)
+    """Compatibility endpoint; capture normally starts with the backend."""
+    engine = ensure_engine_started()
+    return JSONResponse(content=engine.get_status())
 
 
 @router.post("/stop")
@@ -158,6 +169,17 @@ def capture_status():
             "recording": False,
             "recording_seconds": 0,
             "recording_path": None,
+            "recording_state": "idle",
+            "recording_backend": "none",
+            "recording_health": "idle",
+            "recording_capture_fps": 0,
+            "recording_submitted_fps": 0,
+            "recording_capture_fps_recent": 0,
+            "recording_submitted_fps_recent": 0,
+            "recording_captured_frames": 0,
+            "recording_submitted_frames": 0,
+            "recording_dropped_frames": 0,
+            "recording_progress_age": None,
             "queue_size": 0,
             "processing_phase": None,
             "processing_items": [],
@@ -165,11 +187,24 @@ def capture_status():
             "resumed_count": 0,
             "capture_mode": "none",
             "capture_error": None,
+            "audio_capture_active": False,
+            "audio_capture_path": None,
+            "audio_capture_error": None,
+            "capture_resolution": None,
+            "has_frame": False,
+            "window_found": False,
+            "last_detection": None,
+            "detection_count": 0,
             "last_result": None,
             "auto_p1": get_config_value("auto_p1") if get_config_value("auto_p1") is not None else True,
             "auto_p2": get_config_value("auto_p2") if get_config_value("auto_p2") is not None else True,
+            "processing_guard_mode": get_config_value("processing_guard_mode") or "recording",
+            "processing_guard_active": False,
             "pause_processing_while_game_running": get_config_value("pause_processing_while_game_running") if get_config_value("pause_processing_while_game_running") is not None else True,
             "processing_paused_for_game": False,
+            "processing_paused_for_recording": False,
+            "selected_crew_size": None,
+            "storage_warning": None,
         })
     return JSONResponse(content=_engine.get_status())
 

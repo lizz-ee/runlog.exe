@@ -52,6 +52,7 @@ Extract all visible match data and return ONLY valid JSON with these fields:
   "deaths": number (usually 0 if extracted, 1 if died — infer from outcome),
   "assists": number (crew revives count, 0 if not visible),
   "map_name": "string or null",
+  "map_variant": "Day" or "Night" only if Dire Marsh and the variant is explicitly shown, otherwise null,
   "duration_seconds": number or null (convert MM:SS Run Time to total seconds),
   "loot_extracted": [{"name": "item name", "value": number}] or null (list visible items from backpack/loadout),
   "loot_value_total": number (the "Inventory Value" number, 0 if not visible),

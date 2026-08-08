@@ -81,7 +81,7 @@ Where the magic happens. The detection engine watches your game, auto-records ev
 
 ![DETECT.EXE — Live Capture](docs/screenshots/detect_exe.png)
 
-A lightweight, always-on-top **HUD overlay** mirrors capture status while you play — enable it in SYS.CONFIG, pick a corner, set size and opacity. Hides itself when the run is done.
+A lightweight, always-on-top **HUD overlay** mirrors capture status while you play — enable it in SYS.CONFIG, pick a corner, set size and opacity. The optional **GAME GUARD** can hide the full dashboard when an actual run recording starts, leaving capture and the HUD running without continuously compositing the main Electron window. Losing focus, taking a screenshot, or switching to another app never hides the dashboard.
 
 ---
 
@@ -90,7 +90,7 @@ A lightweight, always-on-top **HUD overlay** mirrors capture status while you pl
 Everything tunable in one place. Sections:
 
 - **REC.CONFIG** — encoder (HEVC/H.264), bitrate, FPS, resolution (native/1440p/1080p/720p), game-audio capture on/off
-- **PROC.CONFIG** — Phase 1 and Phase 2 worker concurrency, auto-process toggles
+- **PROC.CONFIG** — Phase 1/2 concurrency, auto-process toggles, game-impact guard, and Electron UI GPU toggle (hardware acceleration on by default; restart required to change)
 - **STOR.CONFIG** — move recordings, clips, and screenshots to any folder with one-click migration
 - **PROC.MODE** — ALPHA (local, free, offline), HYBRID (local-first with Claude fallback), or CLAUDE (API/CLI only)
 - **HUD.OVERLAY** — on/off, corner, size, opacity, live preview
@@ -202,6 +202,8 @@ cd frontend && npm run electron:dev
 ```bash
 cd frontend && npm run dist
 # Output in release/win-unpacked/
+# The command fails if app.asar is missing dist/index.html, its entry assets,
+# or the bundled runlog-recorder.exe.
 ```
 
 ---

@@ -19,7 +19,7 @@ const GRADE_COLORS: Record<string, { text: string; border: string; bg: string }>
   F: { text: '#888888', border: '#88888860', bg: '#88888815' },
 }
 
-const SHELLS = ['Triage', 'Assassin', 'Recon', 'Vandal', 'Destroyer', 'Thief', 'Rook']
+const SHELLS = ['Triage', 'Assassin', 'Recon', 'Vandal', 'Destroyer', 'Thief', 'Sentinel', 'Rook']
 
 /* ── Hexagon Favorite Icon ── */
 function HexFavorite({ filled, onClick }: { filled: boolean; onClick: (e: React.MouseEvent) => void }) {
@@ -663,6 +663,7 @@ export default function RunHistory() {
   const [outcomeFilter, setOutcomeFilter] = useState<'all' | 'survived' | 'died'>('all')
   const [gradeFilter, setGradeFilter] = useState<string>('')
   const [mapFilter, setMapFilter] = useState('')
+  const [mapVariantFilter, setMapVariantFilter] = useState<'Day' | 'Night' | ''>('')
   const [rankedFilter, setRankedFilter] = useState(false)
   const [favFilter, setFavFilter] = useState(false)
   const [page, setPage] = useState(0)
@@ -678,6 +679,7 @@ export default function RunHistory() {
     if (outcomeFilter === 'died') params.survived = false
     if (gradeFilter) params.grade = gradeFilter
     if (mapFilter) params.map_name = mapFilter
+    if (mapVariantFilter) params.map_variant = mapVariantFilter
     if (rankedFilter) params.is_ranked = true
     if (favFilter) params.is_favorite = true
 
@@ -686,7 +688,7 @@ export default function RunHistory() {
       setTotalCount(result.total)
       setMaps(result.maps)
     }).catch((e) => console.error('[RunHistory] fetch runs failed:', e))
-  }, [page, outcomeFilter, gradeFilter, mapFilter, rankedFilter, favFilter])
+  }, [page, outcomeFilter, gradeFilter, mapFilter, mapVariantFilter, rankedFilter, favFilter])
 
   const refreshRuns = useCallback(() => {
     fetchPage()
@@ -720,7 +722,11 @@ export default function RunHistory() {
 
   const totalPages = Math.max(1, Math.ceil(totalCount / RUNS_PER_PAGE))
 
-  useEffect(() => { setPage(0) }, [outcomeFilter, gradeFilter, mapFilter, rankedFilter, favFilter])
+  useEffect(() => { setPage(0) }, [outcomeFilter, gradeFilter, mapFilter, mapVariantFilter, rankedFilter, favFilter])
+
+  useEffect(() => {
+    if (mapFilter !== 'Dire Marsh') setMapVariantFilter('')
+  }, [mapFilter])
 
   function getRunClips(run: Run): Clip[] {
     return matchRunClips(run, clips)
@@ -830,6 +836,19 @@ export default function RunHistory() {
             {maps.map((m) => (
               <option key={m} value={m!}>{m!.toUpperCase()}</option>
             ))}
+          </select>
+        )}
+
+        {mapFilter === 'Dire Marsh' && (
+          <select
+            value={mapVariantFilter}
+            onChange={(e) => setMapVariantFilter(e.target.value as 'Day' | 'Night' | '')}
+            className="px-3 py-2 text-xs bg-m-black text-m-text border border-1 border-m-border focus:outline-none appearance-none"
+            style={{ colorScheme: 'dark' }}
+          >
+            <option value="">ALL VARIANTS</option>
+            <option value="Day">DAY</option>
+            <option value="Night">NIGHT</option>
           </select>
         )}
 
@@ -1070,6 +1089,11 @@ export function RunRow({ run, isExpanded, onToggle, onToggleFavorite, onUpdate, 
             <img src={rankedIcon} alt="Ranked" className="h-3 w-auto opacity-80" />
           )}
           {run.map_name ?? 'UNKNOWN'}
+          {run.map_variant && (
+            <span className={run.map_variant === 'Night' ? 'text-m-cyan' : 'text-m-yellow'}>
+              {' '}// {run.map_variant.toUpperCase()}
+            </span>
+          )}
           {run.spawn_location && (
             <span className="text-m-text-muted"> — {run.spawn_location}</span>
           )}
@@ -1120,7 +1144,11 @@ export function RunRow({ run, isExpanded, onToggle, onToggleFavorite, onUpdate, 
               <span className="text-[10px] font-mono text-m-text">
                 {run.squad_members && run.squad_members.length > 0
                   ? run.squad_members.join('  ·  ')
-                  : 'Solo'}
+                  : run.squad_size === 3
+                    ? 'Trio'
+                    : run.squad_size === 2
+                      ? 'Duo'
+                      : 'Solo'}
               </span>
             </div>
 

@@ -32,6 +32,7 @@ export interface Run {
   runner_id: number | null
   loadout_id: number | null
   map_name: string | null
+  map_variant: 'Day' | 'Night' | null
   date: string
   survived: boolean | null
   kills: number
@@ -96,6 +97,7 @@ export interface ParsedScreenshot {
   deaths: number
   assists: number
   map_name: string | null
+  map_variant: 'Day' | 'Night' | null
   duration_seconds: number | null
   loot_extracted: LootItem[] | null
   loot_value_total: number
@@ -210,6 +212,17 @@ export interface CaptureStatus {
   recording: boolean
   recording_seconds: number
   recording_path: string | null
+  recording_state?: 'idle' | 'starting' | 'recording' | 'stopping' | 'failed'
+  recording_backend?: 'none' | 'media_foundation' | 'direct_nvenc'
+  recording_health?: 'idle' | 'starting' | 'healthy' | 'degraded' | 'stalled'
+  recording_capture_fps?: number
+  recording_submitted_fps?: number
+  recording_capture_fps_recent?: number
+  recording_submitted_fps_recent?: number
+  recording_captured_frames?: number
+  recording_submitted_frames?: number
+  recording_dropped_frames?: number
+  recording_progress_age?: number | null
   queue_size: number
   processing_phase: string | null
   processing_items: ProcessingItem[]
@@ -228,8 +241,12 @@ export interface CaptureStatus {
   last_result: ProcessResult | null
   auto_p1: boolean
   auto_p2: boolean
+  processing_guard_mode: 'recording' | 'game' | 'off'
+  processing_guard_active: boolean
   pause_processing_while_game_running: boolean
   processing_paused_for_game: boolean
+  processing_paused_for_recording: boolean
+  selected_crew_size: number | null
   storage_warning?: string | null
 }
 
@@ -264,6 +281,7 @@ export interface ProcessResult {
 
 export interface RunAnalysis {
   map_name: string | null
+  map_variant: 'Day' | 'Night' | null
   survived: boolean | null
   kills: number
   combatant_eliminations: number
@@ -323,4 +341,4 @@ export interface ShellStats {
 
 export type { OverlaySettings } from './electron'
 
-export type View = 'dashboard' | 'history' | 'shells' | 'squad' | 'map-perimeter' | 'map-dire-marsh' | 'map-outpost' | 'map-cryo-archive' | 'live' | 'uplink' | 'settings'
+export type View = 'dashboard' | 'history' | 'shells' | 'squad' | 'map-perimeter' | 'map-dire-marsh' | 'map-dire-marsh-day' | 'map-dire-marsh-night' | 'map-outpost' | 'map-cryo-archive' | 'live' | 'uplink' | 'settings'

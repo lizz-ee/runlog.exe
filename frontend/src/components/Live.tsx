@@ -193,14 +193,16 @@ export default function Live() {
   // dismissing state removed — recordings auto-save on completion
   const { addToast } = useStore()
 
-  // Frame refresh interval — specific to Live page preview. Skip refetch +
-  // decode while the window is hidden/occluded (e.g. behind the game).
+  // Frame refresh interval — specific to the low-rate diagnostic preview.
+  // Freeze the image while recording so a dashboard left open on a second
+  // monitor never competes with gameplay by decoding repeated 4K JPEGs.
   useEffect(() => {
+    if (status?.recording) return
     const frameInterval = setInterval(() => {
       if (!document.hidden) setFrameKey(k => k + 1)
     }, 2000)
     return () => clearInterval(frameInterval)
-  }, [])
+  }, [status?.recording])
 
   const allItems = status?.processing_items || []
   // Filter out done/complete items — they vanish from the queue
@@ -265,8 +267,19 @@ export default function Live() {
             </p>
             {status?.recording ? (
               <>
-              <p className="text-[10px] font-mono text-m-red font-bold mt-0.5 animate-pulse">
+              <p className="text-[10px] font-mono text-m-red font-bold mt-0.5">
                 ■ REC {formatTime(status.recording_seconds)}
+              </p>
+              <p className={`text-[8px] font-mono tracking-widest ${
+                status.recording_health === 'healthy'
+                  ? 'text-m-green'
+                  : status.recording_health === 'degraded' || status.recording_health === 'stalled'
+                    ? 'text-m-red'
+                    : 'text-m-yellow'
+              }`}>
+                CAP {(status.recording_capture_fps_recent || 0).toFixed(1)}
+                {' // '}ENC {(status.recording_submitted_fps_recent || 0).toFixed(1)}
+                {' // '}DROP {status.recording_dropped_frames || 0}
               </p>
               <p className={`text-[8px] font-mono tracking-widest ${
                 status.audio_capture_active
@@ -283,8 +296,14 @@ export default function Live() {
               </p>
               </>
             ) : (
-              <p className="text-[10px] font-mono text-m-text-muted/50 mt-0.5">
-                STANDBY
+              <p className={`text-[10px] font-mono mt-0.5 ${
+                status?.active && status?.window_found && status?.has_frame
+                  ? 'text-m-cyan'
+                  : 'text-m-text-muted/50'
+              }`}>
+                {status?.active && status?.window_found && status?.has_frame
+                  ? 'ARMED // REC STARTS AT DEPLOYMENT'
+                  : 'STANDBY'}
               </p>
             )}
           </div>
@@ -299,8 +318,10 @@ export default function Live() {
                   {status.recording_path.split(/[/\\]/).pop()}
                 </p>
               )}
-              <p className="text-[8px] font-mono text-m-green/20 tracking-widest">
-                RDP 978xd 1704-24595
+              <p className="text-[8px] font-mono text-m-cyan/50 tracking-widest">
+                {status?.recording
+                  ? 'DIAGNOSTIC PREVIEW PAUSED // RECORDING UNAFFECTED'
+                  : 'DIAGNOSTIC PREVIEW // 0.5 FPS // RECORDING INDEPENDENT'}
               </p>
             </div>
             <div className="flex items-center gap-4">
@@ -397,7 +418,11 @@ export default function Live() {
         <div className="flex items-center justify-between mb-3">
           <p className="label-tag text-m-text-muted">PIPELINE.STATUS</p>
           <div className="flex items-center gap-3 text-[10px] font-mono text-m-text-muted">
-            {status?.processing_paused_for_game && <span className="text-m-yellow">GAME GUARD</span>}
+            {status?.processing_guard_active && (
+              <span className="text-m-yellow">
+                {status.processing_paused_for_recording ? 'RUN GUARD' : 'FULL GAME GUARD'}
+              </span>
+            )}
             <span>{processingItems.length} TOTAL</span>
             {(counts.done || 0) > 0 && <span className="text-m-green">{counts.done} DONE</span>}
             {(counts.error || 0) > 0 && (
@@ -418,6 +443,25 @@ export default function Live() {
           </div>
         </div>
       <div className="bg-m-card border border-m-border px-6 pt-4 pb-5 relative overflow-hidden">
+        {status?.processing_guard_active && (counts.queued || 0) > 0 && (
+          <div className="mb-4 border border-m-yellow/30 bg-m-yellow/[0.04] px-4 py-3 flex items-center justify-between gap-4">
+            <div>
+              <p className="text-[10px] font-mono font-bold tracking-[0.16em] text-m-yellow">
+                {status.processing_paused_for_recording
+                  ? 'PROCESSING PAUSED WHILE RECORDING'
+                  : 'PROCESSING PAUSED WHILE MARATHON IS OPEN'}
+              </p>
+              <p className="mt-1 text-[9px] font-mono tracking-wider text-m-text-muted">
+                {counts.queued} RUN{counts.queued === 1 ? '' : 'S'} SAFELY QUEUED // ANALYSIS RESUMES {
+                  status.processing_paused_for_recording ? 'AFTER THE RUN' : 'AFTER THE GAME CLOSES'
+                }
+              </p>
+            </div>
+            <span className="shrink-0 text-[10px] font-mono font-bold text-m-yellow">
+              {status.processing_paused_for_recording ? 'RUN ONLY' : 'FULL GAME'}
+            </span>
+          </div>
+        )}
 
         {/* Pill-shaped pipeline — Marathon HUD style */}
         {(() => {

@@ -15,6 +15,8 @@ a P2 killed mid-flight re-holds and regenerates its (deterministically-named)
 clips. The capture engine decides requeue-vs-fail from its own `_recording` flag.
 """
 
+import os
+import subprocess
 import threading
 
 _lock = threading.Lock()
@@ -47,7 +49,19 @@ def abort_all() -> int:
     for p in procs:
         try:
             if p.poll() is None:
-                p.terminate()
+                if os.name == "nt":
+                    # The CLI can spawn a worker child. Terminating only the
+                    # registered wrapper may orphan that child and leave an
+                    # upload running through gameplay.
+                    subprocess.run(
+                        ["taskkill", "/PID", str(p.pid), "/T", "/F"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=5,
+                        check=False,
+                    )
+                else:
+                    p.terminate()
                 signalled += 1
         except Exception:
             pass

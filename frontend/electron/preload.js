@@ -11,11 +11,6 @@ contextBridge.exposeInMainWorld('runlog', {
     ipcRenderer.on('auto-capture-event', (_event, data) => callback(data))
   },
 
-  // Listen for recording status changes (from recording-manager)
-  onRecordingStatus: (callback) => {
-    ipcRenderer.on('recording-status', (_event, data) => callback(data))
-  },
-
   // Get API base URL (empty in dev for Vite proxy, http://127.0.0.1:8000 in production)
   // sendSync is acceptable here — called once at startup, value is needed synchronously
   getApiBaseUrl: () => ipcRenderer.sendSync('get-api-base-url'),
@@ -26,8 +21,6 @@ contextBridge.exposeInMainWorld('runlog', {
   windowClose: () => ipcRenderer.send('window-close'),
 
   // Overlay
-  updateOverlay: (state, detail) => ipcRenderer.send('overlay-update', state, detail),
-  notifyOverlay: (message, duration) => ipcRenderer.send('overlay-notify', message, duration),
   toggleOverlay: (enabled) => ipcRenderer.send('overlay-toggle', enabled),
   setOverlayCorner: (corner) => ipcRenderer.send('overlay-set-corner', corner),
   nudgeOverlay: (direction) => ipcRenderer.send('overlay-nudge', direction),
@@ -35,6 +28,7 @@ contextBridge.exposeInMainWorld('runlog', {
   setOverlayOpacity: (opacity) => ipcRenderer.send('overlay-set-opacity', opacity),
   setOverlaySize: (size) => ipcRenderer.send('overlay-set-size', size),
   setOverlayCloseWhenDone: (enabled) => ipcRenderer.send('overlay-set-close-when-done', enabled),
+  setOverlayAutoHideMain: (enabled) => ipcRenderer.send('overlay-set-auto-hide-main', enabled),
   setOverlayPosition: (xPct, yPct) => ipcRenderer.send('overlay-set-position', xPct, yPct),
   previewOverlay: () => ipcRenderer.send('overlay-preview'),
 

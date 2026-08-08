@@ -18,6 +18,7 @@ the game needs it.
 from __future__ import annotations
 
 import ctypes
+import os
 import sys
 
 _IS_WIN = sys.platform == "win32"

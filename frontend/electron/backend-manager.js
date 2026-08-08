@@ -49,7 +49,9 @@ function _sanitizeLogLine(msg) {
 function logToFile(msg) {
   const sanitized = _sanitizeLogLine(msg)
   const line = `[${new Date().toISOString()}] ${sanitized}\n`
-  try { fs.appendFileSync(LOG_FILE, line) } catch {}
+  // Do not block Electron's main thread on every backend/OCR log chunk while
+  // the game is running. Diagnostic logging is intentionally best-effort.
+  fs.appendFile(LOG_FILE, line, () => {})
   console.log(msg)
 }
 // Port is configurable via settings.json "api_port" field, defaults to 8000
@@ -191,7 +193,7 @@ class BackendManager {
       return true
     } else {
       this.onStatus('error', 'Backend failed to start within timeout')
-      this.stop()
+      void this.stop(false)
       return false
     }
   }
@@ -199,11 +201,20 @@ class BackendManager {
   /**
    * Stop the backend process and all children.
    */
-  stop() {
+  async stop(graceful = true) {
     if (!this.process) return
 
     const pid = this.process.pid
     logToFile(`[backend] Stopping process tree (PID: ${pid})`)
+
+    if (graceful) {
+      const finalized = await this._requestCaptureStop()
+      logToFile(
+        finalized
+          ? '[backend] Capture engine stopped and recordings finalized'
+          : '[backend] Graceful capture stop timed out; using process-tree fallback',
+      )
+    }
 
     try {
       // Windows: kill entire process tree
@@ -219,6 +230,30 @@ class BackendManager {
     this.process = null
     try { if (this._pidFile) fs.unlinkSync(this._pidFile) } catch {}
     this.onStatus('stopped', 'Backend stopped')
+  }
+
+  _requestCaptureStop() {
+    return new Promise((resolve) => {
+      const req = http.request(
+        {
+          hostname: '127.0.0.1',
+          port: API_PORT,
+          path: '/api/capture/stop',
+          method: 'POST',
+          timeout: 45000,
+        },
+        (res) => {
+          res.resume()
+          res.on('end', () => resolve(res.statusCode >= 200 && res.statusCode < 300))
+        },
+      )
+      req.on('error', () => resolve(false))
+      req.on('timeout', () => {
+        req.destroy()
+        resolve(false)
+      })
+      req.end()
+    })
   }
 
   isRunning() {

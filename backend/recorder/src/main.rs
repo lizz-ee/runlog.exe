@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use windows_capture::capture::{Context, GraphicsCaptureApiHandler};
 use windows_capture::encoder::{
-    AudioSettingsBuilder, ContainerSettingsBuilder, VideoEncoder, VideoSettingsBuilder,
-    VideoSettingsSubType,
+    AudioSettingsBuilder, ContainerSettingsBuilder, VideoEncoder, VideoEncoderError,
+    VideoSettingsBuilder, VideoSettingsSubType,
 };
 use windows_capture::frame::Frame;
 use windows_capture::graphics_capture_api::InternalCaptureControl;
@@ -54,7 +54,7 @@ const FULL_FRAME_EVERY_RECORD_TICKS: u64 = 2;
 // Cropping at the source means the per-tick CPU work (mapped-memory copy,
 // BGRA→RGB conversion, JPEG encode, base64, IPC) touches ~18% of the frame
 // instead of all of it. The deploy region doubles as the postgame/center
-// region on the Python side.
+// region on the Python side; HUD provides a persistent in-run signal.
 // ---------------------------------------------------------------------------
 
 struct RegionDef {
@@ -65,16 +65,57 @@ struct RegionDef {
     y2: f32,
 }
 
-const OCR_REGIONS: [RegionDef; 4] = [
+const OCR_REGIONS: [RegionDef; 6] = [
+    // OCR.HUD — persistent run timer + current location across the top band.
+    RegionDef {
+        name: "hud",
+        x1: 0.00,
+        y1: 0.00,
+        x2: 0.72,
+        y2: 0.14,
+    },
     // OCR.LOBBY — bottom center, PREPARE/READY_UP buttons
-    RegionDef { name: "lobby", x1: 0.33, y1: 0.72, x2: 0.67, y2: 0.89 },
+    RegionDef {
+        name: "lobby",
+        x1: 0.33,
+        y1: 0.55,
+        x2: 0.67,
+        y2: 0.96,
+    },
+    // OCR.CREW — collapsed SOLO/DUOS/TRIOS selector. Kept short vertically so
+    // the additional lobby-only OCR pass is cheap.
+    RegionDef {
+        name: "crew",
+        x1: 0.14,
+        y1: 0.50,
+        x2: 0.88,
+        y2: 0.70,
+    },
     // OCR.DEPLOY — center screen, deployment loading screen (also postgame banner)
-    RegionDef { name: "deploy", x1: 0.35, y1: 0.38, x2: 0.65, y2: 0.65 },
+    RegionDef {
+        name: "deploy",
+        x1: 0.35,
+        y1: 0.38,
+        x2: 0.65,
+        y2: 0.65,
+    },
     // OCR.ENDGAME — upper center, //RUN_COMPLETE banner
-    RegionDef { name: "endgame", x1: 0.28, y1: 0.12, x2: 0.72, y2: 0.22 },
+    RegionDef {
+        name: "endgame",
+        x1: 0.28,
+        y1: 0.12,
+        x2: 0.72,
+        y2: 0.22,
+    },
     // OCR.KILLFEED — upper left, "[Player] eliminated [Target]" feed (below the
     // timer pill). Scanned during runs to log combat timestamps for Phase 2.
-    RegionDef { name: "killfeed", x1: 0.01, y1: 0.15, x2: 0.30, y2: 0.38 },
+    RegionDef {
+        name: "killfeed",
+        x1: 0.01,
+        y1: 0.15,
+        x2: 0.30,
+        y2: 0.38,
+    },
 ];
 
 // ---------------------------------------------------------------------------
@@ -102,6 +143,8 @@ enum Command {
     FrameNow,
     #[serde(rename = "ocr_fast")]
     OcrFast { enabled: bool },
+    #[serde(rename = "external_recording")]
+    ExternalRecording { enabled: bool },
     #[serde(rename = "quit")]
     Quit,
 }
@@ -117,18 +160,36 @@ enum Event {
     },
     #[serde(rename = "recording_started")]
     RecordingStarted { path: String },
+    #[serde(rename = "recording_failed")]
+    RecordingFailed { path: String, message: String },
+    #[serde(rename = "recording_progress")]
+    RecordingProgress {
+        path: String,
+        duration: f64,
+        captured_frames: u64,
+        submitted_frames: u64,
+        dropped_frames: u64,
+        capture_fps: f64,
+        submitted_fps: f64,
+    },
     #[serde(rename = "recording_stopped")]
     RecordingStopped {
         path: String,
         duration: f64,
         frames: u64,
+        captured_frames: u64,
+        dropped_frames: u64,
+        finalized: bool,
+        error: Option<String>,
     },
     #[serde(rename = "frame")]
     Frame { jpeg_base64: String },
     #[serde(rename = "regions")]
     Regions {
         seq: u64,
+        hud: String,
         lobby: String,
+        crew: String,
         deploy: String,
         endgame: String,
         killfeed: String,
@@ -183,6 +244,10 @@ enum OcrJob {
 struct SharedState {
     window_title: Mutex<String>,
     should_record: AtomicBool,
+    /// Mirrors whether the callback currently owns a live encoder. The control
+    /// thread uses this to service stop requests even when Marathon is showing
+    /// a static frame and WGC has no new FrameArrived callback to deliver.
+    recording_active: AtomicBool,
     record_path: Mutex<Option<String>>,
     record_bitrate: Mutex<Option<u32>>,
     record_encoder: Mutex<Option<String>>,
@@ -195,6 +260,9 @@ struct SharedState {
     encoded_frames: AtomicU64,
     /// Shorten the OCR interval during recording (after RUN_COMPLETE)
     ocr_fast: AtomicBool,
+    /// A separate zero-copy encoder owns recording; WGC remains active only
+    /// for low-cadence OCR and screenshots.
+    external_recording: AtomicBool,
     /// One-shot request for a fresh full preview frame
     frame_now: AtomicBool,
     /// Channel to the OCR/encode worker thread. Bounded + try_send (see
@@ -279,7 +347,10 @@ impl StagingPool {
                 MipLevels: 1,
                 ArraySize: 1,
                 Format: desc.Format,
-                SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+                SampleDesc: DXGI_SAMPLE_DESC {
+                    Count: 1,
+                    Quality: 0,
+                },
                 Usage: D3D11_USAGE_STAGING,
                 BindFlags: 0,
                 CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32,
@@ -288,8 +359,11 @@ impl StagingPool {
             for i in 0..2 {
                 let mut tex = None;
                 let result = unsafe {
-                    self.device.as_ref().unwrap()
-                        .CreateTexture2D(&staging_desc, None, Some(&mut tex))
+                    self.device.as_ref().unwrap().CreateTexture2D(
+                        &staging_desc,
+                        None,
+                        Some(&mut tex),
+                    )
                 };
                 match result {
                     Ok(_) => {
@@ -303,7 +377,10 @@ impl StagingPool {
                     }
                 }
             }
-            eprintln!("[recorder] Staging pool created: {}x{} (2 buffers)", desc.Width, desc.Height);
+            eprintln!(
+                "[recorder] Staging pool created: {}x{} (2 buffers)",
+                desc.Width, desc.Height
+            );
         }
     }
 
@@ -336,7 +413,10 @@ impl StagingPool {
                         match row_pitch.checked_mul(h) {
                             Some(total_bytes) if row_pitch >= w * 4 => {
                                 let data = unsafe {
-                                    std::slice::from_raw_parts(mapped.pData as *const u8, total_bytes)
+                                    std::slice::from_raw_parts(
+                                        mapped.pData as *const u8,
+                                        total_bytes,
+                                    )
                                 };
                                 let mut regions = Vec::with_capacity(OCR_REGIONS.len());
                                 for def in &OCR_REGIONS {
@@ -379,7 +459,13 @@ impl StagingPool {
 
 /// Copy one scan region out of a mapped (pitched) BGRA surface into a tightly
 /// packed buffer. Per-row memcpy — no per-pixel work on the capture thread.
-fn extract_region(data: &[u8], row_pitch: usize, w: usize, h: usize, def: &RegionDef) -> Option<RawImage> {
+fn extract_region(
+    data: &[u8],
+    row_pitch: usize,
+    w: usize,
+    h: usize,
+    def: &RegionDef,
+) -> Option<RawImage> {
     let x1 = ((w as f32 * def.x1) as usize).min(w);
     let x2 = ((w as f32 * def.x2) as usize).min(w);
     let y1 = ((h as f32 * def.y1) as usize).min(h);
@@ -398,7 +484,12 @@ fn extract_region(data: &[u8], row_pitch: usize, w: usize, h: usize, def: &Regio
         }
         raw.extend_from_slice(&data[start..end]);
     }
-    Some(RawImage { raw, width: rw, height: rh, row_pitch: rw * 4 })
+    Some(RawImage {
+        raw,
+        width: rw,
+        height: rh,
+        row_pitch: rw * 4,
+    })
 }
 
 /// Copy a full mapped surface into a tightly packed buffer (pitch stripped).
@@ -412,7 +503,12 @@ fn extract_full(data: &[u8], row_pitch: usize, w: usize, h: usize) -> Option<Raw
         }
         raw.extend_from_slice(&data[start..end]);
     }
-    Some(RawImage { raw, width: w, height: h, row_pitch: w * 4 })
+    Some(RawImage {
+        raw,
+        width: w,
+        height: h,
+        row_pitch: w * 4,
+    })
 }
 
 /// Synchronous full-frame readback. Stalls the GPU pipeline briefly, so this
@@ -430,7 +526,12 @@ fn read_frame_raw(frame: &mut Frame<'_>) -> Option<RawImage> {
     let height = buffer.height() as usize;
     let row_pitch = buffer.row_pitch() as usize;
     let raw = buffer.as_raw_buffer().to_vec();
-    Some(RawImage { raw, width, height, row_pitch })
+    Some(RawImage {
+        raw,
+        width,
+        height,
+        row_pitch,
+    })
 }
 
 /// BGRA → RGB with optional integer downscale, then JPEG encode.
@@ -446,7 +547,10 @@ fn bgra_to_jpeg(img: &RawImage, scale: usize, quality: u8) -> Option<Vec<u8>> {
     if img.row_pitch < img.width * 4 || last_row_start + img.width * 4 > img.raw.len() {
         eprintln!(
             "[recorder] Frame buffer too small: {}x{} pitch={} len={}",
-            img.width, img.height, img.row_pitch, img.raw.len()
+            img.width,
+            img.height,
+            img.row_pitch,
+            img.raw.len()
         );
         return None;
     }
@@ -487,6 +591,15 @@ struct Recorder {
     ocr_interval: u64,
     staging_pool: StagingPool,
     staged_tick: u64,
+    /// WGC callbacks observed while the current encoder is active.
+    recording_captured_frames: u64,
+    /// Frames intentionally shed because every retained GPU snapshot is still
+    /// in use by Media Foundation.
+    dropped_frames: u64,
+    last_progress_emit: Instant,
+    /// Media Foundation drains/finalizes away from FrameArrived so OCR and
+    /// capture can continue while the MP4 index is written.
+    finalizers: Vec<std::thread::JoinHandle<()>>,
     /// Consecutive send_frame errors. Used to coalesce the error event so a
     /// persistently failing encoder cannot storm stdout at the frame rate from
     /// inside the capture callback (which would stall frame delivery).
@@ -498,6 +611,7 @@ impl GraphicsCaptureApiHandler for Recorder {
     type Error = Box<dyn std::error::Error + Send + Sync>;
 
     fn new(ctx: Context<Self::Flags>) -> Result<Self, Self::Error> {
+        set_capture_thread_normal();
         let interval = ctx.flags.ocr_interval_cfg;
         Ok(Self {
             state: ctx.flags,
@@ -510,6 +624,10 @@ impl GraphicsCaptureApiHandler for Recorder {
             ocr_interval: interval,
             staging_pool: StagingPool::new(),
             staged_tick: 0,
+            recording_captured_frames: 0,
+            dropped_frames: 0,
+            last_progress_emit: Instant::now(),
+            finalizers: Vec::new(),
             encode_errors: 0,
         })
     }
@@ -519,6 +637,7 @@ impl GraphicsCaptureApiHandler for Recorder {
         frame: &mut Frame<'_>,
         capture_control: InternalCaptureControl,
     ) -> Result<(), Self::Error> {
+        self.reap_finalizers();
         self.frame_count += 1;
 
         if self.width == 0 {
@@ -536,9 +655,9 @@ impl GraphicsCaptureApiHandler for Recorder {
 
         if self.state.should_quit.load(Ordering::Acquire) {
             if let Some(encoder) = self.encoder.take() {
-                let _ = encoder.finish();
-                self.emit_recording_stopped();
+                self.finalize_recording(encoder);
             }
+            self.join_finalizers();
             capture_control.stop();
             return Ok(());
         }
@@ -602,6 +721,7 @@ impl GraphicsCaptureApiHandler for Recorder {
 
                 match VideoEncoder::new(
                     VideoSettingsBuilder::new(out_w, out_h)
+                        .input_size(self.width, self.height)
                         .sub_type(sub_type)
                         .bitrate(br)
                         .frame_rate(frame_rate),
@@ -613,16 +733,22 @@ impl GraphicsCaptureApiHandler for Recorder {
                         eprintln!("[recorder] Encoder created: capture={}x{} encode={}x{} {:?} {}bps {}fps",
                             self.width, self.height, out_w, out_h, sub_type, br, frame_rate);
                         self.encoder = Some(enc);
+                        self.state.recording_active.store(true, Ordering::Release);
                         self.recording_path = Some(path.clone());
                         self.recording_start = Some(Instant::now());
                         self.state.encoded_frames.store(0, Ordering::Relaxed);
                         self.state.ocr_fast.store(false, Ordering::Relaxed);
+                        self.recording_captured_frames = 0;
+                        self.dropped_frames = 0;
+                        self.encode_errors = 0;
+                        self.last_progress_emit = Instant::now();
                         emit(&Event::RecordingStarted { path });
                     }
                     Err(e) => {
                         eprintln!("[recorder] ENCODER INIT FAILED: {} (capture={}x{} encode={}x{} {:?} {}bps {}fps)",
                             e, self.width, self.height, out_w, out_h, sub_type, br, frame_rate);
-                        emit(&Event::Error {
+                        emit(&Event::RecordingFailed {
+                            path,
                             message: format!("Encoder init failed: {}", e),
                         });
                         self.state.should_record.store(false, Ordering::Release);
@@ -635,16 +761,18 @@ impl GraphicsCaptureApiHandler for Recorder {
         if !self.state.should_record.load(Ordering::Acquire) && self.encoder.is_some() {
             if let Some(encoder) = self.encoder.take() {
                 let total = self.state.encoded_frames.load(Ordering::Relaxed);
-                eprintln!("[recorder] Stopping encoder — {} frames total", total);
-                match encoder.finish() {
-                    Ok(_) => eprintln!("[recorder] Encoder finished OK"),
-                    Err(e) => eprintln!("[recorder] Encoder finish FAILED: {}", e),
-                }
-                self.emit_recording_stopped();
+                eprintln!(
+                    "[recorder] Finalizing encoder asynchronously — {} frames submitted",
+                    total
+                );
+                self.finalize_recording(encoder);
             }
         }
 
         // Encode video frame (zero-copy GPU path)
+        if self.encoder.is_some() {
+            self.recording_captured_frames += 1;
+        }
         if let Some(ref mut encoder) = self.encoder {
             let frames_before = self.state.encoded_frames.load(Ordering::Relaxed);
             match encoder.send_frame(frame) {
@@ -652,13 +780,30 @@ impl GraphicsCaptureApiHandler for Recorder {
                     self.encode_errors = 0;
                     let n = self.state.encoded_frames.fetch_add(1, Ordering::Relaxed) + 1;
                     if n <= 3 || n % 300 == 0 {
-                        eprintln!("[recorder] Frame {} encoded OK ({}x{})", n, frame.width(), frame.height());
+                        eprintln!(
+                            "[recorder] Frame {} encoded OK ({}x{})",
+                            n,
+                            frame.width(),
+                            frame.height()
+                        );
+                    }
+                }
+                Err(VideoEncoderError::FrameBackpressure) => {
+                    self.dropped_frames += 1;
+                    if self.dropped_frames == 1 || self.dropped_frames % 300 == 0 {
+                        eprintln!(
+                            "[recorder] Encoder backpressure — {} frame(s) dropped without blocking WGC",
+                            self.dropped_frames
+                        );
                     }
                 }
                 Err(e) => {
                     self.encode_errors += 1;
                     if frames_before < 5 {
-                        eprintln!("[recorder] send_frame FAILED at frame {}: {}", frames_before, e);
+                        eprintln!(
+                            "[recorder] send_frame FAILED at frame {}: {}",
+                            frames_before, e
+                        );
                     }
                     // Coalesce: surface only the FIRST error of a failure run to
                     // Python (plus a throttled stderr heartbeat). Emitting on
@@ -669,10 +814,16 @@ impl GraphicsCaptureApiHandler for Recorder {
                             message: format!("Encode error: {}", e),
                         });
                     } else if self.encode_errors % 300 == 0 {
-                        eprintln!("[recorder] send_frame still failing after {} consecutive frames: {}", self.encode_errors, e);
+                        eprintln!(
+                            "[recorder] send_frame still failing after {} consecutive frames: {}",
+                            self.encode_errors, e
+                        );
                     }
                 }
             }
+        }
+        if self.encoder.is_some() {
+            self.emit_recording_progress_if_due();
         }
 
         // OCR capture — always async double-buffered staging, so the GPU
@@ -680,10 +831,12 @@ impl GraphicsCaptureApiHandler for Recorder {
         //   - Menus (no encoder): every ocr_interval (~0.5s)
         //   - Recording: every 6*ocr_interval (~3s)
         //   - After RUN_COMPLETE (ocr_fast): every ocr_interval, full frame each tick
-        let is_recording = self.encoder.is_some();
+        let is_recording =
+            self.encoder.is_some() || self.state.external_recording.load(Ordering::Relaxed);
         let ocr_fast = self.state.ocr_fast.load(Ordering::Relaxed);
         let interval = if is_recording && !ocr_fast {
-            self.ocr_interval.saturating_mul(OCR_RECORD_INTERVAL_MULTIPLIER)
+            self.ocr_interval
+                .saturating_mul(OCR_RECORD_INTERVAL_MULTIPLIER)
         } else {
             self.ocr_interval
         };
@@ -697,8 +850,14 @@ impl GraphicsCaptureApiHandler for Recorder {
             };
             self.staged_tick += 1;
             let frame_texture = unsafe { frame.as_raw_texture() };
-            if let Some((full, regions)) = self.staging_pool.copy_and_extract(frame_texture, want_full) {
-                self.queue_job(OcrJob::Frames { scale: ocr_scale, full, regions });
+            if let Some((full, regions)) =
+                self.staging_pool.copy_and_extract(frame_texture, want_full)
+            {
+                self.queue_job(OcrJob::Frames {
+                    scale: ocr_scale,
+                    full,
+                    regions,
+                });
             }
         }
 
@@ -707,27 +866,124 @@ impl GraphicsCaptureApiHandler for Recorder {
 
     fn on_closed(&mut self) -> Result<(), Self::Error> {
         if let Some(encoder) = self.encoder.take() {
-            let _ = encoder.finish();
-            self.emit_recording_stopped();
+            self.finalize_recording(encoder);
         }
+        self.join_finalizers();
         Ok(())
     }
 }
 
 impl Recorder {
-    fn emit_recording_stopped(&mut self) {
+    fn emit_recording_progress_if_due(&mut self) {
+        if self.last_progress_emit.elapsed() < Duration::from_secs(1) {
+            return;
+        }
+        let duration = self
+            .recording_start
+            .map(|s| s.elapsed().as_secs_f64())
+            .unwrap_or(0.0);
+        let submitted_frames = self.state.encoded_frames.load(Ordering::Relaxed);
+        let capture_fps = if duration > 0.0 {
+            self.recording_captured_frames as f64 / duration
+        } else {
+            0.0
+        };
+        let submitted_fps = if duration > 0.0 {
+            submitted_frames as f64 / duration
+        } else {
+            0.0
+        };
+        emit(&Event::RecordingProgress {
+            path: self.recording_path.clone().unwrap_or_default(),
+            duration,
+            captured_frames: self.recording_captured_frames,
+            submitted_frames,
+            dropped_frames: self.dropped_frames,
+            capture_fps,
+            submitted_fps,
+        });
+        self.last_progress_emit = Instant::now();
+    }
+
+    fn finalize_recording(&mut self, encoder: VideoEncoder) {
+        self.state.recording_active.store(false, Ordering::Release);
         let duration = self
             .recording_start
             .map(|s| s.elapsed().as_secs_f64())
             .unwrap_or(0.0);
         let frames = self.state.encoded_frames.load(Ordering::Relaxed);
         let path = self.recording_path.take().unwrap_or_default();
-        emit(&Event::RecordingStopped {
-            path,
-            duration,
-            frames,
-        });
+        let captured_frames = self.recording_captured_frames;
+        let dropped_frames = self.dropped_frames;
         self.recording_start = None;
+        self.recording_captured_frames = 0;
+        self.dropped_frames = 0;
+        self.state.encoded_frames.store(0, Ordering::Relaxed);
+
+        self.finalizers.push(std::thread::spawn(move || {
+            let result = encoder.finish();
+            let (finalized, error) = match result {
+                Ok(()) => {
+                    eprintln!("[recorder] Encoder finished OK");
+                    (true, None)
+                }
+                Err(e) => {
+                    eprintln!("[recorder] Encoder finish FAILED: {}", e);
+                    (false, Some(e.to_string()))
+                }
+            };
+            emit(&Event::RecordingStopped {
+                path,
+                duration,
+                frames,
+                captured_frames,
+                dropped_frames,
+                finalized,
+                error,
+            });
+        }));
+    }
+
+    fn reap_finalizers(&mut self) {
+        let mut i = 0;
+        while i < self.finalizers.len() {
+            if self.finalizers[i].is_finished() {
+                let handle = self.finalizers.swap_remove(i);
+                let _ = handle.join();
+            } else {
+                i += 1;
+            }
+        }
+    }
+
+    fn join_finalizers(&mut self) {
+        for handle in self.finalizers.drain(..) {
+            let _ = handle.join();
+        }
+    }
+
+    fn shutdown(&mut self) {
+        self.state.should_record.store(false, Ordering::Release);
+        if let Some(encoder) = self.encoder.take() {
+            self.finalize_recording(encoder);
+        }
+        self.join_finalizers();
+    }
+
+    /// Called from the capture control thread after an IPC stop request. This
+    /// is deliberately separate from FrameArrived: menus and minimized games
+    /// may not present another frame, but their MP4 still must be finalized.
+    fn stop_recording_if_active(&mut self) {
+        if let Some(encoder) = self.encoder.take() {
+            let total = self.state.encoded_frames.load(Ordering::Relaxed);
+            eprintln!(
+                "[recorder] Stop serviced outside FrameArrived — {} frames submitted",
+                total
+            );
+            self.finalize_recording(encoder);
+        } else {
+            self.state.recording_active.store(false, Ordering::Release);
+        }
     }
 
     fn queue_job(&self, job: OcrJob) {
@@ -743,7 +999,10 @@ impl Recorder {
                 Err(mpsc::TrySendError::Full(_)) => {
                     let n = DROPPED.fetch_add(1, Ordering::Relaxed) + 1;
                     if n % 60 == 1 {
-                        eprintln!("[recorder] OCR worker backlog full — dropped {} stale job(s)", n);
+                        eprintln!(
+                            "[recorder] OCR worker backlog full — dropped {} stale job(s)",
+                            n
+                        );
                     }
                 }
                 Err(mpsc::TrySendError::Disconnected(_)) => {}
@@ -771,10 +1030,14 @@ fn find_marathon_window() -> Option<Window> {
     windows.into_iter().find(|w| {
         let name = w.process_name().unwrap_or_default().to_lowercase();
         let title = w.title().unwrap_or_default().to_lowercase();
-        if name.contains("runlog") || title.contains("runlog") || title.contains("marathon-runlog") {
+        if name.contains("runlog") || title.contains("runlog") || title.contains("marathon-runlog")
+        {
             return false;
         }
-        name == "marathon" || name == "marathon.exe" || title == "marathon" || title.starts_with("marathon")
+        name == "marathon"
+            || name == "marathon.exe"
+            || title == "marathon"
+            || title.starts_with("marathon")
     })
 }
 
@@ -782,10 +1045,9 @@ fn find_marathon_window() -> Option<Window> {
 // Main
 // ---------------------------------------------------------------------------
 
-/// Configure the recorder PROCESS scheduling: NORMAL priority class (NOT high —
-/// we never want the recorder to starve the game) plus EcoQoS / power throttling
-/// DISABLED so the capture+encode pipeline is never parked on an E-core or
-/// clocked down mid-recording. (Despite the legacy name, this never set HIGH.)
+/// Keep the recorder below the game's normal-priority work while leaving power
+/// throttling disabled so capture latency remains stable. BELOW_NORMAL still
+/// uses all idle CPU capacity; it simply yields first when the game needs it.
 fn configure_process_priority() {
     use std::ffi::c_void;
 
@@ -793,10 +1055,15 @@ fn configure_process_priority() {
     extern "system" {
         fn GetCurrentProcess() -> *mut c_void;
         fn SetPriorityClass(hProcess: *mut c_void, dwPriorityClass: u32) -> i32;
-        fn SetProcessInformation(hProcess: *mut c_void, class: u32, info: *const c_void, size: u32) -> i32;
+        fn SetProcessInformation(
+            hProcess: *mut c_void,
+            class: u32,
+            info: *const c_void,
+            size: u32,
+        ) -> i32;
     }
 
-    const NORMAL_PRIORITY_CLASS: u32 = 0x00000020;
+    const BELOW_NORMAL_PRIORITY_CLASS: u32 = 0x00004000;
     const PROCESS_POWER_THROTTLING: u32 = 4;
 
     #[repr(C)]
@@ -809,8 +1076,8 @@ fn configure_process_priority() {
     unsafe {
         let process = GetCurrentProcess();
 
-        if SetPriorityClass(process, NORMAL_PRIORITY_CLASS) != 0 {
-            eprintln!("[recorder] Process priority: NORMAL");
+        if SetPriorityClass(process, BELOW_NORMAL_PRIORITY_CLASS) != 0 {
+            eprintln!("[recorder] Process priority: BELOW_NORMAL");
         }
 
         let throttle = ProcessPowerThrottlingState {
@@ -819,7 +1086,13 @@ fn configure_process_priority() {
             state_mask: 0,
         };
         let size = std::mem::size_of::<ProcessPowerThrottlingState>() as u32;
-        if SetProcessInformation(process, PROCESS_POWER_THROTTLING, &throttle as *const _ as *const c_void, size) != 0 {
+        if SetProcessInformation(
+            process,
+            PROCESS_POWER_THROTTLING,
+            &throttle as *const _ as *const c_void,
+            size,
+        ) != 0
+        {
             eprintln!("[recorder] Power throttling: DISABLED");
         }
     }
@@ -845,12 +1118,11 @@ fn set_ocr_thread_priority() {
     }
 }
 
-/// Nudge the WGC message-pump / capture thread (this thread, which blocks in
-/// Recorder::start) just above the game's base priority so a busy system cannot
-/// preempt frame delivery between WGC callbacks. Insurance for CPU contention
-/// only — it does nothing for GPU/NVENC saturation, where send_frame blocks on
-/// the GPU regardless of thread priority.
-fn set_capture_thread_above_normal() {
+/// Keep the WGC message pump at normal thread priority within the recorder's
+/// below-normal process class. Raising it above normal can preempt the game on
+/// a saturated performance core; the bounded capture cadence already provides
+/// enough headroom for timely frame delivery.
+fn set_capture_thread_normal() {
     use std::ffi::c_void;
 
     #[link(name = "kernel32")]
@@ -859,11 +1131,11 @@ fn set_capture_thread_above_normal() {
         fn SetThreadPriority(hThread: *mut c_void, nPriority: i32) -> i32;
     }
 
-    const THREAD_PRIORITY_ABOVE_NORMAL: i32 = 1;
+    const THREAD_PRIORITY_NORMAL: i32 = 0;
 
     unsafe {
-        if SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL) != 0 {
-            eprintln!("[recorder] Capture/pump thread priority: ABOVE_NORMAL");
+        if SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_NORMAL) != 0 {
+            eprintln!("[recorder] Capture/pump thread priority: NORMAL");
         }
     }
 }
@@ -894,7 +1166,10 @@ fn main() {
         .and_then(|s| s.parse().ok())
         .map(|n: u8| n.clamp(30, 100))
         .unwrap_or(JPEG_QUALITY);
-    eprintln!("[recorder] OCR config: interval={} frames, jpeg_quality={}", ocr_interval_cfg, ocr_jpeg_quality);
+    eprintln!(
+        "[recorder] OCR config: interval={} frames, jpeg_quality={}",
+        ocr_interval_cfg, ocr_jpeg_quality
+    );
 
     // Cap WGC delivery rate so we don't capture/encode more frames than we keep.
     // Without this, a 90fps game produces 90 captures/sec even though we only
@@ -905,7 +1180,11 @@ fn main() {
         .map(|n: u32| n.clamp(15, 240))
         .unwrap_or(60);
     let min_update_interval = Duration::from_micros(1_000_000 / capture_fps as u64);
-    eprintln!("[recorder] Capture rate cap: {}fps ({}us min interval)", capture_fps, min_update_interval.as_micros());
+    eprintln!(
+        "[recorder] Capture rate cap: {}fps ({}us min interval)",
+        capture_fps,
+        min_update_interval.as_micros()
+    );
 
     // Bounded: 16 jobs of headroom. In normal operation the worker drains in
     // milliseconds so this is never near full; it only fills if the Python
@@ -915,6 +1194,7 @@ fn main() {
     let state = Arc::new(SharedState {
         window_title: Mutex::new(title.clone()),
         should_record: AtomicBool::new(false),
+        recording_active: AtomicBool::new(false),
         record_path: Mutex::new(None),
         record_bitrate: Mutex::new(None),
         record_encoder: Mutex::new(None),
@@ -924,6 +1204,7 @@ fn main() {
         screenshot_path: Mutex::new(None),
         encoded_frames: AtomicU64::new(0),
         ocr_fast: AtomicBool::new(false),
+        external_recording: AtomicBool::new(false),
         frame_now: AtomicBool::new(false),
         ocr_tx: Mutex::new(ocr_tx),
         ocr_interval_cfg,
@@ -950,9 +1231,15 @@ fn main() {
             };
             use base64::Engine;
             match job {
-                OcrJob::Frames { scale, full, regions } => {
+                OcrJob::Frames {
+                    scale,
+                    full,
+                    regions,
+                } => {
                     if !regions.is_empty() {
+                        let mut hud = String::new();
                         let mut lobby = String::new();
+                        let mut crew = String::new();
                         let mut deploy = String::new();
                         let mut endgame = String::new();
                         let mut killfeed = String::new();
@@ -960,7 +1247,9 @@ fn main() {
                             if let Some(jpeg) = bgra_to_jpeg(img, scale, quality) {
                                 let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg);
                                 match *name {
+                                    "hud" => hud = b64,
                                     "lobby" => lobby = b64,
+                                    "crew" => crew = b64,
                                     "deploy" => deploy = b64,
                                     "endgame" => endgame = b64,
                                     "killfeed" => killfeed = b64,
@@ -970,7 +1259,15 @@ fn main() {
                         }
                         if !(lobby.is_empty() && deploy.is_empty() && endgame.is_empty()) {
                             seq += 1;
-                            emit(&Event::Regions { seq, lobby, deploy, endgame, killfeed });
+                            emit(&Event::Regions {
+                                seq,
+                                hud,
+                                lobby,
+                                crew,
+                                deploy,
+                                endgame,
+                                killfeed,
+                            });
                         }
                     }
                     if let Some(img) = full {
@@ -1010,7 +1307,13 @@ fn main() {
                 continue;
             }
             match serde_json::from_str::<Command>(&line) {
-                Ok(Command::Start { path, bitrate, encoder, fps, target_height }) => {
+                Ok(Command::Start {
+                    path,
+                    bitrate,
+                    encoder,
+                    fps,
+                    target_height,
+                }) => {
                     *ipc_state.record_path.lock().unwrap() = Some(path);
                     *ipc_state.record_bitrate.lock().unwrap() = bitrate;
                     *ipc_state.record_encoder.lock().unwrap() = encoder;
@@ -1029,7 +1332,19 @@ fn main() {
                 }
                 Ok(Command::OcrFast { enabled }) => {
                     ipc_state.ocr_fast.store(enabled, Ordering::Relaxed);
-                    eprintln!("[recorder] OCR fast mode: {}", if enabled { "ON" } else { "OFF" });
+                    eprintln!(
+                        "[recorder] OCR fast mode: {}",
+                        if enabled { "ON" } else { "OFF" }
+                    );
+                }
+                Ok(Command::ExternalRecording { enabled }) => {
+                    ipc_state
+                        .external_recording
+                        .store(enabled, Ordering::Release);
+                    eprintln!(
+                        "[recorder] External recording mode: {}",
+                        if enabled { "ON" } else { "OFF" }
+                    );
                 }
                 Ok(Command::Quit) => {
                     ipc_state.should_quit.store(true, Ordering::Release);
@@ -1043,7 +1358,9 @@ fn main() {
         ipc_state.should_quit.store(true, Ordering::Release);
     });
 
-    // Start capture (blocks this thread)
+    // Start capture on its own controlled thread. Keeping the control handle
+    // lets stdin `quit` stop WGC and finalize the MP4 even if Marathon is not
+    // currently presenting frames.
     let settings = Settings::new(
         window,
         CursorCaptureSettings::WithoutCursor,
@@ -1055,11 +1372,38 @@ fn main() {
         Arc::clone(&state),
     );
 
-    // This thread becomes the WGC message pump / capture thread inside start().
-    set_capture_thread_above_normal();
+    match Recorder::start_free_threaded(settings) {
+        Ok(control) => {
+            let halt = control.halt_handle();
+            while !state.should_quit.load(Ordering::Acquire) && !halt.load(Ordering::Relaxed) {
+                // A stop command must not depend on the game rendering one more
+                // frame. Serialize with FrameArrived only for the transition;
+                // normal capture never takes this control-thread path.
+                if state.recording_active.load(Ordering::Acquire)
+                    && !state.should_record.load(Ordering::Acquire)
+                {
+                    let callback = control.callback();
+                    callback.lock().stop_recording_if_active();
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
 
-    match Recorder::start(settings) {
-        Ok(_) => eprintln!("[recorder] Capture ended normally"),
+            if state.should_quit.load(Ordering::Acquire) {
+                // Serialize with any in-flight FrameArrived callback, then
+                // drain the encoder before the capture thread/process exits.
+                let callback = control.callback();
+                callback.lock().shutdown();
+                match control.stop() {
+                    Ok(()) => eprintln!("[recorder] Capture stopped normally"),
+                    Err(e) => eprintln!("[recorder] Capture stop error: {}", e),
+                }
+            } else {
+                match control.wait() {
+                    Ok(()) => eprintln!("[recorder] Capture window closed normally"),
+                    Err(e) => eprintln!("[recorder] Capture wait error: {}", e),
+                }
+            }
+        }
         Err(e) => {
             emit(&Event::Error {
                 message: format!("Capture failed: {}", e),

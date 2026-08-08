@@ -628,6 +628,7 @@ These are from the lobby/ready-up screens BEFORE deployment. Full screenshots sh
 Read and return ONLY valid JSON:
 {{
   "map_name": "Perimeter" or "Outpost" or "Dire Marsh" or "Cryo Archive" or null,
+  "map_variant": "Day" or "Night" only when the map is Dire Marsh and the variant is explicitly visible, otherwise null,
   "is_ranked": true if "Ranked" text appears ABOVE the map name, false otherwise,
   "player_gamertag": "gamertag of LOCAL player (CENTER of screen, above character)" or null,
   "squad_members": ["all", "visible", "gamertags"] or null — local player is CENTER, mates LEFT/RIGHT,
@@ -677,7 +678,8 @@ Return ONLY valid JSON, no explanation."""
 
 character_crop.jpg shows the character's full upper body. face_crop.jpg shows the small portrait thumbnail from the loadout grid.
 
-The seven shells: Assassin, Destroyer, Recon, Rook, Thief, Triage, Vandal.
+The current seven shells are Assassin, Destroyer, Recon, Sentinel, Thief, Triage, and Vandal.
+Rook is a legacy Closed Alpha shell that may still appear in older recordings.
 Cosmetic skins completely change armor, helmet, and colors — do NOT use those.
 Match by FACIAL GEOMETRY only: face shape, eyes, nose, mouth, skin features.
 
@@ -685,6 +687,7 @@ Key features:
 - **Assassin**: hooded, narrow face, glowing red/orange eyes, pale skin
 - **Destroyer**: bulky, full helmet with visor, face often hidden, stocky
 - **Recon**: full helmet with large visor/goggles, robotic, face not visible
+- **Sentinel**: enclosed angular helmet, animated digital faceplate/mask, black tactical neck and shoulder armor
 - **Rook**: masculine, broad jaw, short dark hair or buzzcut, strong brow, clean-shaven or stubble, military bearing
 - **Thief**: East Asian female, dark hair in bun/topknot, facial tattoos on cheek
 - **Triage**: masculine, split-tone skin (light/dark), green eyes, headphones, cross markings
@@ -692,7 +695,7 @@ Key features:
 
 Return ONLY valid JSON:
 {{
-  "shell_name": "Assassin" or "Destroyer" or "Recon" or "Rook" or "Thief" or "Triage" or "Vandal" or null
+  "shell_name": "Assassin" or "Destroyer" or "Recon" or "Sentinel" or "Rook" or "Thief" or "Triage" or "Vandal" or null
 }}"""
 
     # --- Call 3A: Coordinates ---
@@ -1944,6 +1947,7 @@ def save_run_to_db(analysis: dict, run_date: datetime | None = None) -> int | No
 
         run = Run(
             map_name=analysis.get("map_name"),
+            map_variant=analysis.get("map_variant"),
             date=run_date or datetime.now(timezone.utc),
             session_id=_sid,
             survived=analysis.get("survived"),
@@ -2301,10 +2305,21 @@ def process_recording(recording_path: str, clips_dir: str, on_phase=None) -> dic
 
     result["analysis"] = analysis
 
-    # Merge run metadata (ranked flag, etc.) into analysis
+    # Merge authoritative deployment metadata into analysis.
     if _run_metadata:
         if _run_metadata.get("is_ranked") and not analysis.get("is_ranked"):
             analysis["is_ranked"] = True
+        if _run_metadata.get("map_name") and not analysis.get("map_name"):
+            analysis["map_name"] = _run_metadata["map_name"]
+        if _run_metadata.get("map_variant") in ("Day", "Night"):
+            analysis["map_variant"] = _run_metadata["map_variant"]
+        if _run_metadata.get("squad_size") in (1, 2, 3):
+            analysis["squad_size"] = _run_metadata["squad_size"]
+            analysis["crew_size"] = {
+                1: "Solo",
+                2: "Duo",
+                3: "Trio",
+            }[_run_metadata["squad_size"]]
 
     # Inject session ID from .session marker into analysis for save_run_to_db
     _session_marker = recording_path + ".session"
@@ -2325,6 +2340,7 @@ def process_recording(recording_path: str, clips_dir: str, on_phase=None) -> dic
     metrics["run_id"] = run_id
     metrics["clips_count"] = len(result.get("clips", []))
     metrics["map"] = analysis.get("map_name")
+    metrics["map_variant"] = analysis.get("map_variant")
     metrics["grade"] = analysis.get("grade")
     _save_metrics(metrics)
 

@@ -1,18 +1,18 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { motion } from 'framer-motion'
-import { getMapStats, getSpawnHeatmap } from '../lib/api'
+import { getMapStats, getRuns, getSpawnHeatmap } from '../lib/api'
 import { useStore } from '../lib/store'
 import { MAPS } from '../lib/map-data'
 import { formatDuration } from '../lib/utils'
 import type { SpawnRef } from '../lib/map-data'
-import type { MapStats, SpawnHeatmap } from '../lib/types'
+import type { MapStats, Run, SpawnHeatmap } from '../lib/types'
 import axios from 'axios'
 import { apiBase } from '../lib/api'
 
-import mapDireMarsh from '../assets/map-dire-marsh.png'
-import mapPerimeter from '../assets/map-perimeter.png'
-import mapOutpost from '../assets/map-outpost.png'
-import mapCryoArchive from '../assets/map-cryo-archive.png'
+import mapDireMarsh from '../assets/map-dire-marsh.webp'
+import mapPerimeter from '../assets/map-perimeter.webp'
+import mapOutpost from '../assets/map-outpost.webp'
+import mapCryoArchive from '../assets/map-cryo-archive.webp'
 
 const MAP_IMAGES: Record<string, string> = {
   'dire-marsh': mapDireMarsh,
@@ -29,12 +29,12 @@ interface DragState {
   startY: number
 }
 
-export default function Maps({ selectedMap }: { selectedMap: string }) {
+export default function Maps({ selectedMap, variant }: { selectedMap: string; variant?: 'Day' | 'Night' }) {
   const [mapStats, setMapStats] = useState<MapStats[]>([])
   const [heatmap, setHeatmap] = useState<SpawnHeatmap[]>([])
+  const [mapRuns, setMapRuns] = useState<Run[]>([])
   const [hoveredSpawn, setHoveredSpawn] = useState<string | null>(null)
   const [lockedSpawn, setLockedSpawn] = useState<string | null>(null)  // click-locked tooltip
-  const { runs } = useStore()
   const [spawns, setSpawns] = useState<SpawnRef[]>([])
   const [dragState, setDragState] = useState<DragState | null>(null)
   const [dirty, setDirty] = useState<Set<string>>(new Set())
@@ -85,9 +85,25 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
   }, [selectedMap, lastRunId, doneCount])
 
   useEffect(() => {
-    getMapStats().then(setMapStats)
-    getSpawnHeatmap().then(setHeatmap)
-  }, [selectedMap, lastRunId, doneCount])
+    Promise.all([
+      getMapStats(variant),
+      getSpawnHeatmap(variant),
+      getRuns({
+        map_name: selectedMap,
+        ...(variant ? { map_variant: variant } : {}),
+        limit: 500,
+      }),
+    ]).then(([stats, spawnData, runData]) => {
+      setMapStats(stats)
+      setHeatmap(spawnData)
+      setMapRuns(runData.items)
+    }).catch((err) => {
+      console.error('Failed to load map variant data:', err)
+      setMapStats([])
+      setHeatmap([])
+      setMapRuns([])
+    })
+  }, [selectedMap, variant, lastRunId, doneCount])
 
   const toPercent = useCallback((clientX: number, clientY: number) => {
     if (!mapRef.current) return { x: 0, y: 0 }
@@ -153,10 +169,24 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
     <div className="max-w-7xl mx-auto space-y-4">
       {/* Header */}
       <div>
-        <p className="label-tag text-m-green">MAPS // {selectedMap.toUpperCase().replace(/ /g, '.')}</p>
-        <h2 className="text-xl font-display font-black tracking-wider text-m-text mt-1">
-          {selectedMap.toUpperCase()}
-        </h2>
+        <p className="label-tag text-m-green">
+          MAPS // {selectedMap.toUpperCase().replace(/ /g, '.')}{variant ? ` // ${variant.toUpperCase()}` : ''}
+        </p>
+        <div className="flex items-baseline gap-3 mt-1">
+          <h2 className="text-xl font-display font-black tracking-wider text-m-text">
+            {selectedMap.toUpperCase()}
+          </h2>
+          {variant && (
+            <span className={`label-tag ${variant === 'Night' ? 'text-m-cyan' : 'text-m-yellow'}`}>
+              {variant.toUpperCase()} // ENVIRONMENT VARIANT
+            </span>
+          )}
+          {!variant && selectedMap === 'Dire Marsh' && (
+            <span className="label-tag text-m-green">
+              ALL VARIANTS // COMBINED
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Hero Stats */}
@@ -487,17 +517,17 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
             </div>
             <div className="divide-y divide-m-border">
               <ColStat label="SHELL" value={(() => {
-                const mapRuns = runs.filter(r => r.map_name === selectedMap && r.shell_name)
-                if (!mapRuns.length) return '—'
+                const eligibleRuns = mapRuns.filter(r => r.shell_name)
+                if (!eligibleRuns.length) return '—'
                 const counts: Record<string, number> = {}
-                mapRuns.forEach(r => { counts[r.shell_name!] = (counts[r.shell_name!] || 0) + 1 })
+                eligibleRuns.forEach(r => { counts[r.shell_name!] = (counts[r.shell_name!] || 0) + 1 })
                 return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0]
               })()} />
               <ColStat label="WEAPON" value={(() => {
-                const mapRuns = runs.filter(r => r.map_name === selectedMap && r.primary_weapon)
-                if (!mapRuns.length) return '—'
+                const eligibleRuns = mapRuns.filter(r => r.primary_weapon)
+                if (!eligibleRuns.length) return '—'
                 const counts: Record<string, number> = {}
-                mapRuns.forEach(r => { counts[r.primary_weapon!] = (counts[r.primary_weapon!] || 0) + 1 })
+                eligibleRuns.forEach(r => { counts[r.primary_weapon!] = (counts[r.primary_weapon!] || 0) + 1 })
                 return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0]
               })()} />
               <ColStat label="BEST SPAWN" value={(() => {
@@ -508,12 +538,12 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
                 return best?.location ?? '—'
               })()} />
               <ColStat label="SQUAD MATE" value={(() => {
-                const mapRuns = runs.filter(r => r.map_name === selectedMap && r.squad_members?.length)
-                if (!mapRuns.length) return '—'
+                const eligibleRuns = mapRuns.filter(r => r.squad_members?.length)
+                if (!eligibleRuns.length) return '—'
                 // Exclude the local player's gamertags (auto-detected from runs)
-                const selfTags = new Set(runs.map(r => r.player_gamertag?.toLowerCase()).filter(Boolean))
+                const selfTags = new Set(mapRuns.map(r => r.player_gamertag?.toLowerCase()).filter(Boolean))
                 const counts: Record<string, number> = {}
-                mapRuns.forEach(r => r.squad_members?.forEach(m => {
+                eligibleRuns.forEach(r => r.squad_members?.forEach(m => {
                   if (m && !selfTags.has(m.toLowerCase())) counts[m] = (counts[m] || 0) + 1
                 }))
                 const entries = Object.entries(counts)
@@ -531,11 +561,9 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
               <ColStat label="TOTAL LOOT" value={`$${(currentStats?.loot ?? 0).toLocaleString()}`} color="yellow" />
               <ColStat label="AVG LOOT/RUN" value={`$${(currentStats?.avg_loot ?? 0).toLocaleString()}`} color="yellow" />
               <ColStat label="BEST RUN" value={(() => {
-                const mapRuns = runs.filter(r => r.map_name === selectedMap)
                 return mapRuns.length > 0 ? `$${Math.max(...mapRuns.map(r => r.loot_value_total)).toLocaleString()}` : '—'
               })()} color="yellow" />
               <ColStat label="WORST RUN" value={(() => {
-                const mapRuns = runs.filter(r => r.map_name === selectedMap)
                 return mapRuns.length > 0 ? `$${Math.min(...mapRuns.map(r => r.loot_value_total)).toLocaleString()}` : '—'
               })()} color="red" />
             </div>
@@ -550,7 +578,7 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
               <ColStat label="PVE KILLS" value={String(currentStats?.pve_kills ?? 0)} color="green" />
               <ColStat label="RUNNER KILLS" value={String(currentStats?.pvp_kills ?? 0)} color="cyan" />
               <ColStat label="DEATHS" value={String(currentStats?.deaths ?? 0)} color={(currentStats?.deaths ?? 0) > 0 ? 'red' : undefined} />
-              <ColStat label="REVIVES" value={String(runs.filter(r => r.map_name === selectedMap).reduce((sum, r) => sum + (r.crew_revives || 0), 0))} color="green" />
+              <ColStat label="REVIVES" value={String(mapRuns.reduce((sum, r) => sum + (r.crew_revives || 0), 0))} color="green" />
             </div>
           </div>
 
@@ -563,12 +591,12 @@ export default function Maps({ selectedMap }: { selectedMap: string }) {
               <ColStat label="TOTAL TIME" value={formatDuration(currentStats?.time ?? 0)} color="cyan" />
               <ColStat label="AVG TIME" value={formatDuration(currentStats?.avg_time ?? 0)} color="cyan" />
               <ColStat label="LONGEST RUN" value={(() => {
-                const mapRuns = runs.filter(r => r.map_name === selectedMap && r.duration_seconds)
-                return mapRuns.length > 0 ? formatDuration(Math.max(...mapRuns.map(r => r.duration_seconds!))) : '—'
+                const timedRuns = mapRuns.filter(r => r.duration_seconds)
+                return timedRuns.length > 0 ? formatDuration(Math.max(...timedRuns.map(r => r.duration_seconds!))) : '—'
               })()} color="cyan" />
               <ColStat label="SHORTEST RUN" value={(() => {
-                const mapRuns = runs.filter(r => r.map_name === selectedMap && r.duration_seconds)
-                return mapRuns.length > 0 ? formatDuration(Math.min(...mapRuns.map(r => r.duration_seconds!))) : '—'
+                const timedRuns = mapRuns.filter(r => r.duration_seconds)
+                return timedRuns.length > 0 ? formatDuration(Math.min(...timedRuns.map(r => r.duration_seconds!))) : '—'
               })()} />
             </div>
           </div>

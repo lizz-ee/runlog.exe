@@ -1,11 +1,8 @@
 import { lazy, Suspense, useEffect, useRef } from 'react'
-import axios from 'axios'
 import { useStore } from './lib/store'
-import { formatTime } from './lib/utils'
 import { getRecentRuns, getOverviewStats, getRunners, getLoadouts, getCaptureStatus, apiBase } from './lib/api'
 import { onScreenshotParsed } from './lib/electron'
 import type { CaptureStatus } from './lib/types'
-import type { OverlaySettings } from './lib/electron'
 import Sidebar from './components/Sidebar'
 import Toasts from './components/Toasts'
 import TitleBar from './components/TitleBar'
@@ -20,11 +17,13 @@ const Squad = lazy(() => import('./components/Squad'))
 const Settings = lazy(() => import('./components/Settings'))
 const Uplink = lazy(() => import('./components/Uplink'))
 
-const MAP_VIEW_TO_NAME: Record<string, string> = {
-  'map-perimeter': 'Perimeter',
-  'map-dire-marsh': 'Dire Marsh',
-  'map-outpost': 'Outpost',
-  'map-cryo-archive': 'Cryo Archive',
+const MAP_VIEW_TO_SELECTION: Record<string, { name: string; variant?: 'Day' | 'Night' }> = {
+  'map-perimeter': { name: 'Perimeter' },
+  'map-dire-marsh': { name: 'Dire Marsh' },
+  'map-dire-marsh-day': { name: 'Dire Marsh', variant: 'Day' },
+  'map-dire-marsh-night': { name: 'Dire Marsh', variant: 'Night' },
+  'map-outpost': { name: 'Outpost' },
+  'map-cryo-archive': { name: 'Cryo Archive' },
 }
 
 function getSeenRunId(): number | null {
@@ -74,7 +73,7 @@ export default function App() {
         addToast({
           type: d.survived ? 'success' : 'error',
           title: `RUN CAPTURED — ${status}`,
-          body: `${kills} KILLS | $${d.loot_value_total || 0} LOOT | ${d.map_name || 'UNKNOWN'}`,
+          body: `${kills} KILLS | $${d.loot_value_total || 0} LOOT | ${d.map_name || 'UNKNOWN'}${d.map_variant ? ` // ${d.map_variant}` : ''}`,
         })
       } else if (event.type === 'spawn') {
         const d = event.data as Record<string, string | null>
@@ -91,6 +90,7 @@ export default function App() {
   useEffect(() => {
     let eventSource: EventSource | null = null
     let fallbackInterval: ReturnType<typeof setInterval> | null = null
+    let reconcileInterval: ReturnType<typeof setInterval> | null = null
 
     function handleStatusUpdate(status: CaptureStatus) {
       setCaptureStatus(status)
@@ -106,9 +106,6 @@ export default function App() {
       try {
         const s = await getCaptureStatus()
         handleStatusUpdate(s)
-        if (!s.active) {
-          try { await axios.post(`${apiBase}/api/capture/start`, {}) } catch {}
-        }
       } catch {
         setCaptureError('Capture engine not running')
       }
@@ -129,6 +126,10 @@ export default function App() {
         // SSE failed or disconnected — close and fall back to polling
         eventSource?.close()
         eventSource = null
+        if (reconcileInterval) {
+          clearInterval(reconcileInterval)
+          reconcileInterval = null
+        }
         startPolling()
       }
     } catch {
@@ -137,36 +138,17 @@ export default function App() {
 
     // Initial poll to get immediate status (SSE only pushes on changes)
     poll()
-
-    const runlog = window.runlog
-    if (runlog?.onRecordingStatus) {
-      runlog.onRecordingStatus(() => poll())
-    }
+    // Reconcile occasionally even with SSE connected. Frame readiness can
+    // change between the initial poll and the first event, and DETECT.EXE must
+    // never remain stuck on that stale INITIALIZING snapshot.
+    if (eventSource) reconcileInterval = setInterval(poll, 5000)
 
     return () => {
       eventSource?.close()
       if (fallbackInterval) clearInterval(fallbackInterval)
+      if (reconcileInterval) clearInterval(reconcileInterval)
     }
   }, [])
-
-  // Push overlay updates when recording state changes
-  useEffect(() => {
-    const runlog = window.runlog
-    if (!runlog?.updateOverlay || !captureStatus) return
-    if (captureStatus.recording) {
-      const det = captureStatus.last_detection
-      let recDetail = formatTime(captureStatus.recording_seconds)
-      if (det === 'endgame') recDetail += '|RUN.COMPLETE'
-      if (det === 'exfiltrated') recDetail += '|EXFILTRATED'
-      if (det === 'eliminated') recDetail += '|ELIMINATED'
-      runlog.updateOverlay('recording', recDetail)
-    } else if (captureStatus.active && captureStatus.last_detection) {
-      const det = captureStatus.last_detection === 'run' ? 'RUN.EXE' : captureStatus.last_detection.toUpperCase().replace('_', '.')
-      runlog.updateOverlay('active', det)
-    } else if (captureStatus.active) {
-      runlog.updateOverlay('active', 'WATCHING')
-    }
-  }, [captureStatus?.recording, captureStatus?.recording_seconds, captureStatus?.last_detection])
 
   // Auto-refresh dashboard data when a new run is processed
   useEffect(() => {
@@ -188,8 +170,6 @@ export default function App() {
     const phase1Item = items.find(i => i.status === 'phase1_done' && i.run_id)
     if (phase1Item?.run_id) {
       refreshData()
-      const runlog = window.runlog
-      if (runlog?.notifyOverlay) runlog.notifyOverlay('NEW STATS AVAILABLE', 4000)
     }
   }, [captureStatus?.processing_items?.find(i => i.status === 'phase1_done')?.run_id])
 
@@ -206,19 +186,6 @@ export default function App() {
       if (removed.length > 0) {
         refreshData()
         refreshUnviewed()
-        const runlog = window.runlog
-        if (runlog?.notifyOverlay) runlog.notifyOverlay('RUN PROCESSED', 4000)
-
-        // Close app when queue empty (if enabled)
-        if (currentFiles.size === 0) {
-          if (runlog?.getOverlaySettings) {
-            runlog.getOverlaySettings().then((s: OverlaySettings) => {
-              if (s?.closeWhenDone) {
-                setTimeout(() => { if (runlog?.windowClose) runlog.windowClose() }, 3000)
-              }
-            })
-          }
-        }
       }
     }
     prevItemFiles.current = currentFiles
@@ -236,7 +203,7 @@ export default function App() {
     }
   }, [captureStatus?.resumed_count])
 
-  const mapName = MAP_VIEW_TO_NAME[view]
+  const mapSelection = MAP_VIEW_TO_SELECTION[view]
 
   return (
     <div className="flex flex-col h-screen bg-m-bg splash-bg">
@@ -256,7 +223,7 @@ export default function App() {
           {view === 'history' && <RunHistory />}
           {view === 'shells' && <Shells />}
           {view === 'squad' && <Squad />}
-          {mapName && <Maps selectedMap={mapName} />}
+          {mapSelection && <Maps selectedMap={mapSelection.name} variant={mapSelection.variant} />}
           {view === 'live' && <Live />}
           {view === 'uplink' && <Uplink />}
           {view === 'settings' && <Settings />}

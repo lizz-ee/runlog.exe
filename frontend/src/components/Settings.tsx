@@ -14,6 +14,8 @@ const CORNERS = [
   { value: 'bottom-right', label: 'BR' },
 ] as const
 
+const RESTART_KEYS = new Set(['p1_workers', 'p2_workers', 'storage_path', 'hardware_acceleration'])
+
 function SectionHeader({ tag, title: _title, desc }: { tag: string; title: string; desc: string }) {
   return (
     <div className="px-5 py-4 border-b border-m-border">
@@ -97,6 +99,7 @@ export default function Settings() {
   const [overlayOpacity, setOverlayOpacity] = useState(88)
   const [overlaySize, setOverlaySize] = useState('medium')
   const [overlayCloseWhenDone, setOverlayCloseWhenDone] = useState(false)
+  const [overlayAutoHideMain, setOverlayAutoHideMain] = useState(false)
   const [overlayPos, setOverlayPos] = useState({ x: 0, y: 0 })  // % position
   const [draggingOverlay, setDraggingOverlay] = useState(false)
   const posRef = useRef<HTMLDivElement>(null)
@@ -147,6 +150,7 @@ export default function Settings() {
         setOverlayOpacity(s.opacity ?? 88)
         setOverlaySize(s.size ?? 'medium')
         setOverlayCloseWhenDone(s.closeWhenDone ?? false)
+        setOverlayAutoHideMain(s.autoHideMain ?? false)
         // Set initial preview position from saved settings
         if (s.customX != null && s.customY != null) {
           // Custom drag position — use exact saved percentages
@@ -164,8 +168,6 @@ export default function Settings() {
 
   // Settings whose effects only land at engine/process startup. Changing any
   // of these reveals a sticky bottom-right RESTART REQUIRED toast.
-  const RESTART_KEYS = new Set(['p1_workers', 'p2_workers', 'storage_path'])
-
   function saveConfig(key: string, value: any) {
     if (RESTART_KEYS.has(key)) {
       // Track originals so a dismiss can revert. Only snapshot the very first
@@ -436,11 +438,25 @@ export default function Settings() {
                   }}
                 />
               </SettingRow>
-              <SettingRow label="GAME GUARD">
+              <SettingRow label="PROCESSING GUARD">
                 <ToggleButton
-                  options={[{ value: 'on', label: 'ON' }, { value: 'off', label: 'OFF' }]}
-                  value={config.pause_processing_while_game_running ? 'on' : 'off'}
-                  onChange={v => saveConfig('pause_processing_while_game_running', v === 'on')}
+                  options={[
+                    { value: 'recording', label: 'RUN ONLY' },
+                    { value: 'game', label: 'FULL GAME' },
+                    { value: 'off', label: 'OFF' },
+                  ]}
+                  value={config.processing_guard_mode}
+                  onChange={v => saveConfig('processing_guard_mode', v)}
+                />
+              </SettingRow>
+              <p className="text-[9px] font-mono text-m-text-muted/60 text-right">
+                RUN ONLY: PROCESS IN LOBBY, PAUSE DURING RECORDING // FULL GAME: PAUSE WHILE MARATHON IS OPEN
+              </p>
+              <SettingRow label="UI GPU">
+                <ToggleButton
+                  options={[{ value: 'off', label: 'OFF' }, { value: 'on', label: 'ON' }]}
+                  value={config.hardware_acceleration ? 'on' : 'off'}
+                  onChange={v => saveConfig('hardware_acceleration', v === 'on')}
                 />
               </SettingRow>
             </div>
@@ -448,7 +464,7 @@ export default function Settings() {
             <div className="pt-1 border-t border-m-border/30">
               <p className="text-[9px] font-mono text-m-text-muted tracking-wider">
                 P1 = FRAMES + STATS — P2 = NARRATIVE + CLIPS<br/>
-                <span className="text-m-yellow/40">WORKER COUNTS REQUIRE RESTART · OTHER TOGGLES TAKE EFFECT IMMEDIATELY</span>
+                <span className="text-m-yellow/40">WORKERS + UI GPU REQUIRE RESTART · OTHER TOGGLES APPLY NOW</span>
               </p>
             </div>
           </div>
@@ -650,6 +666,21 @@ export default function Settings() {
                     window.runlog?.setOverlayCloseWhenDone?.(enabled)
                   }}
                 />
+              </SettingRow>
+
+              <SettingRow label="AUTO-HIDE APP">
+                <ToggleButton
+                  options={[{ value: 'on', label: 'ON' }, { value: 'off', label: 'OFF' }]}
+                  value={overlayAutoHideMain ? 'on' : 'off'}
+                  onChange={v => {
+                    const enabled = v === 'on'
+                    setOverlayAutoHideMain(enabled)
+                    window.runlog?.setOverlayAutoHideMain?.(enabled)
+                  }}
+                />
+                <span className="text-2xs font-mono text-m-text-muted">
+                  OPTIONAL: HIDES DASHBOARD ONLY WHEN RECORDING STARTS
+                </span>
               </SettingRow>
 
               <SettingRow label="POSITION">

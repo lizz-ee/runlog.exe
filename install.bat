@@ -370,9 +370,9 @@ if exist "%ROOT%release" (
 if exist "%FRONTEND%\dist" rmdir /s /q "%FRONTEND%\dist" 2>nul
 echo  Building frontend + packaging [attempt %BUILD_ATTEMPT% of 3]...
 call npm run dist 2>&1
-if exist "%ROOT%release\win-unpacked\runlog.exe" goto :build_done
+if not errorlevel 1 if exist "%ROOT%release\win-unpacked\runlog.exe" goto :build_done
 if %BUILD_ATTEMPT% lss 3 (
-    echo  Attempt %BUILD_ATTEMPT% produced no runlog.exe ^(electron-builder dep-scan flake^); retrying...
+    echo  Attempt %BUILD_ATTEMPT% failed packaging or renderer verification; retrying...
     goto :build_release
 )
 echo.

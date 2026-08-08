@@ -40,7 +40,12 @@ import io
 
 from . import perf
 from . import cli_registry
-from .detection.ocr import detect_game_state, detect_kill_feed
+from .detection.ocr import (
+    detect_crew_size,
+    detect_game_state,
+    detect_kill_feed,
+    detect_map_variant,
+)
 from .rust_recorder import RustRecorder
 from .audio_sidecar import AudioSidecarRecorder
 
@@ -62,6 +67,10 @@ class AutoCapture:
         self._recording = False
         self._recording_start: float = 0
         self._recording_path: str | None = None
+        self._recording_lock = threading.RLock()
+        self._capture_health_error: str | None = None
+        self._low_submit_fps_since: float = 0.0
+        self._recording_failure_latched: str | None = None
         self._capture_mode: str = "none"
 
         # Rust recorder
@@ -71,6 +80,8 @@ class AutoCapture:
         # Threads
         self._ocr_thread: threading.Thread | None = None
         self._dispatcher_thread: threading.Thread | None = None
+        self._recorder_watchdog_thread: threading.Thread | None = None
+        self._recorder_restart_lock = threading.RLock()
         self._executor: ThreadPoolExecutor | None = None
 
         # Latest detection frame (JPEG bytes) for /frame endpoint + OCR
@@ -85,6 +96,8 @@ class AutoCapture:
         self._state_changed_at: float = 0
         # Kill feed dedup: normalized line -> seconds-into-recording last seen
         self._recent_kill_feed: dict[str, float] = {}
+        self._selected_crew_size: int | None = None
+        self._selected_crew_size_at: float = 0
 
         # Processing queue + executors
         self._process_queue: queue.Queue = queue.Queue()
@@ -115,7 +128,7 @@ class AutoCapture:
         # Set once at start if recordings live on a spinning HDD (seek-thrash
         # stutter risk when shared with the game). Surfaced in status for the UI.
         self._storage_warning: str | None = None
-        self._pause_processing_while_game_running: bool = True
+        self._processing_guard_mode: str = "recording"
         self._p2_held: list[tuple[str, int]] = []  # items held when auto_p2 is off
         self._dismissed_files: set[str] = set()    # filenames dismissed from queue
         # Pre-load dismissed markers from clips dirs so they survive reboots
@@ -162,6 +175,16 @@ class AutoCapture:
             print("[capture] runlog-recorder.exe not found")
             self._capture_mode = "unavailable"
 
+        # Recorder lifetime belongs to the backend. The Rust WGC process exits
+        # when Marathon closes; the watchdog re-arms its low-cost window wait
+        # without relying on Electron or the React dashboard.
+        self._recorder_watchdog_thread = threading.Thread(
+            target=self._recorder_watchdog_loop,
+            daemon=True,
+            name="recorder-watchdog",
+        )
+        self._recorder_watchdog_thread.start()
+
         # Frame relay thread (gets OCR frames from Rust binary)
         threading.Thread(
             target=self._frame_relay, daemon=True, name="frame-relay"
@@ -182,14 +205,11 @@ class AutoCapture:
         self._auto_p1 = get_config_value("auto_p1") if get_config_value("auto_p1") is not None else True
         self._auto_p2 = get_config_value("auto_p2") if get_config_value("auto_p2") is not None else True
         self._processor_mode = get_config_value("processor_mode") or "alpha"
-        self._pause_processing_while_game_running = (
-            get_config_value("pause_processing_while_game_running")
-            if get_config_value("pause_processing_while_game_running") is not None
-            else True
-        )
+        guard_mode = get_config_value("processing_guard_mode") or "recording"
+        self._processing_guard_mode = guard_mode if guard_mode in ("recording", "game", "off") else "recording"
         print(f"[capture] Processing pools: P1={p1_workers} workers, P2={p2_workers} workers")
         print(f"[capture] Auto-run: P1={self._auto_p1}, P2={self._auto_p2}")
-        print(f"[capture] Game-impact guard: {self._pause_processing_while_game_running}")
+        print(f"[capture] Processing guard: {self._processing_guard_mode}")
         # initializer pins every worker thread to EcoQoS + below-normal so the
         # heavy torch/OCR/cv2 work runs on E-cores and yields to the game.
         self._p1_executor = ThreadPoolExecutor(
@@ -231,7 +251,8 @@ class AutoCapture:
         if self._recording:
             self._stop_recording()
 
-        self._recorder.stop()
+        with self._recorder_restart_lock:
+            self._recorder.stop()
 
         # Clear stale frame so detection feed shows "AWAITING SIGNAL" instead of frozen game screen
         with self._frame_lock:
@@ -245,7 +266,7 @@ class AutoCapture:
         if self._p2_executor:
             self._p2_executor.shutdown(wait=False)
 
-        for thread in [self._ocr_thread, self._dispatcher_thread]:
+        for thread in [self._ocr_thread, self._dispatcher_thread, self._recorder_watchdog_thread]:
             if thread and thread.is_alive():
                 thread.join(timeout=5)
 
@@ -257,6 +278,24 @@ class AutoCapture:
         recording_seconds = 0
         if self._recording and self._recording_start:
             recording_seconds = time.time() - self._recording_start
+        progress_age = None
+        if self._recorder.recording_last_progress_at:
+            progress_age = max(
+                0.0, time.monotonic() - self._recorder.recording_last_progress_at
+            )
+        if not self._recording:
+            recording_health = "idle"
+        elif self._recorder.recording_state == "starting":
+            recording_health = "starting"
+        elif progress_age is not None and progress_age > 8:
+            recording_health = "stalled"
+        elif (
+            recording_seconds > 4
+            and self._recorder.recording_submitted_fps_recent < 10
+        ):
+            recording_health = "degraded"
+        else:
+            recording_health = "healthy"
 
         with self._processing_lock:
             items = [
@@ -294,13 +333,28 @@ class AutoCapture:
             "recording": self._recording,
             "recording_seconds": round(recording_seconds, 1),
             "recording_path": self._recording_path,
+            "recording_state": self._recorder.recording_state,
+            "recording_backend": self._recorder.recording_backend,
+            "recording_health": recording_health,
+            "recording_capture_fps": round(self._recorder.recording_capture_fps, 1),
+            "recording_submitted_fps": round(self._recorder.recording_submitted_fps, 1),
+            "recording_capture_fps_recent": round(
+                self._recorder.recording_capture_fps_recent, 1
+            ),
+            "recording_submitted_fps_recent": round(
+                self._recorder.recording_submitted_fps_recent, 1
+            ),
+            "recording_captured_frames": self._recorder.recording_captured_frames,
+            "recording_submitted_frames": self._recorder.recording_submitted_frames,
+            "recording_dropped_frames": self._recorder.recording_dropped_frames,
+            "recording_progress_age": round(progress_age, 1) if progress_age is not None else None,
             "queue_size": self._process_queue.qsize(),
             "processing_phase": processing_phase,
             "processing_items": items,
             "status_counts": status_counts,
             "resumed_count": self.resumed_count,
             "capture_mode": self._capture_mode,
-            "capture_error": self._recorder.last_error,
+            "capture_error": self._capture_health_error or self._recorder.last_error,
             "audio_capture_active": self._audio.active,
             "audio_capture_path": self._audio.path,
             "audio_capture_error": self._audio.error,
@@ -312,9 +366,13 @@ class AutoCapture:
             "last_result": self._last_process_result,  # protected by _processing_lock at write site
             "auto_p1": self._auto_p1,
             "auto_p2": self._auto_p2,
-            "pause_processing_while_game_running": self._pause_processing_while_game_running,
+            "processing_guard_mode": self._processing_guard_mode,
+            "processing_guard_active": self._processing_gate_active(),
+            "pause_processing_while_game_running": self._processing_guard_mode == "game",
             "processing_paused_for_game": self._heavy_processing_blocked_by_game(),
+            "processing_paused_for_recording": self._processing_guard_mode != "off" and self._recording,
             "storage_warning": self._storage_warning,
+            "selected_crew_size": self._selected_crew_size,
         }
 
     def get_latest_frame_jpeg(self) -> bytes | None:
@@ -331,18 +389,101 @@ class AutoCapture:
 
     # -- Frame relay (OCR frames from Rust binary) -------------------------
 
+    def _recorder_watchdog_loop(self):
+        """Keep game discovery and run finalization independent of Electron."""
+        while self._running:
+            if self._recording and self._recorder.recording_state == "failed":
+                reason = self._recorder.last_error or "Recording backend exited unexpectedly"
+                print(f"[capture] HEALTH FAULT: {reason}")
+                self._capture_health_error = reason
+                self._stop_recording(failure_reason=reason)
+                continue
+
+            if (
+                self._recording
+                and self._recorder.recording_state == "recording"
+                and self._recording_start
+            ):
+                elapsed = time.time() - self._recording_start
+                last_progress = self._recorder.recording_last_progress_at
+                progress_age = (
+                    time.monotonic() - last_progress if last_progress else elapsed
+                )
+                recent_submit_fps = self._recorder.recording_submitted_fps_recent
+
+                # A healthy 60fps capture reports once per second. Ten seconds
+                # without a callback is a hard stall, not normal jitter.
+                if elapsed > 12 and progress_age > 10:
+                    reason = (
+                        f"Capture callback stalled for {progress_age:.1f}s "
+                        f"({self._recorder.recording_submitted_frames} frames submitted)"
+                    )
+                    print(f"[capture] HEALTH FAULT: {reason}")
+                    self._capture_health_error = reason
+                    self._stop_recording(failure_reason=reason)
+                    continue
+
+                # Sustained near-zero encoder throughput is equally unusable,
+                # even if WGC callbacks themselves are still arriving.
+                if elapsed > 15 and recent_submit_fps < 5:
+                    if not self._low_submit_fps_since:
+                        self._low_submit_fps_since = time.monotonic()
+                    elif time.monotonic() - self._low_submit_fps_since > 15:
+                        reason = (
+                            "Encoder throughput stayed below 5 real fps for 15s "
+                            f"(current {recent_submit_fps:.1f}fps)"
+                        )
+                        print(f"[capture] HEALTH FAULT: {reason}")
+                        self._capture_health_error = reason
+                        self._stop_recording(failure_reason=reason)
+                        continue
+                else:
+                    self._low_submit_fps_since = 0.0
+
+            if self._recorder.available and not self._recorder.is_running:
+                with self._recorder_restart_lock:
+                    if not self._running or self._recorder.is_running:
+                        continue
+
+                    if self._recording:
+                        print("[capture] Marathon window closed during a run -- finalizing recording")
+                        self._stop_recording()
+
+                    self._recorder.stop()
+                    with self._frame_lock:
+                        self._latest_frame = None
+                    self._last_detection = None
+                    self._scan_state = "lobby"
+                    self._state_changed_at = time.time()
+
+                    if self._running and self._recorder.start():
+                        self._capture_mode = "wgc"
+                        print("[capture] Recorder watchdog armed for the next Marathon window")
+                    else:
+                        self._capture_mode = "unavailable"
+                    self._broadcast_status()
+
+            time.sleep(2)
+
+        print("[capture] Recorder watchdog stopped.")
+
     def _frame_relay(self):
         """Relay full preview frames from Rust recorder to our frame store."""
         perf.set_thread_eco_qos()
         last_seq = -1
         while self._running:
-            frame, seq = self._recorder.get_latest_frame()
+            frame, seq = self._recorder.wait_for_frame(last_seq, timeout=1.0)
             if frame and seq != last_seq:
                 last_seq = seq
                 with self._frame_lock:
+                    first_frame = self._latest_frame is None
                     self._latest_frame = frame
                     self._frame_seq += 1
-            time.sleep(0.05)  # Poll fast — relay is just a reference copy, negligible CPU
+                # Frame availability changes DETECT.EXE from INITIALIZING to a
+                # live preview. Push that one-time state transition instead of
+                # waiting for an unrelated detection event.
+                if first_frame:
+                    self._broadcast_status()
         print("[capture] Frame relay stopped.")
 
     def _get_fresh_frame(self, timeout: float = 2.0) -> bytes | None:
@@ -389,12 +530,13 @@ class AutoCapture:
         self._state_changed_at = time.time()
         deploy_cycle = 0
         endgame_cycle = 0
+        lobby_deploy_probe_cycle = 0
+        crew_probe_cycle = 0
 
         while self._running:
             # ---- Acquire region crops -----------------------------------------
-            regions_jpeg, seq = self._recorder.get_latest_regions()
+            regions_jpeg, seq = self._recorder.wait_for_regions(last_seq, timeout=1.0)
             if not regions_jpeg or seq == last_seq:
-                time.sleep(0.1)
                 continue
             last_seq = seq
             regions: dict[str, Image.Image] = {}
@@ -425,7 +567,9 @@ class AutoCapture:
                 deploy_cycle += 1
                 if deploy_cycle % 5 == 0:
                     lobby_result = detect_game_state(regions, scan_mode='lobby')
-                    if lobby_result and lobby_result['type'] in ('prepare', 'select_zone', 'ready_up'):
+                    if lobby_result and lobby_result['type'] in (
+                        'prepare', 'select_zone', 'ready_up', 'searching',
+                    ):
                         print(f"[capture] Lobby re-detected ({lobby_result['type']}) while in deploy — returning to lobby state")
                         self._scan_state = 'lobby'
                         self._state_changed_at = time.time()
@@ -442,7 +586,9 @@ class AutoCapture:
                 endgame_cycle += 1
                 if endgame_cycle % 5 == 0:
                     lobby_result = detect_game_state(regions, scan_mode='lobby')
-                    if lobby_result and lobby_result['type'] in ('prepare', 'select_zone', 'ready_up'):
+                    if lobby_result and lobby_result['type'] in (
+                        'prepare', 'select_zone', 'ready_up', 'searching',
+                    ):
                         print(f"[capture] Lobby re-detected ({lobby_result['type']}) while in endgame — missed RUN_COMPLETE, stopping recording")
                         self._scan_state = 'lobby'
                         self._state_changed_at = time.time()
@@ -462,7 +608,34 @@ class AutoCapture:
                 self._scan_kill_feed(regions)
 
             # ---- OCR ---------------------------------------------------------
+            # Read the collapsed SOLO/DUOS/TRIOS selector at a low idle cadence.
+            # The dedicated crop is small, and this pass never runs in-match.
+            if self._scan_state == 'lobby':
+                crew_probe_cycle += 1
+                if crew_probe_cycle % 3 == 0:
+                    crew_size = detect_crew_size(regions.get('crew'))
+                    if crew_size and crew_size != self._selected_crew_size:
+                        self._selected_crew_size = crew_size
+                        self._selected_crew_size_at = time.time()
+                        print(f"[capture] Selected crew size: {crew_size}")
+                        self._broadcast_status()
+            else:
+                crew_probe_cycle = 0
+
             result = detect_game_state(regions, scan_mode=self._scan_state)
+
+            # Marathon's lobby wording changes between builds and can omit the
+            # literal SEARCHING state entirely. If the lobby crop has no known
+            # signal, probe the deployment region at a low cadence so the map
+            # title can still start capture. This adds one small OCR call every
+            # ~3 seconds only while idle, and avoids missing a whole run.
+            if self._scan_state == 'lobby':
+                lobby_deploy_probe_cycle += 1
+                if result is None and lobby_deploy_probe_cycle % 3 == 0:
+                    result = detect_game_state(regions, scan_mode='deploy')
+            else:
+                lobby_deploy_probe_cycle = 0
+
             if self._running:
                 self._handle_detection(result)
 
@@ -545,6 +718,23 @@ class AutoCapture:
         except Exception as e:
             print(f"[capture] Deploy shot save failed ({name}): {e}")
 
+    def _detect_buffered_map_variant(self) -> str | None:
+        """Read the newest pre-deploy full frame's contract chip once."""
+        candidates = []
+        for phase_name in ('deploying', 'run', 'readyup'):
+            path = os.path.join(self.recordings_dir, f"readyup_buf_{phase_name}.jpg")
+            if os.path.exists(path):
+                candidates.append(path)
+        if not candidates:
+            return None
+        newest = max(candidates, key=os.path.getmtime)
+        try:
+            with Image.open(newest) as img:
+                return detect_map_variant(img)
+        except Exception as e:
+            print(f"[capture] Buffered map variant probe failed: {e}")
+            return None
+
     def _save_stats_shot(self, screenshots_dir: str, name: str, frame_jpeg: bytes):
         """Save a stats screenshot — full + wide crop (all columns, ELIMINATED through Run Time)."""
         try:
@@ -610,12 +800,23 @@ class AutoCapture:
         if not det_type:
             return
 
+        # A failed encoder stays failed for the rest of that run. Otherwise
+        # recurring in-run HUD detections create a start/fail/restart loop.
+        # A confirmed lobby/deployment transition arms the next run.
+        if (
+            not self._recording
+            and det_type in ("prepare", "select_zone", "ready_up")
+        ):
+            self._recording_failure_latched = None
+
         # --- State transitions (simple toggle between 3 OCR regions) ---
         prev_state = self._scan_state
-        if det_type == 'searching':
+        if det_type in ('searching', 'run', 'deploying'):
             self._scan_state = 'deploy'    # Matchmaking started → watch for map name
         elif det_type == 'deploy':
             self._scan_state = 'endgame'   # Map found → watch for RUN_COMPLETE
+        elif det_type == 'in_run':
+            self._scan_state = 'endgame'   # Late attach → record remainder of active run
         elif det_type == 'endgame':
             # Ignore false endgame during deploy/loading — require at least 30s of recording
             if self._recording and (time.time() - self._recording_start) < 30:
@@ -636,6 +837,33 @@ class AutoCapture:
             self._stop_recording()
             return
 
+        # --- LATE ATTACH: begin recording if RunLog launched mid-match -------
+        if det_type == 'in_run' and not self._recording:
+            if self._recording_failure_latched:
+                print(
+                    "[capture] Late-attach suppressed for this run after capture failure: "
+                    f"{self._recording_failure_latched}"
+                )
+                return
+            print("[capture] Active-run HUD detected after launch -- starting late-attach recording")
+            self._start_recording()
+            if self._recording_path:
+                try:
+                    from .main import get_or_create_session
+                    with open(self._recording_path + ".session", "w") as f:
+                        f.write(str(get_or_create_session()))
+                    import json as _json
+                    screenshots_dir = os.path.join(
+                        os.path.dirname(self._recording_path),
+                        "screenshots",
+                    )
+                    os.makedirs(screenshots_dir, exist_ok=True)
+                    with open(os.path.join(screenshots_dir, "metadata.json"), "w") as f:
+                        _json.dump({"late_attach": True}, f)
+                except Exception as e:
+                    print(f"[capture] Failed to write late-attach metadata: {e}")
+            return
+
         # --- READY UP / RUN / DEPLOYING: one screenshot per phase ---
         # Static lobby screens — the latest cached preview frame (≤2s old) is fine.
         if det_type in ('ready_up', 'run', 'deploying'):
@@ -653,8 +881,16 @@ class AutoCapture:
             import shutil
             import json as _json
             map_name = result.get('map_name', 'Unknown')
+            map_variant = result.get('map_variant')
+            if map_name.upper() == 'DIRE MARSH':
+                # Prefer the explicit top-right contract chip captured during
+                # ready-up. It is more reliable than assuming that a deploy
+                # OCR miss of the word NIGHT means Day.
+                map_variant = self._detect_buffered_map_variant() or map_variant
             is_ranked = result.get('is_ranked', False)
-            print(f"[capture] Detected deployment: {map_name}{' (RANKED)' if is_ranked else ''} -- starting recording")
+            variant_label = f" ({map_variant.upper()})" if map_variant else ""
+            print(f"[capture] Detected deployment: {map_name}{variant_label}{' (RANKED)' if is_ranked else ''} -- starting recording")
+            self._recording_failure_latched = None
             self._start_recording()
 
             # Write session marker alongside recording
@@ -670,10 +906,27 @@ class AutoCapture:
                 screenshots_dir = os.path.join(os.path.dirname(self._recording_path), "screenshots")
                 os.makedirs(screenshots_dir, exist_ok=True)
 
-                # Save run metadata for the processor (ranked flag)
-                if is_ranked:
-                    with open(os.path.join(screenshots_dir, "metadata.json"), "w") as f:
-                        _json.dump({"is_ranked": True}, f)
+                # Save authoritative deployment metadata for the processor.
+                # Variant is a separate dimension: map_name remains
+                # "Dire Marsh" so the parent map can aggregate both.
+                metadata = {
+                    "map_name": map_name.title(),
+                    "is_ranked": bool(is_ranked),
+                }
+                if map_variant:
+                    metadata["map_variant"] = map_variant
+                if (
+                    self._selected_crew_size in (1, 2, 3)
+                    and time.time() - self._selected_crew_size_at < 1800
+                ):
+                    metadata["squad_size"] = self._selected_crew_size
+                    metadata["crew_size"] = {
+                        1: "Solo",
+                        2: "Duo",
+                        3: "Trio",
+                    }[self._selected_crew_size]
+                with open(os.path.join(screenshots_dir, "metadata.json"), "w") as f:
+                    _json.dump(metadata, f)
 
                 # Shot 1: fresh frame now (may catch contract screen — too early)
                 frame_jpeg = self._get_fresh_frame()
@@ -769,7 +1022,18 @@ class AutoCapture:
     # -- Recording management ------------------------------------------
 
     def _start_recording(self):
+        """Serialize start transitions across OCR, watchdog, and API threads."""
+        with self._recording_lock:
+            return self._start_recording_locked()
+
+    def _start_recording_locked(self):
         """Start recording via Rust binary, using settings from config."""
+        if self._recording_failure_latched:
+            print(
+                "[capture] Recording start suppressed until the next lobby/deploy cycle: "
+                f"{self._recording_failure_latched}"
+            )
+            return
         if not self._recorder.is_running:
             print("[capture] Cannot record — Rust recorder not running")
             return
@@ -797,6 +1061,9 @@ class AutoCapture:
         path = os.path.join(run_folder, filename)
 
         if self._recorder.start_recording(path, bitrate=bitrate, encoder=encoder, fps=fps, target_height=target_height):
+            self._capture_health_error = None
+            self._recording_failure_latched = None
+            self._low_submit_fps_since = 0.0
             audio_path = path.replace(".mp4", "_audio.wav")
             if audio_enabled:
                 self._audio.start(audio_path)
@@ -837,63 +1104,163 @@ class AutoCapture:
                 print("[audio] Sidecar disabled in settings")
             self._broadcast_status()
         else:
-            print("[capture] Recording failed to start")
+            self._capture_health_error = (
+                self._recorder.last_error or "Rust encoder did not acknowledge recording start"
+            )
+            self._recording_failure_latched = self._capture_health_error
+            print(f"[capture] Recording failed to start: {self._capture_health_error}")
+            self._broadcast_status()
 
     def _maybe_restart_recorder_for_fps(self):
         """Bounce the recorder if a setting change deferred a restart while
         recording was active. Safe to call only when self._recording is False."""
+        if not self._running:
+            return
         if not getattr(self._recorder, "fps_restart_pending", False):
             return
         self._recorder.fps_restart_pending = False
         try:
             print("[capture] Restarting recorder to apply deferred fps change")
-            self._recorder.stop()
-            self._recorder.start()
+            with self._recorder_restart_lock:
+                self._recorder.stop()
+                self._recorder.start()
         except Exception as e:
             print(f"[capture] Deferred recorder restart failed: {e}")
 
-    def _stop_recording(self):
+    def restart_recorder(self):
+        """Apply process-level recorder settings through the backend owner."""
+        if not self._running:
+            return False
+        if self._recording or self._recorder.recording:
+            self._recorder.fps_restart_pending = True
+            return False
+        with self._recorder_restart_lock:
+            self._recorder.stop()
+            return self._recorder.start()
+
+    def _stop_recording(self, failure_reason: str | None = None):
+        """Serialize stop/finalize transitions across every backend owner."""
+        with self._recording_lock:
+            return self._stop_recording_locked(failure_reason=failure_reason)
+
+    def _stop_recording_locked(self, failure_reason: str | None = None):
         """Stop recording and queue the file for processing."""
-        self._recorder.stop_recording()
+        filepath = self._recording_path
+        endgame_ts = self._endgame_timestamp
+        wall_duration = (
+            time.time() - self._recording_start if self._recording_start else 0.0
+        )
+
         # Reset the RUN_COMPLETE fast-OCR mode. Rust only auto-clears it at the
         # next encoder start (possibly several runs away), so without this the
         # between-run menus keep shipping a full preview frame every ~0.5s
         # instead of ~2s — 4x the idle encode/base64/IPC work.
         self._recorder.set_ocr_fast(False)
         audio_path = self._audio.stop()
+        stop_result = self._recorder.stop_recording(timeout=20.0)
+        if stop_result is None:
+            failure_reason = failure_reason or (
+                self._recorder.last_error
+                or "Recorder did not acknowledge MP4 finalization"
+            )
+            print(f"[capture] Finalization acknowledgement failed: {failure_reason}")
+            # The native quit path owns the capture-control handle and attempts
+            # one last graceful drain before its five-second kill fallback.
+            with self._recorder_restart_lock:
+                self._recorder.stop()
 
-        duration = time.time() - self._recording_start
-        filepath = self._recording_path
-        endgame_ts = self._endgame_timestamp
+        if failure_reason:
+            self._recording_failure_latched = failure_reason
+
+        duration = float(
+            (stop_result or {}).get("duration") or wall_duration
+        )
 
         self._recording = False
+        self._low_submit_fps_since = 0.0
         self._drain_p2_waiting()
         self._recording_start = 0
         self._recording_path = None
         self._scan_state = 'lobby'
         self._endgame_timestamp = None
+        self._selected_crew_size = None
+        self._selected_crew_size_at = 0
 
         if not filepath:
             print("[capture] No recording path, skipping.")
             self._maybe_restart_recorder_for_fps()
             return
 
-        # Wait briefly for Rust to finalize the MP4
-        time.sleep(1)
-
-        # Once Rust has flushed the MP4, the recorder process is safe to bounce.
-        # Drain a deferred fps-change restart here so the next recording uses
-        # the new WGC capture-rate cap. File processing below is independent
-        # of the recorder process and proceeds normally.
+        # Rust has explicitly acknowledged finalization at this point. Drain a
+        # deferred fps-change restart before post-run processing begins.
         self._maybe_restart_recorder_for_fps()
 
         if not os.path.exists(filepath):
-            print(f"[capture] Recording file not found: {filepath}")
+            failure_reason = failure_reason or f"Recording file not found: {filepath}"
+            self._capture_health_error = failure_reason
+            print(f"[capture] {failure_reason}")
+            self._broadcast_status()
             return
 
         file_size = os.path.getsize(filepath)
         if file_size < 1024 * 1024:  # Less than 1MB = corrupt or empty
-            print(f"[capture] Recording too small ({file_size} bytes), skipping: {filepath}")
+            failure_reason = failure_reason or (
+                f"Recording too small ({file_size} bytes)"
+            )
+
+        if stop_result and not stop_result.get("finalized", True):
+            failure_reason = failure_reason or (
+                stop_result.get("error") or "Media Foundation failed to finalize the MP4"
+            )
+
+        if stop_result and duration >= 10:
+            submitted_fps = float(stop_result.get("fps") or 0)
+            captured_frames = int(stop_result.get("captured_frames") or 0)
+            submitted_frames = int(stop_result.get("frames") or 0)
+            capture_fps = captured_frames / duration if duration > 0 else 0
+            submission_ratio = (
+                submitted_frames / captured_frames if captured_frames > 0 else 0
+            )
+
+            # WGC is dirty-region driven: a 30-FPS menu or a user-capped
+            # 30-FPS game legitimately supplies ~30 fresh surfaces even when
+            # the output timeline is configured for 60. Reject an actual WGC
+            # starvation instead of comparing source updates to that requested
+            # timeline.
+            if capture_fps < 10:
+                failure_reason = failure_reason or (
+                    f"Windows capture produced only {capture_fps:.1f} fresh fps"
+                )
+            elif captured_frames >= 10 and submission_ratio < 0.80:
+                failure_reason = failure_reason or (
+                    f"Encoder accepted only {submission_ratio * 100:.0f}% of captured frames "
+                    f"({submitted_fps:.1f} submitted fps)"
+                )
+
+        if failure_reason:
+            self._capture_health_error = failure_reason
+            marker = filepath + ".capture_failed"
+            try:
+                import json
+                with open(marker, "w", encoding="utf-8") as f:
+                    json.dump(
+                        {
+                            "reason": failure_reason,
+                            "duration": duration,
+                            "stop_result": stop_result,
+                            "file_size": file_size,
+                            "created_at": datetime.now().isoformat(),
+                        },
+                        f,
+                        indent=2,
+                    )
+            except Exception as e:
+                print(f"[capture] Could not write failure marker: {e}")
+            print(
+                f"[capture] Recording rejected by health checks: {failure_reason} "
+                f"({file_size / (1024*1024):.1f}MB)"
+            )
+            self._broadcast_status()
             return
 
         print(f"[capture] Recording complete: {duration:.0f}s ({file_size / (1024*1024):.1f}MB)")
@@ -1077,16 +1444,22 @@ class AutoCapture:
                 print(f"[capture] Released held P2 run #{run_id}")
 
     def set_pause_processing_while_game_running(self, enabled: bool):
-        """Enable/disable the game-impact processing guard at runtime."""
-        self._pause_processing_while_game_running = enabled
-        if not enabled:
+        """Backward-compatible mapping for older frontends."""
+        return self.set_processing_guard_mode("game" if enabled else "off")
+
+    def set_processing_guard_mode(self, mode: str):
+        """Select when heavy analysis yields to Marathon."""
+        if mode not in ("recording", "game", "off"):
+            mode = "recording"
+        self._processing_guard_mode = mode
+        if not self._processing_gate_active():
             self._drain_p2_waiting()
         self._broadcast_status()
         return self.get_status()
 
     def _heavy_processing_blocked_by_game(self) -> bool:
-        """True when heavy media work should not start because Marathon is visible."""
-        return self._pause_processing_while_game_running and self._recorder.window_name is not None
+        """True only in full-game mode while Marathon is visible."""
+        return self._processing_guard_mode == "game" and self._recorder.window_name is not None
 
     def _processing_gate_active(self, phase: str = "p2") -> bool:
         """True when new work should be held to protect gameplay.
@@ -1097,10 +1470,10 @@ class AutoCapture:
         game-impact guard like P2, or a prior run's upload contends with the live
         match's ping. P2/media work (video scans, ffmpeg, clips) is always gated.
         """
+        if self._processing_guard_mode == "off":
+            return False
         if self._recording:
             return True
-        if phase == "p1" and self._processor_mode != "claude":
-            return False
         return self._heavy_processing_blocked_by_game()
 
     def dismiss_item(self, filename: str):
@@ -1324,6 +1697,9 @@ class AutoCapture:
             if result["status"] != "success":
                 if self._recording:
                     print(f"[p1] Aborted for match — re-queuing {os.path.basename(filepath)}")
+                    self._update_processing_item(
+                        filepath, "queued", detail="Paused while recording is active",
+                    )
                     self._process_queue.put(filepath)
                     return
                 self._update_processing_item(filepath, "error")
@@ -1381,6 +1757,9 @@ class AutoCapture:
         except Exception as e:
             if self._recording:
                 print(f"[p1] Aborted for match — re-queuing {os.path.basename(filepath)}")
+                self._update_processing_item(
+                    filepath, "queued", detail="Paused while recording is active",
+                )
                 self._process_queue.put(filepath)
                 return
             self._update_processing_item(filepath, "error")
@@ -1539,7 +1918,10 @@ class AutoCapture:
                     continue
 
                 # Skip permanently dismissed recordings
-                if os.path.exists(filepath + ".dismissed"):
+                if (
+                    os.path.exists(filepath + ".dismissed")
+                    or os.path.exists(filepath + ".capture_failed")
+                ):
                     continue
 
                 file_size = os.path.getsize(filepath)

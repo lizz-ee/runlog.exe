@@ -59,6 +59,7 @@ class Run(Base):
     runner_id = Column(Integer, ForeignKey("runners.id"), nullable=True, index=True)
     loadout_id = Column(Integer, ForeignKey("loadouts.id"), nullable=True)
     map_name = Column(String(100), nullable=True, index=True)
+    map_variant = Column(String(20), nullable=True, index=True)  # Dire Marsh: Day | Night
     date = Column(DateTime, default=_utcnow, index=True)
     survived = Column(Boolean, nullable=True, index=True)
     kills = Column(Integer, default=0)

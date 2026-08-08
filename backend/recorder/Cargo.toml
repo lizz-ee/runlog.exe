@@ -17,3 +17,8 @@ image = { version = "0.25.10", default-features = false, features = ["jpeg"] }
 [profile.release]
 opt-level = 3
 lto = true
+
+[patch.crates-io]
+# windows-capture 1.5 describes the encoder input stream with the output
+# dimensions. Sending a larger WGC surface then crops instead of scaling.
+windows-capture = { path = "vendor/windows-capture" }

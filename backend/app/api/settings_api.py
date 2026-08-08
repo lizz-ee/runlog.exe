@@ -49,7 +49,9 @@ DEFAULTS = {
     "p2_workers": 1,
     "auto_p1": True,       # Auto-run Phase 1 (stats extraction) when recording finishes
     "auto_p2": True,       # Auto-run Phase 2 (narrative + clips) when Phase 1 finishes
-    "pause_processing_while_game_running": True,
+    "processing_guard_mode": "recording",  # recording | game | off
+    "pause_processing_while_game_running": True,  # legacy compatibility key
+    "hardware_acceleration": True,  # software compositing costs more CPU/RAM at 4K; opt out only for driver issues
     "processor_mode": "alpha",  # "alpha" (local), "hybrid" (local + Claude fallback), "claude" (API/CLI only)
     "cli_downscale_uploads": False,  # downscale CLI Phase-1 screenshots to 1568px before upload (opt-in; the API caps there anyway, but verify stat-read accuracy first)
     "auth_mode": "api",    # "api" or "cli"
@@ -90,7 +92,9 @@ def get_settings():
         "p2_workers": saved.get("p2_workers", DEFAULTS["p2_workers"]),
         "auto_p1": saved.get("auto_p1", DEFAULTS["auto_p1"]),
         "auto_p2": saved.get("auto_p2", DEFAULTS["auto_p2"]),
+        "processing_guard_mode": saved.get("processing_guard_mode", DEFAULTS["processing_guard_mode"]),
         "pause_processing_while_game_running": saved.get("pause_processing_while_game_running", DEFAULTS["pause_processing_while_game_running"]),
+        "hardware_acceleration": saved.get("hardware_acceleration", DEFAULTS["hardware_acceleration"]),
         "processor_mode": saved.get("processor_mode", DEFAULTS["processor_mode"]),
         "cli_downscale_uploads": saved.get("cli_downscale_uploads", DEFAULTS["cli_downscale_uploads"]),
         "auth_mode": saved.get("auth_mode", DEFAULTS["auth_mode"]),
@@ -163,6 +167,11 @@ def update_config(body: ConfigUpdate):
         raise HTTPException(status_code=400, detail=f"Invalid processor_mode: {value}. Must be 'alpha', 'hybrid', or 'claude'")
     if body.key == "auth_mode" and value not in ("api", "cli"):
         raise HTTPException(status_code=400, detail=f"Invalid auth_mode: {value}. Must be 'api' or 'cli'")
+    if body.key == "processing_guard_mode" and value not in ("recording", "game", "off"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid processing_guard_mode: {value}. Must be 'recording', 'game', or 'off'",
+        )
 
     numeric_limits = {
         "bitrate": (10, 100),
@@ -186,7 +195,7 @@ def update_config(body: ConfigUpdate):
         if body.key == "fps" and value not in (30, 60):
             raise HTTPException(status_code=400, detail="Invalid fps: must be 30 or 60")
 
-    if body.key in ("auto_p1", "auto_p2", "pause_processing_while_game_running", "cli_downscale_uploads") and not isinstance(value, bool):
+    if body.key in ("auto_p1", "auto_p2", "pause_processing_while_game_running", "hardware_acceleration", "cli_downscale_uploads") and not isinstance(value, bool):
         raise HTTPException(status_code=400, detail=f"Invalid {body.key}: must be true or false")
 
     # Special handling for storage_path — validate directory exists
@@ -209,7 +218,14 @@ def update_config(body: ConfigUpdate):
 
     # Capture engine settings that do not require recreating worker pools can
     # take effect immediately when the engine is already running.
-    if body.key == "pause_processing_while_game_running":
+    if body.key == "processing_guard_mode":
+        try:
+            from . import capture_api
+            if capture_api._engine is not None:
+                capture_api._engine.set_processing_guard_mode(str(value))
+        except Exception:
+            pass
+    elif body.key == "pause_processing_while_game_running":
         try:
             from . import capture_api
             if capture_api._engine is not None:
@@ -232,12 +248,13 @@ def update_config(body: ConfigUpdate):
                     engine._recorder.fps_restart_pending = True
                     note = "FPS change saved — the recorder will restart automatically after the current recording finishes."
                 else:
-                    engine._recorder.stop()
-                    engine._recorder.start()
+                    engine.restart_recorder()
         except Exception as e:
             print(f"[settings] Recorder restart on fps change failed: {e}")
     elif body.key == "storage_path":
         note = "Restart the app for storage_path changes to take effect."
+    elif body.key == "hardware_acceleration":
+        note = "Restart the app for hardware acceleration changes to take effect."
 
     return {"status": "saved", "key": body.key, "value": value, "note": note}
 

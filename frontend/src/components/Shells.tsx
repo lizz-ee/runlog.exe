@@ -11,7 +11,8 @@ import reconImg from '../assets/shells/recon.png'
 import thiefImg from '../assets/shells/thief.png'
 import destroyerImg from '../assets/shells/destroyer.png'
 import assassinImg from '../assets/shells/assassin.png'
-import rookImg from '../assets/shells/rook-profile.png'
+import sentinelImg from '../assets/shells/sentinel.png'
+import rookImg from '../assets/shells/rook.webp'
 
 const SHELL_IMAGES: Record<string, string> = {
   triage: triageImg,
@@ -20,10 +21,12 @@ const SHELL_IMAGES: Record<string, string> = {
   thief: thiefImg,
   destroyer: destroyerImg,
   assassin: assassinImg,
+  sentinel: sentinelImg,
+  // Preserve artwork for historical Closed Alpha records.
   rook: rookImg,
 }
 
-const ALL_SHELLS = ['triage', 'vandal', 'recon', 'thief', 'destroyer', 'assassin', 'rook']
+const ALL_SHELLS = ['triage', 'vandal', 'recon', 'thief', 'destroyer', 'assassin', 'sentinel', 'rook']
 
 const EMPTY_SHELL: ShellStats = {
   runner_id: 0, runner_name: '', runs: 0, survived: 0, survival_rate: 0,
@@ -84,7 +87,7 @@ export default function Shells() {
       </div>
 
       {/* Shell cards */}
-      <div className="grid grid-cols-7 gap-3">
+      <div className="grid grid-cols-4 lg:grid-cols-8 gap-3">
         {orderedNames.map((name) => {
           const shell = shellMap.get(name)
           const img = getShellImage(name)

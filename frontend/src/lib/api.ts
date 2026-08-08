@@ -75,7 +75,9 @@ export interface AppSettings {
   p2_workers: number
   auto_p1: boolean
   auto_p2: boolean
+  processing_guard_mode: 'recording' | 'game' | 'off'
   pause_processing_while_game_running: boolean
+  hardware_acceleration: boolean
   processor_mode: string
   cli_downscale_uploads?: boolean
   auth_mode: string
@@ -192,8 +194,10 @@ export async function getOverviewStats(): Promise<OverviewStats> {
   return data
 }
 
-export async function getMapStats(): Promise<MapStats[]> {
-  const { data } = await api.get<MapStats[]>('/stats/by-map')
+export async function getMapStats(mapVariant?: 'Day' | 'Night'): Promise<MapStats[]> {
+  const { data } = await api.get<MapStats[]>('/stats/by-map', {
+    params: mapVariant ? { map_variant: mapVariant } : undefined,
+  })
   return data
 }
 
@@ -208,8 +212,10 @@ export async function getTrends(): Promise<TrendData[]> {
 }
 
 // Spawns
-export async function getSpawnHeatmap(): Promise<SpawnHeatmap[]> {
-  const { data } = await api.get<SpawnHeatmap[]>('/spawns/heatmap')
+export async function getSpawnHeatmap(mapVariant?: 'Day' | 'Night'): Promise<SpawnHeatmap[]> {
+  const { data } = await api.get<SpawnHeatmap[]>('/spawns/heatmap', {
+    params: mapVariant ? { map_variant: mapVariant } : undefined,
+  })
   return data
 }
 

@@ -23,18 +23,16 @@ export interface OverlaySettings {
   opacity?: number
   size?: string
   closeWhenDone?: boolean
+  autoHideMain?: boolean
 }
 
 interface RunlogBridge {
   onScreenshotParsed: (callback: (event: ScreenshotEvent) => void) => void
   onAutoCaptureEvent: (callback: (event: AutoCaptureEvent) => void) => void
-  onRecordingStatus: (callback: (data: { status: string; message: string }) => void) => void
   getApiBaseUrl: () => string
   windowMinimize: () => void
   windowMaximize: () => void
   windowClose: () => void
-  updateOverlay: (state: string, detail: string) => void
-  notifyOverlay: (message: string, duration: number) => void
   toggleOverlay: (enabled: boolean) => void
   setOverlayCorner: (corner: string) => void
   nudgeOverlay: (direction: string) => void
@@ -42,6 +40,7 @@ interface RunlogBridge {
   setOverlayOpacity: (opacity: number) => void
   setOverlaySize: (size: string) => void
   setOverlayCloseWhenDone: (enabled: boolean) => void
+  setOverlayAutoHideMain: (enabled: boolean) => void
   setOverlayPosition: (xPct: number, yPct: number) => void
   previewOverlay: () => void
   openFile: (filePath: string) => void

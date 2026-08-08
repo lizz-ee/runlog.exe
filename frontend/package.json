@@ -6,12 +6,13 @@
   "description": "Local-first desktop companion for Marathon — AI-powered stats, narratives, and highlight clips",
   "scripts": {
     "dev": "cross-env RUNLOG_DEV=1 vite",
-    "build": "cross-env NODE_ENV=production tsc && cross-env NODE_ENV=production vite build",
+    "build": "cross-env NODE_ENV=production tsc && cross-env NODE_ENV=production vite build && node scripts/verify-renderer-build.js",
     "preview": "vite preview",
     "electron": "electron .",
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
-    "dist": "npm run build && electron-builder --win",
-    "dist:dir": "npm run build && electron-builder --win --dir"
+    "verify:package": "node scripts/verify-packaged-app.js",
+    "dist": "npm run build && electron-builder --win && npm run verify:package",
+    "dist:dir": "npm run build && electron-builder --win --dir && npm run verify:package"
   },
   "dependencies": {
     "axios": "^1.6.0",
@@ -24,6 +25,7 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@electron/asar": "^3.4.1",
     "@tailwindcss/vite": "^4.2.4",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
@@ -62,6 +64,7 @@
           "!runlog.db",
           "!.env",
           "!recorder/target/**",
+          "!recorder/vendor/**",
           "!recorder/src/**",
           "!recorder/Cargo.toml",
           "!recorder/Cargo.lock"

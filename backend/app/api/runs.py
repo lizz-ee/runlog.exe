@@ -17,6 +17,7 @@ def list_runs(
     limit: int = Query(21, ge=1, le=500),
     offset: int = Query(0, ge=0),
     map_name: Optional[str] = None,
+    map_variant: Optional[str] = None,
     survived: Optional[bool] = None,
     runner_id: Optional[int] = None,
     grade: Optional[str] = None,
@@ -27,6 +28,8 @@ def list_runs(
     q = db.query(Run).options(joinedload(Run.runner), joinedload(Run.spawn_point))
     if map_name:
         q = q.filter(Run.map_name == map_name)
+    if map_variant:
+        q = q.filter(func.lower(Run.map_variant) == map_variant.lower())
     if survived is not None:
         q = q.filter(Run.survived == survived)
     if runner_id:

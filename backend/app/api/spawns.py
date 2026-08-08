@@ -4,6 +4,8 @@ import uuid
 import time as _time
 from datetime import datetime, timezone
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from sqlalchemy.orm import Session as DBSession
 from PIL import Image
@@ -191,10 +193,18 @@ def list_spawns(map_name: str = None, db: DBSession = Depends(get_db)):
 
 
 @router.get("/heatmap")
-def spawn_heatmap(db: DBSession = Depends(get_db)):
+def spawn_heatmap(
+    map_variant: Optional[str] = None,
+    db: DBSession = Depends(get_db),
+):
     """Get spawn frequency data grouped by map + location for heatmap visualization."""
-    # Return cached result if fresh
-    if _heatmap_cache["data"] is not None and (_time.time() - _heatmap_cache["ts"]) < _HEATMAP_TTL:
+    # The aggregate result is cached. Variant slices are cheap and must not
+    # overwrite the shared roll-up.
+    if (
+        map_variant is None
+        and _heatmap_cache["data"] is not None
+        and (_time.time() - _heatmap_cache["ts"]) < _HEATMAP_TTL
+    ):
         return _heatmap_cache["data"]
 
     spawns = db.query(SpawnPoint).options(
@@ -235,11 +245,13 @@ def spawn_heatmap(db: DBSession = Depends(get_db)):
             }
 
         entry = maps[map_key][loc_key]
-        entry["count"] += len(s.runs)  # count of runs from this spawn
         if s.x is not None:
             entry["x"] = s.x
             entry["y"] = s.y
         for run in s.runs:
+            if map_variant and (run.map_variant or "").lower() != map_variant.lower():
+                continue
+            entry["count"] += 1
             if run.survived is not None:
                 if run.survived:
                     entry["runs_survived"] += 1
@@ -321,6 +333,7 @@ def spawn_heatmap(db: DBSession = Depends(get_db)):
         })
 
     result_sorted = sorted(result, key=lambda x: x["total_spawns"], reverse=True)
-    _heatmap_cache["data"] = result_sorted
-    _heatmap_cache["ts"] = _time.time()
+    if map_variant is None:
+        _heatmap_cache["data"] = result_sorted
+        _heatmap_cache["ts"] = _time.time()
     return result_sorted

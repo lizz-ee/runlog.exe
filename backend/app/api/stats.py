@@ -1,3 +1,5 @@
+from typing import Optional
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc, Integer
@@ -112,12 +114,18 @@ def get_overview_stats(db: Session = Depends(get_db)):
 
 
 @router.get("/by-map")
-def stats_by_map(db: Session = Depends(get_db)):
+def stats_by_map(
+    map_variant: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
     from sqlalchemy.orm import load_only
-    runs = db.query(Run).options(load_only(
+    query = db.query(Run).options(load_only(
         Run.map_name, Run.survived, Run.combatant_eliminations, Run.runner_eliminations,
-        Run.deaths, Run.loot_value_total, Run.duration_seconds,
-    )).filter(Run.map_name.isnot(None)).all()
+        Run.deaths, Run.loot_value_total, Run.duration_seconds, Run.map_variant,
+    )).filter(Run.map_name.isnot(None))
+    if map_variant:
+        query = query.filter(func.lower(Run.map_variant) == map_variant.lower())
+    runs = query.all()
     maps: dict[str, dict] = {}
     for r in runs:
         if r.map_name not in maps:

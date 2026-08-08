@@ -9,6 +9,7 @@ interface NavItem {
   label: string
   tag: string
   disabled?: boolean
+  indent?: boolean
 }
 
 interface NavSection {
@@ -30,6 +31,8 @@ const sections: NavSection[] = [
     items: [
       { view: 'map-perimeter', label: 'PERIMETER', tag: '04' },
       { view: 'map-dire-marsh', label: 'DIRE.MARSH', tag: '05' },
+      { view: 'map-dire-marsh-day', label: 'DAY', tag: '05A', indent: true },
+      { view: 'map-dire-marsh-night', label: 'NIGHT', tag: '05B', indent: true },
       { view: 'map-outpost', label: 'OUTPOST', tag: '06' },
       { view: 'map-cryo-archive', label: 'CRYO.ARCHIVE', tag: '07' },
     ],
@@ -59,6 +62,8 @@ function UnviewedBadge() {
 const VIEW_TO_MAP: Record<string, string> = {
   'map-perimeter': 'Perimeter',
   'map-dire-marsh': 'Dire Marsh',
+  'map-dire-marsh-day': 'Dire Marsh',
+  'map-dire-marsh-night': 'Dire Marsh',
   'map-outpost': 'Outpost',
   'map-cryo-archive': 'Cryo Archive',
 }
@@ -155,7 +160,9 @@ export default function Sidebar() {
               <button
                 key={item.view}
                 onClick={() => !item.disabled && setView(item.view)}
-                className={`w-full flex items-center gap-3 px-4 py-2 text-left transition-all ${
+                className={`w-full flex items-center gap-3 text-left transition-all ${
+                  item.indent ? 'pl-8 pr-4 py-1.5' : 'px-4 py-2'
+                } ${
                   item.disabled
                     ? 'border-l-2 border-transparent cursor-not-allowed opacity-40'
                     : item.view === 'live' && isProcessing && view === item.view
@@ -173,7 +180,7 @@ export default function Sidebar() {
                   {item.tag}
                 </span>
                 <div className="flex-1 flex items-center">
-                  <span className={`text-xs tracking-[0.1em] font-medium ${item.disabled ? 'line-through decoration-m-red/60' : ''}`}>
+                  <span className={`${item.indent ? 'text-[10px] text-m-text-dim' : 'text-xs'} tracking-[0.1em] font-medium ${item.disabled ? 'line-through decoration-m-red/60' : ''}`}>
                     {item.label}
                   </span>
                   {item.view === 'history' && unviewedCount > 0 && (

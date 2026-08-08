@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 from pydantic import BaseModel
 
 
@@ -97,6 +97,7 @@ class RunCreate(BaseModel):
     runner_id: Optional[int] = None
     loadout_id: Optional[int] = None
     map_name: Optional[str] = None
+    map_variant: Optional[Literal["Day", "Night"]] = None
     date: Optional[datetime] = None
     survived: Optional[bool] = None
     kills: int = 0
@@ -117,6 +118,7 @@ class RunUpdate(BaseModel):
     runner_id: Optional[int] = None
     loadout_id: Optional[int] = None
     map_name: Optional[str] = None
+    map_variant: Optional[Literal["Day", "Night"]] = None
     date: Optional[datetime] = None
     survived: Optional[bool] = None
     kills: Optional[int] = None
@@ -137,6 +139,7 @@ class RunOut(BaseModel):
     runner_id: Optional[int]
     loadout_id: Optional[int]
     map_name: Optional[str]
+    map_variant: Optional[Literal["Day", "Night"]] = None
     date: datetime
     survived: Optional[bool]
     kills: int
@@ -243,6 +246,7 @@ class ParsedScreenshot(BaseModel):
     deaths: int = 0
     assists: int = 0
     map_name: Optional[str] = None
+    map_variant: Optional[Literal["Day", "Night"]] = None
     duration_seconds: Optional[int] = None
     loot_extracted: Optional[list[Any]] = None
     loot_value_total: float = 0.0

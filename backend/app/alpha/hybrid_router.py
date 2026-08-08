@@ -61,7 +61,7 @@ def _build_targeted_prompt(low_fields: list[str]) -> str:
         "loot_value_total": '"loot_value_total": number (Inventory Value)',
         "duration_seconds": '"duration_seconds": number (Run Time MM:SS converted to seconds)',
         "map_name": '"map_name": "string" (Perimeter, Outpost, Dire Marsh, or Cryo Archive)',
-        "shell_name": '"shell_name": "string" (assassin, destroyer, recon, rook, thief, triage, or vandal)',
+        "shell_name": '"shell_name": "string" (assassin, destroyer, recon, sentinel, rook, thief, triage, or vandal)',
         "spawn_coordinates": '"spawn_coordinates": [x, y] (two decimal numbers from deploy screen)',
         "primary_weapon": '"primary_weapon": "string" (weapon name from slot 1)',
         "secondary_weapon": '"secondary_weapon": "string" (weapon name from slot 2)',

@@ -45,6 +45,7 @@ with engine.connect() as conn:
         "killed_by_weapon": "ALTER TABLE runs ADD COLUMN killed_by_weapon VARCHAR(100)",
         "damage_contributors": "ALTER TABLE runs ADD COLUMN damage_contributors JSON",
         "is_ranked": "ALTER TABLE runs ADD COLUMN is_ranked BOOLEAN DEFAULT 0",
+        "map_variant": "ALTER TABLE runs ADD COLUMN map_variant VARCHAR(20)",
     }
     applied = 0
     for col_name, ddl in _migrations.items():
@@ -67,6 +68,7 @@ with engine.connect() as conn:
         "CREATE INDEX IF NOT EXISTS ix_runs_viewed ON runs (viewed)",
         "CREATE INDEX IF NOT EXISTS ix_runs_is_favorite ON runs (is_favorite)",
         "CREATE INDEX IF NOT EXISTS ix_runs_is_ranked ON runs (is_ranked)",
+        "CREATE INDEX IF NOT EXISTS ix_runs_map_variant ON runs (map_variant)",
     ]
     idx_applied = 0
     for ddl in _indexes:
@@ -219,6 +221,19 @@ app.add_middleware(
 )
 
 app.include_router(api_router)
+
+
+@app.on_event("startup")
+def start_background_capture():
+    """Capture, detection, and processing live with Python, not the UI."""
+    from .api import capture_api
+    capture_api.ensure_engine_started()
+
+
+@app.on_event("shutdown")
+def stop_background_capture():
+    from .api import capture_api
+    capture_api.shutdown_engine()
 
 
 @app.get("/")
